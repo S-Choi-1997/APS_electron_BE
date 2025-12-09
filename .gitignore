@@ -35,8 +35,42 @@ release/
 .firebase/
 firebase-debug.log
 
-# Backend local (중요: service-account.json 절대 커밋 금지!)
+# Backend local (중요: 민감 정보 절대 커밋 금지!)
 backend-local/.env
 backend-local/service-account.json
 backend-local/service-account.json.backup.*
 backend-local/node_modules/
+
+# 환경별 설정 파일 (민감 정보 포함)
+.env.development
+.env.production
+.env.local
+.env.*.local
+
+# GCP 서비스 계정 키 (어디에 있든 제외)
+**/service-account.json
+**/service-account-*.json
+**/*-service-account.json
+
+# 빌드 출력물
+dist/
+build/
+out/
+*.exe
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.AppImage
+
+# OS 임시 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
