@@ -1,0 +1,32 @@
+# 폐기된 파일 목록
+
+다음 파일들은 TinyProxy 방식에서 사용되었으나 현재는 SMS Relay 서버 방식으로 변경되어 사용하지 않습니다.
+
+## 삭제 가능한 파일
+
+### TinyProxy 관련 (폐기됨)
+- tinyproxy.conf - TinyProxy 설정 파일
+- setup-tinyproxy.sh - TinyProxy 설치 스크립트
+
+### VM 초기 설정 스크립트 (이미 완료)
+- create-vm.sh - VM 생성 (aligo-proxy 이미 생성 완료)
+- allocate-static-ip.sh - 고정 IP 할당 (136.113.67.193 이미 할당 완료)
+- setup-firewall.sh - 방화벽 설정 (allow-sms-relay 규칙 이미 생성 완료)
+- setup-all.ps1 - 전체 설정 PowerShell 스크립트 (미사용)
+
+## 현재 사용 중인 파일
+
+### SMS Relay 서버 (현재 방식)
+- sms-relay/ 디렉토리 전체
+  - index.js - Relay 서버 메인 코드
+  - package.json - 의존성
+  - install.sh - VM 배포 스크립트
+  - sms-relay.service - systemd 서비스 설정
+
+### 문서
+- README.md - GCP3 설명 문서 (최신 업데이트 완료)
+
+## 정리 권장
+
+위에 나열된 폐기 파일들은 삭제해도 무방합니다.
+현재는 sms-relay/ 디렉토리와 README.md만 사용합니다.

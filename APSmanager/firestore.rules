@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Inquiries collection - customer consultations
+    match /inquiries/{inquiry} {
+      // Read: Only authenticated users (will be further restricted by backend whitelist)
+      allow read: if request.auth != null;
+
+      // Write: Only via Admin SDK (backend only)
+      allow write: if false;
+    }
+
+    // Counters collection - used for inquiry numbering
+    match /counters/{counter} {
+      // Read/Write: Only via Admin SDK (backend only)
+      allow read, write: if false;
+    }
+
+    // Default: Deny all access to other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

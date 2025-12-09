@@ -1,0 +1,132 @@
+.alert-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.alert-modal-content {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+.alert-modal-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: bold;
+}
+
+.alert-modal-icon.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.alert-modal-icon.error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.alert-modal-icon.warning {
+  background: #fff3e0;
+  color: #ef6c00;
+}
+
+.alert-modal-icon.info {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.alert-modal-title {
+  margin: 0 0 12px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.alert-modal-message {
+  margin: 0 0 24px 0;
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.alert-modal-btn {
+  width: 100%;
+  padding: 12px 24px;
+  background: #1e3c72;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.alert-modal-btn:hover {
+  background: #2a5298;
+}
+
+.alert-modal-btn:active {
+  transform: scale(0.98);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .alert-modal-content {
+    padding: 24px;
+  }
+
+  .alert-modal-icon {
+    width: 56px;
+    height: 56px;
+    font-size: 28px;
+  }
+
+  .alert-modal-title {
+    font-size: 18px;
+  }
+
+  .alert-modal-message {
+    font-size: 13px;
+  }
+}

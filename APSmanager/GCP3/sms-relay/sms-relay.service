@@ -1,0 +1,17 @@
+[Unit]
+Description=Aligo SMS Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=smsrelay
+WorkingDirectory=/opt/sms-relay
+ExecStart=/usr/bin/node /opt/sms-relay/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sms-relay
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Naver Login Callback</title>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background-color: #f5f5f5;
+    }
+    .loader {
+      text-align: center;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #03c75a;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .message {
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="loader">
+    <div class="spinner"></div>
+    <div class="message">네이버 로그인 처리 중...</div>
+  </div>
+
+  <script>
+    (function() {
+      try {
+        // Parse URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+
+        // Send message to opener window
+        if (window.opener) {
+          window.opener.postMessage({
+            type: 'naver_oauth_callback',
+            code: code,
+            state: state,
+            error: error || errorDescription || null
+          }, window.location.origin);
+        } else {
+          document.querySelector('.message').textContent = '로그인 창을 찾을 수 없습니다. 다시 시도해주세요.';
+          return;
+        }
+
+        // Close window after short delay
+        setTimeout(() => {
+          window.close();
+        }, 500);
+      } catch (err) {
+        console.error('Callback error:', err);
+        document.querySelector('.message').textContent = '오류가 발생했습니다: ' + err.message;
+      }
+    })();
+  </script>
+</body>
+</html>

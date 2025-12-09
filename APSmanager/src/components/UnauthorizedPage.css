@@ -1,0 +1,132 @@
+.unauthorized-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+}
+
+.unauthorized-container {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 480px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.unauthorized-header {
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  color: white;
+  padding: 40px 40px 32px;
+  text-align: center;
+}
+
+.unauthorized-company {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.unauthorized-subtitle {
+  font-size: 16px;
+  margin: 0;
+  opacity: 0.9;
+  font-weight: 300;
+}
+
+.unauthorized-content {
+  padding: 48px 40px;
+  text-align: center;
+}
+
+.unauthorized-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 32px;
+  color: #e0e0e0;
+}
+
+.unauthorized-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.unauthorized-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #212529;
+  margin: 0 0 16px 0;
+}
+
+.unauthorized-description {
+  font-size: 15px;
+  color: #6c757d;
+  margin: 0 0 40px 0;
+  line-height: 1.6;
+}
+
+.back-to-login-btn {
+  width: 100%;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.back-to-login-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(30, 60, 114, 0.3);
+}
+
+.back-to-login-btn:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .unauthorized-container {
+    max-width: 100%;
+  }
+
+  .unauthorized-header {
+    padding: 32px 24px 24px;
+  }
+
+  .unauthorized-company {
+    font-size: 28px;
+  }
+
+  .unauthorized-subtitle {
+    font-size: 14px;
+  }
+
+  .unauthorized-content {
+    padding: 36px 24px;
+  }
+
+  .unauthorized-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 24px;
+  }
+
+  .unauthorized-title {
+    font-size: 20px;
+  }
+
+  .unauthorized-description {
+    font-size: 14px;
+  }
+
+  .back-to-login-btn {
+    padding: 14px 20px;
+    font-size: 15px;
+  }
+}

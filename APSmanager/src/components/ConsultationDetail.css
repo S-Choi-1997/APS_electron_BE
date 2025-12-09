@@ -1,0 +1,189 @@
+.consultation-detail {
+  flex: 1;
+  background-color: #fff;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #5f6368;
+  padding: 40px;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 80px;
+  height: 80px;
+  color: #dadce0;
+  margin-bottom: 16px;
+}
+
+.detail-empty p {
+  font-size: 14px;
+  margin: 0;
+}
+
+.detail-header {
+  padding: 24px 40px;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.detail-subject {
+  font-size: 24px;
+  font-weight: 400;
+  color: #202124;
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-date {
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.detail-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.detail-badge.unread {
+  background-color: #d93025;
+  color: white;
+}
+
+.detail-sender {
+  padding: 24px 40px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.sender-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.sender-info {
+  flex: 1;
+}
+
+.sender-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #202124;
+  margin-bottom: 4px;
+}
+
+.sender-company {
+  font-size: 13px;
+  color: #1a73e8;
+  margin-bottom: 4px;
+}
+
+.sender-email {
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.detail-body {
+  flex: 1;
+  padding: 32px 40px;
+}
+
+.detail-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #202124;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-extra {
+  padding: 24px 40px;
+  border-top: 1px solid #f1f3f4;
+  background-color: #f8f9fa;
+}
+
+.extra-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #202124;
+  margin: 0 0 16px 0;
+}
+
+.extra-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.extra-item {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.extra-label {
+  color: #5f6368;
+  min-width: 80px;
+  font-weight: 500;
+}
+
+.extra-value {
+  color: #202124;
+}
+
+.consultation-detail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.consultation-detail::-webkit-scrollbar-track {
+  background: #f1f3f4;
+}
+
+.consultation-detail::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 4px;
+}
+
+.consultation-detail::-webkit-scrollbar-thumb:hover {
+  background: #bdc1c6;
+}
+
+@media (max-width: 768px) {
+  .detail-header,
+  .detail-sender,
+  .detail-body,
+  .detail-extra {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .detail-subject {
+    font-size: 20px;
+  }
+}

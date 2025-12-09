@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Inquiry attachments - customer uploaded files
+    match /inquiries/{allPaths=**} {
+      // Read: Only authenticated users
+      // (Backend will generate signed URLs for authorized users only)
+      allow read: if request.auth != null;
+
+      // Write: Only via Admin SDK (backend only)
+      allow write: if false;
+    }
+
+    // Default: Deny all access to other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
