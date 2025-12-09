@@ -1,0 +1,94 @@
+.aps-header {
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  color: white;
+  padding: 24px 40px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.header-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.company-name {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+
+.company-subtitle {
+  font-size: 14px;
+  margin: 0;
+  opacity: 0.9;
+  font-weight: 300;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.system-title {
+  font-size: 16px;
+  font-weight: 500;
+  opacity: 0.95;
+}
+
+.user-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.user-email {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.logout-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 768px) {
+  .aps-header {
+    padding: 16px 20px;
+  }
+
+  .company-name {
+    font-size: 22px;
+  }
+
+  .company-subtitle {
+    font-size: 12px;
+  }
+
+  .system-title {
+    font-size: 14px;
+  }
+}

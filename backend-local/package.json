@@ -1,0 +1,27 @@
+{
+  "name": "aps-admin-local-backend",
+  "version": "1.0.0",
+  "description": "APS Admin Local Backend Server - Docker deployment",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "aps",
+    "backend",
+    "local",
+    "docker"
+  ],
+  "author": "APS Consulting",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.5.0"
+  }
+}

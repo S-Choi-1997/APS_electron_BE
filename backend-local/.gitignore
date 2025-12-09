@@ -1,0 +1,19 @@
+# 환경 변수 (민감한 정보 포함)
+.env
+
+# GCP 서비스 계정 JSON (절대 커밋하지 말 것!)
+service-account.json
+service-account.json.backup.*
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db

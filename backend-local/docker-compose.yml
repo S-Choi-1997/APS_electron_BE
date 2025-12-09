@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  aps-backend:
+    build: .
+    container_name: aps-admin-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    volumes:
+      # GCP 서비스 계정 JSON 파일 마운트 (반드시 필요)
+      - ./service-account.json:/app/service-account.json:ro
+    environment:
+      # 서비스 계정 JSON 경로 (컨테이너 내부 경로)
+      GOOGLE_APPLICATION_CREDENTIALS: /app/service-account.json
+    networks:
+      - aps-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  aps-network:
+    driver: bridge

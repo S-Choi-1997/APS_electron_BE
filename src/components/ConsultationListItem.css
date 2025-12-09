@@ -1,0 +1,125 @@
+.consultation-item {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f3f4;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  position: relative;
+}
+
+.consultation-item:hover {
+  background-color: #f8f9fa;
+}
+
+.consultation-item.selected {
+  background-color: #e8f0fe;
+  border-left: 3px solid #1a73e8;
+}
+
+.consultation-item.unread {
+  background-color: #f8f9fa;
+}
+
+.consultation-item.unread .item-name,
+.consultation-item.unread .item-subject {
+  font-weight: 600;
+}
+
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #202124;
+  flex: 1;
+  min-width: 0;
+}
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #1a73e8;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.name-text {
+  font-weight: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-date {
+  font-size: 12px;
+  color: #5f6368;
+  white-space: nowrap;
+}
+
+.item-subject {
+  font-size: 14px;
+  color: #202124;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-preview {
+  font-size: 13px;
+  color: #5f6368;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.item-meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-email {
+  font-size: 12px;
+  color: #5f6368;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-info-grid {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.info-label {
+  color: #5f6368;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.info-value {
+  color: #202124;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}

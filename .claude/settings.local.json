@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(gcloud auth list:*)",
+      "Bash(gcloud config:*)",
+      "Bash(gcloud iam service-accounts create:*)",
+      "Bash(gcloud projects add-iam-policy-binding:*)",
+      "Bash(gcloud iam service-accounts keys create:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker compose:*)",
+      "Bash(npm install)",
+      "Bash(set:*)",
+      "Bash(npm start)",
+      "Bash(npm install:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(curl:*)",
+      "Bash(move start-dev.ps1 .dev-scripts )",
+      "Bash(move stop-dev.ps1 .dev-scripts )",
+      "Bash(move \"개발환경-실행가이드.md\" .dev-scripts)",
+      "Bash(dir:*)",
+      "Bash(where:*)",
+      "Bash(docker --version:*)"
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "aps-admin-electron",
+  "version": "1.0.0",
+  "description": "APS Admin Desktop Application",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron": "electron .",
+    "electron:dev": "concurrently --kill-others --raw \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "keywords": [
+    "aps",
+    "admin",
+    "electron",
+    "desktop"
+  ],
+  "author": "APS Consulting",
+  "license": "MIT",
+  "dependencies": {
+    "firebase": "^11.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "kr.apsconsulting.admin",
+    "productName": "APS Admin",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "buildResources": "electron"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office"
+    }
+  }
+}
