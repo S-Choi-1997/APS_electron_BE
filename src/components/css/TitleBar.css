@@ -1,0 +1,78 @@
+/* TitleBar.css - Custom titlebar for Electron */
+
+.app-titlebar {
+  height: 40px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 1000;
+}
+
+.titlebar-drag-region {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding-left: 1rem;
+  height: 100%;
+}
+
+.titlebar-title {
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.titlebar-window-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-control-btn {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 1.125rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-weight: 400;
+}
+
+.titlebar-control-btn.minimize {
+  font-size: 1.5rem;
+  padding-bottom: 8px;
+}
+
+.titlebar-control-btn.maximize {
+  font-size: 1rem;
+  padding-bottom: 2px;
+}
+
+.titlebar-control-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.titlebar-control-btn.close:hover {
+  background: #ef4444;
+}
+
+.titlebar-control-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.titlebar-control-btn.close:active {
+  background: #dc2626;
+}

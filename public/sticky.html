@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>알림창</title>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+  <style>
+    @font-face {
+      font-family: 'NanumSquareRound';
+      font-weight: 300;
+      src: url('../font/NanumSquareRoundL.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'NanumSquareRound';
+      font-weight: 400;
+      src: url('../font/NanumSquareRoundR.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'NanumSquareRound';
+      font-weight: 700;
+      src: url('../font/NanumSquareRoundB.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'NanumSquareRound';
+      font-weight: 800;
+      src: url('../font/NanumSquareRoundEB.ttf') format('truetype');
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'NanumSquareRound', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: transparent;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-app-region: no-drag;
+      margin: 0;
+      padding: 0;
+      position: relative;
+    }
+
+    html {
+      background: transparent;
+      overflow: hidden;
+    }
+
+    /* 그림자 레이어 */
+    .shadow-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: transparent;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4),
+                  0 2px 8px rgba(0, 0, 0, 0.2);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* 전체 창 래퍼 */
+    .window-wrapper {
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+      background: white;
+    }
+
+    /* 커스텀 타이틀바 */
+    .custom-titlebar {
+      height: 40px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      -webkit-app-region: drag;
+    }
+
+    .titlebar-title {
+      color: white;
+      font-size: 0.9375rem;
+      font-weight: 700;
+    }
+
+    .titlebar-buttons {
+      display: flex;
+      gap: 8px;
+      -webkit-app-region: no-drag;
+    }
+
+    .titlebar-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+
+    .titlebar-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .titlebar-btn.close:hover {
+      background: #ef4444;
+    }
+
+    /* 컨테이너 */
+    .sticky-container {
+      height: calc(100vh - 40px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f8f9fa;
+    }
+
+    .sticky-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 섹션 스타일 */
+    .section {
+      background: white;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+
+    /* 팀 메모 섹션 - 남은 공간 모두 차지 */
+    #memoSection {
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* 미처리 상담 요청, 오늘 일정 - 내용만큼만 차지 */
+    #pendingSection,
+    #scheduleSection {
+      flex: 0 0 auto;
+    }
+
+    .section-header {
+      padding: 0.625rem 0.75rem;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+
+    .section-title {
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .section-count {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      padding: 0.125rem 0.5rem;
+      border-radius: 12px;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .section-body {
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    /* 팀 메모 body - 더 큰 공간 */
+    #memoBody {
+      max-height: 300px;
+    }
+
+    /* 미처리 상담 요청 body */
+    #pendingBody {
+      max-height: 150px;
+    }
+
+    /* 오늘 일정 body - 3개 정도 높이까지, 넘으면 스크롤 */
+    #scheduleBody {
+      max-height: 180px;
+    }
+
+    /* 미처리 상담 요약 바 */
+    .pending-summary-bar {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.625rem 0.75rem;
+      background: white;
+      border-top: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+
+    .pending-item-compact {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .pending-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #666;
+    }
+
+    .pending-count {
+      font-size: 1.125rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* 메모 아이템 */
+    .memo-item {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid #f1f3f5;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .memo-item:last-child {
+      border-bottom: none;
+    }
+
+    .memo-item:hover {
+      background: #f8f9fa;
+    }
+
+    .memo-header {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .memo-badge {
+      font-size: 0.5625rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: 3px;
+      font-weight: 700;
+      background: #ef4444;
+      color: white;
+    }
+
+    .memo-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .memo-content {
+      font-size: 0.6875rem;
+      color: #666;
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .memo-author {
+      font-size: 0.625rem;
+      color: #999;
+      margin-top: 0.25rem;
+      font-weight: 600;
+    }
+
+    /* 일정 카테고리 */
+    .schedule-category {
+      border-bottom: 1px solid #f1f3f5;
+    }
+
+    .schedule-category:last-child {
+      border-bottom: none;
+    }
+
+    .schedule-category-title {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .schedule-category.company .schedule-category-title {
+      color: #667eea;
+      background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    }
+
+    .schedule-category.personal .schedule-category-title {
+      color: #10b981;
+      background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+    }
+
+    /* 일정 아이템 */
+    .schedule-item {
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid #f1f3f5;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .schedule-item:last-child {
+      border-bottom: none;
+    }
+
+    .schedule-category.company .schedule-item {
+      background: #f0f7ff;
+    }
+
+    .schedule-category.personal .schedule-item {
+      background: #f0fdf4;
+    }
+
+    .schedule-time {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      min-width: 60px;
+    }
+
+    .schedule-category.company .schedule-time {
+      color: #667eea;
+    }
+
+    .schedule-category.personal .schedule-time {
+      color: #10b981;
+    }
+
+    .schedule-name {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* 미처리 상담 아이템 */
+    .pending-item {
+      padding: 0.625rem 0.75rem;
+      border-bottom: 1px solid #f1f3f5;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .pending-item:last-child {
+      border-bottom: none;
+    }
+
+    .pending-item:hover {
+      background: #f8f9fa;
+    }
+
+    .pending-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+
+    .pending-name {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .pending-type {
+      font-size: 0.625rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: 3px;
+      background: #e0f2fe;
+      color: #0369a1;
+      font-weight: 700;
+    }
+
+    .pending-message {
+      font-size: 0.75rem;
+      color: #666;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-bottom: 0.25rem;
+    }
+
+    .pending-date {
+      font-size: 0.625rem;
+      color: #999;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 0.75rem;
+      color: #999;
+      font-size: 0.75rem;
+    }
+
+    /* 스크롤바 */
+    .section-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .section-body::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 3px;
+      margin: 4px 0;
+    }
+
+    .section-body::-webkit-scrollbar-thumb {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 3px;
+      transition: all 0.2s;
+    }
+
+    .section-body::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+      box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+    }
+
+    /* 메모 추가 버튼 */
+    .add-memo-btn {
+      padding: 0.375rem 0.75rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .add-memo-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+    }
+
+    /* 모달 스타일 */
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-content {
+      position: relative;
+      background: white;
+      border-radius: 12px;
+      padding: 0;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      z-index: 10000;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .modal-close-btn {
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: #999;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .modal-close-btn:hover {
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 0.5rem;
+    }
+
+    .form-group input[type="text"],
+    .form-group textarea {
+      width: 100%;
+      padding: 0.625rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 0.8125rem;
+      font-family: 'NanumSquareRound', sans-serif;
+      transition: all 0.2s;
+      box-sizing: border-box;
+    }
+
+    .form-group input[type="text"]:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      font-weight: 400 !important;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .modal-btn {
+      flex: 1;
+      padding: 0.625rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-btn.primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .modal-btn.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .modal-btn.secondary {
+      background: #f5f5f5;
+      color: #666;
+    }
+
+    .modal-btn.secondary:hover {
+      background: #e5e5e5;
+    }
+
+    /* 메모 상세보기 스타일 */
+    .detail-section {
+      margin-bottom: 1.25rem;
+    }
+
+    .detail-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 0.5rem;
+    }
+
+    .detail-content {
+      padding: 0.75rem;
+      background: #f9fafb;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      line-height: 1.6;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .detail-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .detail-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+    }
+
+    .detail-meta-label {
+      color: #999;
+      font-weight: 600;
+    }
+
+    .important-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.625rem;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      color: white;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="shadow-layer"></div>
+  <div class="window-wrapper">
+    <!-- 커스텀 타이틀바 -->
+    <div class="custom-titlebar">
+      <div class="titlebar-title">알림창</div>
+      <div class="titlebar-buttons">
+        <button class="titlebar-btn close" onclick="window.close()" title="닫기">✕</button>
+      </div>
+    </div>
+
+    <!-- 컨텐츠 -->
+    <div class="sticky-container">
+      <div class="sticky-content">
+        <!-- 팀 메모 섹션 -->
+        <div class="section" id="memoSection">
+          <div class="section-header">
+            <div class="section-title">
+              팀 메모
+              <span class="section-count" id="memoCount">0</span>
+            </div>
+            <button class="add-memo-btn" onclick="showAddMemoModal()">+ 추가</button>
+          </div>
+          <div class="section-body" id="memoBody">
+            <!-- 메모 아이템이 여기에 렌더링됩니다 -->
+          </div>
+        </div>
+
+        <!-- 미처리 상담 요청 섹션 -->
+        <div class="section" id="pendingSection">
+          <div class="section-header">
+            <div class="section-title">
+              미처리 상담 요청
+              <span class="section-count" id="pendingCount">0</span>
+            </div>
+          </div>
+          <div class="section-body" id="pendingBody">
+            <!-- 미처리 상담 아이템이 여기에 렌더링됩니다 -->
+          </div>
+        </div>
+
+        <!-- 미처리 상담 요약 (항상 표시) -->
+        <div class="pending-summary-bar">
+          <div class="pending-item-compact">
+            <span class="pending-label">이메일</span>
+            <span class="pending-count" id="emailCount">0</span>
+          </div>
+          <div class="pending-item-compact">
+            <span class="pending-label">홈페이지</span>
+            <span class="pending-count" id="websiteCount">0</span>
+          </div>
+        </div>
+
+        <!-- 오늘 일정 섹션 -->
+        <div class="section" id="scheduleSection">
+          <div class="section-header">
+            <div class="section-title">
+              오늘 일정
+              <span class="section-count" id="scheduleCount">0</span>
+            </div>
+          </div>
+          <div class="section-body" id="scheduleBody">
+            <!-- 일정 아이템이 여기에 렌더링됩니다 -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 메모 추가 모달 -->
+  <div id="addMemoModal" class="modal" style="display: none;">
+    <div class="modal-overlay" onclick="closeAddMemoModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>메모 추가</h3>
+        <button class="modal-close-btn" onclick="closeAddMemoModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>제목 (선택)</label>
+          <input type="text" id="memoTitle" placeholder="제목을 입력하세요 (비워두면 내용 일부가 제목이 됩니다)" />
+        </div>
+        <div class="form-group">
+          <label>내용</label>
+          <textarea id="memoContent" placeholder="메모 내용을 입력하세요" rows="6" required></textarea>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="memoImportant" />
+            <span>중요 메모로 표시</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeAddMemoModal()">취소</button>
+        <button class="modal-btn primary" onclick="saveNewMemo()">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 메모 상세보기 모달 -->
+  <div id="memoDetailModal" class="modal" style="display: none;">
+    <div class="modal-overlay" onclick="closeMemoDetailModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="detailTitle">메모 제목</h3>
+        <button class="modal-close-btn" onclick="closeMemoDetailModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-section">
+          <div class="detail-label">내용</div>
+          <div class="detail-content" id="detailContent"></div>
+        </div>
+        <div class="detail-meta">
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">작성자:</span>
+            <span id="detailAuthor">-</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">작성일:</span>
+            <span id="detailDate">-</span>
+          </div>
+          <div class="detail-meta-item" id="detailImportantBadge" style="display: none;">
+            <span class="important-badge">⭐ 중요</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeMemoDetailModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Get today's date in YYYY-MM-DD format
+    function getTodayString() {
+      const today = new Date();
+      return today.toISOString().split('T')[0];
+    }
+
+    // URL 자동 링크 변환 함수 (XSS 방지)
+    function linkifyContent(text) {
+      if (!text) return '';
+
+      // URL 패턴: http://, https://, www. 로 시작하는 URL 감지
+      const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
+
+      const linkedText = text.replace(urlPattern, (url) => {
+        // www로 시작하는 경우 https:// 추가
+        const href = url.startsWith('www.') ? `https://${url}` : url;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline;">${url}</a>`;
+      });
+
+      // DOMPurify로 XSS 공격 방지
+      return DOMPurify.sanitize(linkedText);
+    }
+
+    console.log('[Sticky] Script started!');
+
+    // API 기본 URL
+    const API_BASE_URL = 'http://localhost:3001';
+
+    // 전역 데이터
+    let memos = [];
+    let consultations = [];
+
+    // 즉시 초기값 설정 (API 로드 전이라도 0 표시)
+    window.addEventListener('load', () => {
+      console.log('[Sticky] Window loaded, setting initial values...');
+      const emailCount = document.getElementById('emailCount');
+      const websiteCount = document.getElementById('websiteCount');
+      const scheduleCount = document.getElementById('scheduleCount');
+      const memoCount = document.getElementById('memoCount');
+
+      if (emailCount) emailCount.textContent = '0';
+      if (websiteCount) websiteCount.textContent = '0';
+      if (scheduleCount) scheduleCount.textContent = '0';
+      if (memoCount) memoCount.textContent = '0';
+      console.log('[Sticky] Initial values set');
+    });
+
+    // 로컬 스토리지에서 인증 정보 가져오기
+    function getAuthToken() {
+      try {
+        const userStr = localStorage.getItem('currentUser');
+        if (!userStr) return null;
+        const user = JSON.parse(userStr);
+        return user.idToken;
+      } catch (error) {
+        console.error('Failed to get auth token:', error);
+        return null;
+      }
+    }
+
+    function getUserProvider() {
+      try {
+        const userStr = localStorage.getItem('currentUser');
+        if (!userStr) return null;
+        const user = JSON.parse(userStr);
+        return user.provider;
+      } catch (error) {
+        console.error('Failed to get user provider:', error);
+        return null;
+      }
+    }
+
+    // API 호출 헬퍼
+    async function apiRequest(endpoint, options = {}) {
+      const token = getAuthToken();
+      const provider = getUserProvider();
+
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
+      }
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'X-Provider': provider,
+        ...options.headers,
+      };
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API 요청 실패: ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    // 메모 목록 불러오기
+    async function loadMemos() {
+      try {
+        console.log('[Sticky] Loading memos from API...');
+        const response = await apiRequest('/memos');
+        console.log('[Sticky] Memos API response:', response);
+        memos = response.data || [];
+        console.log('[Sticky] Parsed memos:', memos.length);
+        renderMemos();
+      } catch (error) {
+        console.error('[Sticky] 메모 불러오기 실패:', error);
+        memos = [];
+        renderMemos();
+      }
+    }
+
+    // 상담 목록 불러오기 (일정용)
+    async function loadConsultations() {
+      try {
+        console.log('[Sticky] Loading consultations from API...');
+        const response = await apiRequest('/inquiries');
+        console.log('[Sticky] Consultations API response:', response);
+        consultations = response.data || [];
+        console.log('[Sticky] Parsed consultations:', consultations.length);
+        updateConsultationStats();
+        renderSchedules();
+      } catch (error) {
+        console.error('[Sticky] 상담 불러오기 실패:', error);
+        consultations = [];
+        updateConsultationStats();
+        renderSchedules();
+      }
+    }
+
+    function updateConsultationStats() {
+      // 이메일/홈페이지 분류
+      const emailCount = consultations.filter(c => c.type === 'email' || c.source === 'email').length;
+      const websiteCount = consultations.filter(c => c.type === 'website' || c.source === 'website' || !c.type).length;
+
+      document.getElementById('emailCount').textContent = emailCount;
+      document.getElementById('websiteCount').textContent = websiteCount;
+
+      // 미처리 상담 렌더링
+      renderPendingConsultations();
+    }
+
+    // 미처리 상담 요청 렌더링
+    function renderPendingConsultations() {
+      const pendingBody = document.getElementById('pendingBody');
+      const pendingCount = document.getElementById('pendingCount');
+
+      // 미처리 상담: status가 'pending' 또는 '미처리'인 것들
+      const pendingConsultations = consultations.filter(c =>
+        c.status === 'pending' || c.status === '미처리' || !c.status
+      );
+
+      pendingCount.textContent = pendingConsultations.length;
+
+      if (pendingConsultations.length === 0) {
+        pendingBody.innerHTML = '<div class="empty-state">미처리 상담 요청이 없습니다</div>';
+      } else {
+        pendingBody.innerHTML = pendingConsultations.map(item => `
+          <div class="pending-item">
+            <div class="pending-item-header">
+              <span class="pending-name">${item.name || '이름 없음'}</span>
+              <span class="pending-type ${item.type === 'email' ? 'email' : 'website'}">${item.type === 'email' ? '이메일' : '홈페이지'}</span>
+            </div>
+            <div class="pending-item-content">${item.message ? (item.message.length > 30 ? item.message.substring(0, 30) + '...' : item.message) : '내용 없음'}</div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function renderSchedules() {
+      // 오늘 일정 필터링 (예약일자가 오늘인 상담)
+      const todayString = getTodayString();
+      const todaySchedules = consultations.filter(c => {
+        if (!c.appointmentDate) return false;
+        const appointmentDate = c.appointmentDate.split('T')[0]; // YYYY-MM-DD 추출
+        return appointmentDate === todayString;
+      });
+
+      // 회사/개인 분류
+      const companySchedules = todaySchedules.filter(c => c.scheduleType === '회사' || c.scheduleType === 'company');
+      const personalSchedules = todaySchedules.filter(c => c.scheduleType === '개인' || c.scheduleType === 'personal');
+
+      // 일정 카운트 업데이트
+      document.getElementById('scheduleCount').textContent = todaySchedules.length;
+
+      // 일정 렌더링
+      const scheduleBody = document.getElementById('scheduleBody');
+      if (todaySchedules.length === 0) {
+        scheduleBody.innerHTML = '<div class="empty-state">오늘 일정이 없습니다</div>';
+      } else {
+        let scheduleHTML = '';
+
+        // 회사 일정
+        if (companySchedules.length > 0) {
+          scheduleHTML += `
+            <div class="schedule-category company">
+              <div class="schedule-category-title">회사</div>
+          `;
+          companySchedules.forEach(schedule => {
+            const time = schedule.appointmentTime || '시간 미정';
+            scheduleHTML += `
+              <div class="schedule-item">
+                <span class="schedule-time">${time}</span>
+                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+              </div>
+            `;
+          });
+          scheduleHTML += '</div>';
+        }
+
+        // 개인 일정
+        if (personalSchedules.length > 0) {
+          scheduleHTML += `
+            <div class="schedule-category personal">
+              <div class="schedule-category-title">개인</div>
+          `;
+          personalSchedules.forEach(schedule => {
+            const time = schedule.appointmentTime || '시간 미정';
+            scheduleHTML += `
+              <div class="schedule-item">
+                <span class="schedule-time">${time}</span>
+                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+              </div>
+            `;
+          });
+          scheduleHTML += '</div>';
+        }
+
+        scheduleBody.innerHTML = scheduleHTML;
+      }
+    }
+
+    // 상담 통계 업데이트 함수
+    function updateConsultationStats() {
+      // 이메일/홈페이지 분류
+      const emailCount = consultations.filter(c => c.type === 'email' || c.source === 'email').length;
+      const websiteCount = consultations.filter(c => c.type === 'website' || c.source === 'website' || !c.type).length;
+
+      document.getElementById('emailCount').textContent = emailCount;
+      document.getElementById('websiteCount').textContent = websiteCount;
+    }
+
+    // 일정 렌더링 함수
+    function renderSchedules() {
+      const todayString = getTodayString();
+      const todaySchedules = consultations.filter(c => {
+        if (!c.appointmentDate) return false;
+        const appointmentDate = c.appointmentDate.split('T')[0];
+        return appointmentDate === todayString;
+      });
+
+      // 일정 카운트 업데이트
+      document.getElementById('scheduleCount').textContent = todaySchedules.length;
+
+      // 회사/개인 분류
+      const companySchedules = todaySchedules.filter(c => c.scheduleType === '회사' || c.scheduleType === 'company');
+      const personalSchedules = todaySchedules.filter(c => c.scheduleType === '개인' || c.scheduleType === 'personal');
+
+      const scheduleBody = document.getElementById('scheduleBody');
+      if (todaySchedules.length === 0) {
+        scheduleBody.innerHTML = '<div class="empty-state">오늘 일정이 없습니다</div>';
+      } else {
+        let scheduleHTML = '';
+
+        // 회사 일정
+        if (companySchedules.length > 0) {
+          scheduleHTML += `
+            <div class="schedule-category company">
+              <div class="schedule-category-title">회사</div>
+          `;
+          companySchedules.forEach(schedule => {
+            const time = schedule.appointmentTime || '시간 미정';
+            scheduleHTML += `
+              <div class="schedule-item">
+                <span class="schedule-time">${time}</span>
+                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+              </div>
+            `;
+          });
+          scheduleHTML += '</div>';
+        }
+
+        // 개인 일정
+        if (personalSchedules.length > 0) {
+          scheduleHTML += `
+            <div class="schedule-category personal">
+              <div class="schedule-category-title">개인</div>
+          `;
+          personalSchedules.forEach(schedule => {
+            const time = schedule.appointmentTime || '시간 미정';
+            scheduleHTML += `
+              <div class="schedule-item">
+                <span class="schedule-time">${time}</span>
+                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+              </div>
+            `;
+          });
+          scheduleHTML += '</div>';
+        }
+
+        scheduleBody.innerHTML = scheduleHTML;
+      }
+    }
+
+    // 메모 렌더링 함수 (재사용 가능하도록 분리)
+    function renderMemos() {
+      console.log('[Sticky] renderMemos() called, memos count:', memos.length);
+      const memoBody = document.getElementById('memoBody');
+      const memoCount = document.getElementById('memoCount');
+
+      if (!memoBody) {
+        console.error('[Sticky] memoBody element not found!');
+        return;
+      }
+      if (!memoCount) {
+        console.error('[Sticky] memoCount element not found!');
+        return;
+      }
+
+      memoCount.textContent = memos.length;
+
+      if (memos.length === 0) {
+        memoBody.innerHTML = '<div class="empty-state">메모가 없습니다</div>';
+      } else {
+        memoBody.innerHTML = memos.map((memo, index) => `
+          <div class="memo-item" onclick="showMemoDetail(${index})" style="cursor: pointer;">
+            <div class="memo-header">
+              ${memo.important ? '<span class="memo-badge">중요</span>' : ''}
+              <div class="memo-title">${memo.title}</div>
+            </div>
+            <div class="memo-content">${linkifyContent(memo.content)}</div>
+            ${memo.author ? `<div class="memo-author">작성자: ${memo.author_name || memo.author || '사용자'}</div>` : ''}
+          </div>
+        `).join('');
+      }
+      console.log('[Sticky] Memos rendered successfully');
+    }
+
+    // 모달 관련 함수들
+    function showAddMemoModal() {
+      document.getElementById('addMemoModal').style.display = 'flex';
+      document.getElementById('memoTitle').value = '';
+      document.getElementById('memoContent').value = '';
+      document.getElementById('memoImportant').checked = false;
+      document.getElementById('memoTitle').focus();
+    }
+
+    function closeAddMemoModal() {
+      document.getElementById('addMemoModal').style.display = 'none';
+    }
+
+    async function saveNewMemo() {
+      let title = document.getElementById('memoTitle').value.trim();
+      const content = document.getElementById('memoContent').value.trim();
+      const important = document.getElementById('memoImportant').checked;
+
+      if (!content) {
+        alert('내용을 입력해주세요.');
+        return;
+      }
+
+      // 제목이 없으면 내용 앞부분을 제목으로 사용 (20자 이상일 때만 "..." 추가)
+      if (!title) {
+        title = content.length > 20 ? content.substring(0, 20) + '...' : content;
+      }
+
+      try {
+        // 직접 API 호출로 메모 생성
+        console.log('[Sticky] Creating memo:', { title, content, important });
+        const response = await apiRequest('/memos', {
+          method: 'POST',
+          body: JSON.stringify({ title, content, important })
+        });
+        console.log('[Sticky] Create memo response:', response);
+
+        if (response.status === 'ok' || response.success) {
+          closeAddMemoModal();
+
+          // 메모 폼 초기화
+          document.getElementById('memoTitle').value = '';
+          document.getElementById('memoContent').value = '';
+          document.getElementById('memoImportant').checked = false;
+
+          // 새 메모를 목록에 추가 (UI 즉시 업데이트)
+          memos.unshift(response.data);
+          renderMemos();
+
+          // 다른 창들에게 브로드캐스트
+          if (window.electron && window.electron.broadcastMemoCreated) {
+            await window.electron.broadcastMemoCreated(response.data);
+          }
+        } else {
+          console.error('[Sticky] Memo creation failed, response:', response);
+          throw new Error(response.error || '메모 생성에 실패했습니다.');
+        }
+      } catch (error) {
+        console.error('[Sticky] 메모 생성 실패:', error);
+        alert('메모 생성에 실패했습니다: ' + error.message);
+      }
+    }
+
+    // 메모 상세보기 모달 관련 함수들
+    function showMemoDetail(index) {
+      const memo = memos[index];
+      if (!memo) return;
+
+      // 모달 내용 채우기
+      document.getElementById('detailTitle').textContent = memo.title;
+      document.getElementById('detailContent').innerHTML = linkifyContent(memo.content);
+      document.getElementById('detailAuthor').textContent = memo.author_name || memo.author || '작성자 없음';
+
+      // 날짜 포맷팅
+      const createdDate = memo.createdAt ? new Date(memo.createdAt) : new Date();
+      document.getElementById('detailDate').textContent = createdDate.toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+
+      // 중요 표시
+      const importantBadge = document.getElementById('detailImportantBadge');
+      if (memo.important) {
+        importantBadge.style.display = 'flex';
+      } else {
+        importantBadge.style.display = 'none';
+      }
+
+      // 모달 표시
+      document.getElementById('memoDetailModal').style.display = 'flex';
+    }
+
+    function closeMemoDetailModal() {
+      document.getElementById('memoDetailModal').style.display = 'none';
+    }
+
+    // ESC 키로 모달 닫기
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        const addModal = document.getElementById('addMemoModal');
+        const detailModal = document.getElementById('memoDetailModal');
+
+        if (addModal && addModal.style.display === 'flex') {
+          closeAddMemoModal();
+        }
+        if (detailModal && detailModal.style.display === 'flex') {
+          closeMemoDetailModal();
+        }
+      }
+    });
+
+    // IPC 이벤트 리스너: 다른 창에서 메모 생성 시 자동 업데이트
+    if (window.electron && window.electron.onMemoCreated) {
+      window.electron.onMemoCreated((newMemo) => {
+        console.log('[Sticky] 메모 생성 이벤트 수신:', newMemo);
+
+        // 메모 목록에 추가 (electron/main.js에서 자기 자신은 이미 제외됨)
+        memos.unshift(newMemo);
+        renderMemos();
+      });
+    }
+
+    // IPC 이벤트 리스너: 다른 창에서 메모 삭제 시 자동 업데이트
+    if (window.electron && window.electron.onMemoDeleted) {
+      window.electron.onMemoDeleted((deletedMemoId) => {
+        console.log('[Sticky] 메모 삭제 이벤트 수신:', deletedMemoId);
+
+        // 메모 목록에서 해당 메모 제거
+        const index = memos.findIndex(m => m.id === deletedMemoId);
+        if (index !== -1) {
+          memos.splice(index, 1);
+          renderMemos();
+        }
+      });
+    }
+
+    // IPC 이벤트 리스너: 다른 창에서 상담 생성/수정/삭제 시 자동 업데이트
+    if (window.electron && window.electron.onConsultationUpdated) {
+      window.electron.onConsultationUpdated(async () => {
+        console.log('[Sticky] 상담 업데이트 이벤트 수신');
+        // 상담 목록 다시 불러오기
+        await loadConsultations();
+      });
+    }
+
+    // 페이지 로드 시 데이터 초기화
+    document.addEventListener('DOMContentLoaded', async () => {
+      console.log('[Sticky] Initializing data...');
+      console.log('[Sticky] Checking localStorage...');
+
+      const userStr = localStorage.getItem('currentUser');
+      console.log('[Sticky] currentUser from localStorage:', userStr ? 'Found' : 'NOT FOUND');
+
+      if (!userStr) {
+        console.error('[Sticky] No auth token found in localStorage!');
+        document.getElementById('memoBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다. 메인 창에서 로그인해주세요.</div>';
+        document.getElementById('scheduleBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다.</div>';
+        return;
+      }
+
+      try {
+        await Promise.all([
+          loadMemos(),
+          loadConsultations()
+        ]);
+        console.log('[Sticky] Data loaded:', { memos: memos.length, consultations: consultations.length });
+      } catch (error) {
+        console.error('[Sticky] Failed to load data:', error);
+      }
+    });
+  </script>
+</body>
+</html>

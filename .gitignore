@@ -67,6 +67,7 @@ out/
 .DS_Store
 Thumbs.db
 desktop.ini
+nul
 
 # IDE 설정
 .vscode/

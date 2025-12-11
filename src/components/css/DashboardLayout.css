@@ -1,0 +1,138 @@
+/* DashboardLayout.css - 대시보드 레이아웃 스타일 */
+
+/* 레이아웃: 좌측(캘린더) + 우측(공지사항+미처리) */
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+  overflow: visible;
+  padding-bottom: 1.25rem;
+}
+
+@media (max-width: 1200px) {
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 카드 공통 스타일 */
+.dashboard-card {
+  background: white;
+  border-radius: 10px;
+  padding: 1.125rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.875rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 2px solid #f1f1f1;
+  flex-shrink: 0;
+}
+
+.card-header h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.add-btn {
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.sticky-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sticky-btn:hover {
+  transform: translateY(-2px) rotate(15deg);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+/* 좌측 영역 */
+.dashboard-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* 우측 영역 */
+.dashboard-right {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
+  max-height: fit-content;
+}
+
+/* 메모 카드 높이 */
+.memo-card {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* 미처리 카드 높이 */
+.pending-card {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* 우측 영역 스크롤바 */
+.dashboard-right::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-right::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-right::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.dashboard-right::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}

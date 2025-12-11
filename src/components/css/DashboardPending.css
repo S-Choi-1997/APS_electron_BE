@@ -1,0 +1,153 @@
+/* DashboardPending.css - 미처리 상담 요청 카드 스타일 */
+
+.total-badge {
+  padding: 0.375rem 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: 16px;
+}
+
+.pending-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.pending-item {
+  padding: 1rem;
+  background: #fafafa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.2s;
+}
+
+.pending-item:hover {
+  background: #f0f0f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.pending-item.email {
+  border-left: 4px solid #3b82f6;
+}
+
+.pending-item.web {
+  border-left: 4px solid #10b981;
+}
+
+.pending-icon {
+  font-size: 1.75rem;
+}
+
+.pending-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pending-label {
+  font-size: 0.8125rem;
+  color: #666;
+}
+
+.pending-count {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.recent-pending h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 0.75rem;
+}
+
+.pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 커스텀 스크롤바 for pending-list */
+.pending-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pending-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.pending-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.pending-list::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+.pending-list-item {
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.pending-list-item:hover {
+  background: #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.pending-list-icon {
+  font-size: 1.125rem;
+}
+
+.pending-list-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-list-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 0.125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pending-list-type {
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.pending-list-time {
+  font-size: 0.6875rem;
+  color: #999;
+  white-space: nowrap;
+}
+
+.empty-pending {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #999;
+}
+
+.empty-pending p {
+  font-size: 1rem;
+}
