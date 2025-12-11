@@ -1,7 +1,7 @@
 /* PageLayout.css - 모든 페이지 공통 레이아웃 */
 
 .page-container {
-  padding: 0 1.25rem 1.25rem;
+  padding: 0;
   width: 100%;
   max-width: 1800px;
   margin: 0 auto;
@@ -14,7 +14,7 @@
 
 .page-header {
   margin-bottom: 1.5rem;
-  padding-top: 1rem;
+  padding-top: 0;
   flex-shrink: 0;
 }
 

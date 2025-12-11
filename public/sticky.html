@@ -823,10 +823,13 @@
   </div>
 
   <script>
-    // Get today's date in YYYY-MM-DD format
+    // Get today's date in YYYY-MM-DD format (Korea timezone)
     function getTodayString() {
       const today = new Date();
-      return today.toISOString().split('T')[0];
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
 
     // URL 자동 링크 변환 함수 (XSS 방지)
@@ -854,6 +857,7 @@
     // 전역 데이터
     let memos = [];
     let consultations = [];
+    let schedules = [];
 
     // 즉시 초기값 설정 (API 로드 전이라도 0 표시)
     window.addEventListener('load', () => {
@@ -939,7 +943,7 @@
       }
     }
 
-    // 상담 목록 불러오기 (일정용)
+    // 상담 목록 불러오기
     async function loadConsultations() {
       try {
         console.log('[Sticky] Loading consultations from API...');
@@ -948,11 +952,25 @@
         consultations = response.data || [];
         console.log('[Sticky] Parsed consultations:', consultations.length);
         updateConsultationStats();
-        renderSchedules();
       } catch (error) {
         console.error('[Sticky] 상담 불러오기 실패:', error);
         consultations = [];
         updateConsultationStats();
+      }
+    }
+
+    // 일정 목록 불러오기
+    async function loadSchedules() {
+      try {
+        console.log('[Sticky] Loading schedules from API...');
+        const response = await apiRequest('/schedules');
+        console.log('[Sticky] Schedules API response:', response);
+        schedules = response.data || [];
+        console.log('[Sticky] Parsed schedules:', schedules.length);
+        renderSchedules();
+      } catch (error) {
+        console.error('[Sticky] 일정 불러오기 실패:', error);
+        schedules = [];
         renderSchedules();
       }
     }
@@ -1072,20 +1090,31 @@
     // 일정 렌더링 함수
     function renderSchedules() {
       const todayString = getTodayString();
-      const todaySchedules = consultations.filter(c => {
-        if (!c.appointmentDate) return false;
-        const appointmentDate = c.appointmentDate.split('T')[0];
-        return appointmentDate === todayString;
+      console.log('[Sticky] renderSchedules called, today:', todayString, 'schedules:', schedules.length);
+
+      const todaySchedules = schedules.filter(s => {
+        if (!s.start_date) return false;
+        const startDate = s.start_date.split('T')[0];
+        const endDate = s.end_date ? s.end_date.split('T')[0] : startDate;
+        return todayString >= startDate && todayString <= endDate;
       });
 
+      console.log('[Sticky] Today schedules:', todaySchedules.length);
+
       // 일정 카운트 업데이트
-      document.getElementById('scheduleCount').textContent = todaySchedules.length;
+      const scheduleCountEl = document.getElementById('scheduleCount');
+      if (scheduleCountEl) scheduleCountEl.textContent = todaySchedules.length;
 
       // 회사/개인 분류
-      const companySchedules = todaySchedules.filter(c => c.scheduleType === '회사' || c.scheduleType === 'company');
-      const personalSchedules = todaySchedules.filter(c => c.scheduleType === '개인' || c.scheduleType === 'personal');
+      const companySchedules = todaySchedules.filter(s => s.type === '회사' || s.type === 'company');
+      const personalSchedules = todaySchedules.filter(s => s.type === '개인' || s.type === 'personal');
 
       const scheduleBody = document.getElementById('scheduleBody');
+      if (!scheduleBody) {
+        console.error('[Sticky] scheduleBody element not found!');
+        return;
+      }
+
       if (todaySchedules.length === 0) {
         scheduleBody.innerHTML = '<div class="empty-state">오늘 일정이 없습니다</div>';
       } else {
@@ -1098,11 +1127,11 @@
               <div class="schedule-category-title">회사</div>
           `;
           companySchedules.forEach(schedule => {
-            const time = schedule.appointmentTime || '시간 미정';
+            const time = schedule.time || '시간 미정';
             scheduleHTML += `
               <div class="schedule-item">
                 <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+                <span class="schedule-name">${schedule.title}</span>
               </div>
             `;
           });
@@ -1116,11 +1145,11 @@
               <div class="schedule-category-title">개인</div>
           `;
           personalSchedules.forEach(schedule => {
-            const time = schedule.appointmentTime || '시간 미정';
+            const time = schedule.time || '시간 미정';
             scheduleHTML += `
               <div class="schedule-item">
                 <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
+                <span class="schedule-name">${schedule.title}</span>
               </div>
             `;
           });
@@ -1129,6 +1158,7 @@
 
         scheduleBody.innerHTML = scheduleHTML;
       }
+      console.log('[Sticky] Schedules rendered successfully');
     }
 
     // 메모 렌더링 함수 (재사용 가능하도록 분리)
@@ -1302,12 +1332,15 @@
       });
     }
 
-    // IPC 이벤트 리스너: 다른 창에서 상담 생성/수정/삭제 시 자동 업데이트
+    // IPC 이벤트 리스너: 다른 창에서 상담/일정 생성/수정/삭제 시 자동 업데이트
     if (window.electron && window.electron.onConsultationUpdated) {
       window.electron.onConsultationUpdated(async () => {
-        console.log('[Sticky] 상담 업데이트 이벤트 수신');
-        // 상담 목록 다시 불러오기
-        await loadConsultations();
+        console.log('[Sticky] 상담/일정 업데이트 이벤트 수신');
+        // 상담 및 일정 목록 다시 불러오기
+        await Promise.all([
+          loadConsultations(),
+          loadSchedules()
+        ]);
       });
     }
 
@@ -1329,9 +1362,10 @@
       try {
         await Promise.all([
           loadMemos(),
-          loadConsultations()
+          loadConsultations(),
+          loadSchedules()
         ]);
-        console.log('[Sticky] Data loaded:', { memos: memos.length, consultations: consultations.length });
+        console.log('[Sticky] Data loaded:', { memos: memos.length, consultations: consultations.length, schedules: schedules.length });
       } catch (error) {
         console.error('[Sticky] Failed to load data:', error);
       }
