@@ -8,6 +8,20 @@ const getTypeColor = (type = '') => {
   return TYPE_COLORS[sum % TYPE_COLORS.length];
 };
 
+// 구분 태그 텍스트 축약 (2-3글자)
+const getShortTypeLabel = (type) => {
+  const typeMap = {
+    '견적문의': '견적',
+    '제품문의': '제품',
+    '기술지원': '기술',
+    '협력제안': '협력',
+    '일반문의': '일반',
+    '구매문의': '구매',
+    '기타': '기타',
+  };
+  return typeMap[type] || type.slice(0, 3);
+};
+
 const hexToRgba = (hex, alpha) => {
   const sanitized = hex.replace('#', '');
   const r = parseInt(sanitized.substring(0, 2), 16);
@@ -40,9 +54,7 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
     const d = date instanceof Date ? date : new Date(date);
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${month}.${day} ${hours}:${minutes}`;
+    return `${month}.${day}`;
   };
 
   const handleRespond = (e, id, check) => {
@@ -70,12 +82,11 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
         <colgroup>
           <col style={{ width: '40px' }} />
           <col style={{ width: '45px' }} />
+          <col style={{ width: '80px' }} />
           <col style={{ width: '100px' }} />
-          <col style={{ width: '100px' }} />
-          <col style={{ width: '100px' }} />
-          <col style={{ width: '160px' }} />
-          <col style={{ width: '400px' }} />
-          <col style={{ width: '96px' }} />
+          <col style={{ width: '120px' }} />
+          <col style={{ width: '500px' }} />
+          <col style={{ width: '70px' }} />
           <col style={{ width: '140px' }} />
         </colgroup>
         <thead>
@@ -92,10 +103,9 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
             <th className="type-col">구분</th>
             <th className="name-col">이름</th>
             <th className="company-col">상호</th>
-            <th className="contact-col">연락처</th>
             <th className="content-col">내용</th>
-            <th className="date-col">날짜/시간</th>
-            <th className="action-col">확인/삭제</th>
+            <th className="date-col">날짜</th>
+            <th className="action-col">작업</th>
           </tr>
         </thead>
         <tbody>
@@ -126,8 +136,9 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
                       backgroundColor: hexToRgba(typeColor, 0.12),
                       borderColor: hexToRgba(typeColor, 0.28),
                     }}
+                    title={consultation.type}
                   >
-                    {consultation.type}
+                    {getShortTypeLabel(consultation.type)}
                   </span>
                 </td>
                 <td className={`name-cell name-col ${isUnread ? 'bold' : ''}`}>
@@ -135,10 +146,6 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
                 </td>
                 <td className="company-cell company-col">
                   {consultation.company || '-'}
-                </td>
-                <td className="contact-cell contact-col">
-                  <div className="contact-phone">{consultation.phone}</div>
-                  <div className="contact-email">{consultation.email}</div>
                 </td>
                 <td className="content-cell content-col" title={consultation.message}>
                   {getPreview(consultation.message)}
@@ -150,9 +157,9 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
                       className={`respond-btn ${isUnread ? 'unread' : 'responded'}`}
                       onClick={(e) => handleRespond(e, consultation.id, consultation.check)}
                       disabled={!isUnread}
-                      title={isUnread ? '확인 시 SMS 자동 발송' : '확인 완료 (문자 발송됨)'}
+                      title={isUnread ? '응신 시 SMS 자동 발송' : '응신 완료 (문자 발송됨)'}
                     >
-                      {isUnread ? '확인문자' : '완료'}
+                      {isUnread ? '응신' : '완료'}
                     </button>
                     <button className="delete-btn" onClick={(e) => handleDelete(e, consultation.id)}>
                       삭제

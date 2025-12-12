@@ -1,3 +1,85 @@
+/* 나눔스퀘어라운드 폰트 */
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/nanum-square-round/NanumSquareRoundL.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/nanum-square-round/NanumSquareRoundR.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/nanum-square-round/NanumSquareRoundB.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/nanum-square-round/NanumSquareRoundEB.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+
+/* 전역 폰트 적용 */
+* {
+  font-family: 'NanumSquareRound', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+  font-size: 15px;
+  font-weight: 400;
+}
+
+/* 앱 컨테이너 - 사이드바 레이아웃 */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f6f8fc;
+}
+
+.app-content-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - 40px); /* 전체 높이 - 타이틀바 높이 */
+}
+
+.main-wrapper {
+  flex: 1;
+  margin-left: 280px; /* Sidebar width */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* 커스텀 스크롤바 */
+.main-wrapper::-webkit-scrollbar {
+  width: 12px;
+}
+
+.main-wrapper::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.main-wrapper::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+  border: 2px solid #f1f1f1;
+}
+
+.main-wrapper::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
+}
+
+/* 기존 .app 스타일 유지 (로그인/로딩 화면용) */
 .app {
   min-height: 100vh;
   display: flex;
@@ -21,11 +103,12 @@
 
 .main-content {
   flex: 1;
-  padding: 40px 20px;
+  padding: 0;
+  overflow-y: auto;
 }
 
 .content-container {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -255,7 +338,7 @@
 
 @media (max-width: 768px) {
   .main-content {
-    padding: 24px 16px;
+    padding: 0;
   }
 
   .content-header {

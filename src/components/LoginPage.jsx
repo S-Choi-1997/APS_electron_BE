@@ -1,5 +1,6 @@
 ﻿import { useEffect } from 'react';
 import { initializeAuth, signInWithGoogle, signInWithNaver } from '../auth/authManager';
+import TitleBar from './TitleBar';
 import './LoginPage.css';
 
 function LoginPage({ onLoginSuccess, onUnauthorized }) {
@@ -77,6 +78,7 @@ function LoginPage({ onLoginSuccess, onUnauthorized }) {
 
   return (
     <div className="login-page">
+      <TitleBar />
       <div className="login-container">
         <div className="login-header">
           <h1 className="login-company">APS 컨설팅</h1>

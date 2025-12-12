@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import Modal from './Modal';
 import { auth } from '../auth/authManager';
-import { fetchMemos, createMemo, deleteMemo } from '../services/memoService';
+import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
 import { fetchSchedules, createSchedule, updateSchedule, deleteSchedule } from '../services/scheduleService';
 import './Dashboard.css';
 import './css/PageLayout.css';
@@ -34,6 +34,7 @@ function Dashboard({ user, consultations }) {
 
   // 모달 상태
   const [showMemoCreateModal, setShowMemoCreateModal] = useState(false);
+  const [showMemoEditModal, setShowMemoEditModal] = useState(false);
   const [showMemoDetailModal, setShowMemoDetailModal] = useState(false);
   const [showScheduleCreateModal, setShowScheduleCreateModal] = useState(false);
   const [showScheduleEditModal, setShowScheduleEditModal] = useState(false);
@@ -47,7 +48,7 @@ function Dashboard({ user, consultations }) {
     title: '',
     content: '',
     important: false,
-    author: '',
+    expire_date: '',
   });
 
   // 일정 폼 상태 (날짜는 YYYY-MM-DD 문자열로 관리)
@@ -157,6 +158,7 @@ function Dashboard({ user, consultations }) {
         title: finalTitle,
         content: memoForm.content,
         important: memoForm.important,
+        expire_date: memoForm.expire_date || null,
         // author is automatically set by backend using req.user.email
       };
 
@@ -179,7 +181,7 @@ function Dashboard({ user, consultations }) {
         }
       }
 
-      setMemoForm({ title: '', content: '', important: false, author: '' });
+      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowMemoCreateModal(false);
     } catch (error) {
       console.error('메모 생성 실패:', error);
@@ -190,6 +192,50 @@ function Dashboard({ user, consultations }) {
   const handleMemoClick = (memo) => {
     setSelectedMemo(memo);
     setShowMemoDetailModal(true);
+  };
+
+  const handleMemoEdit = (memo) => {
+    setSelectedMemo(memo);
+    setMemoForm({
+      title: memo.title,
+      content: memo.content,
+      important: memo.important,
+      expire_date: memo.expire_date || '',
+    });
+    setShowMemoDetailModal(false);
+    setShowMemoEditModal(true);
+  };
+
+  const handleMemoUpdate = async () => {
+    if (!memoForm.content.trim()) return;
+
+    try {
+      let finalTitle = memoForm.title.trim();
+
+      if (!finalTitle) {
+        const content = memoForm.content.trim();
+        finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
+      }
+
+      const updates = {
+        title: finalTitle,
+        content: memoForm.content,
+        important: memoForm.important,
+        expire_date: memoForm.expire_date || null,
+      };
+
+      await updateMemo(selectedMemo.id, updates, auth);
+
+      // 메모 목록 새로고침
+      await loadMemos();
+
+      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+      setShowMemoEditModal(false);
+      setSelectedMemo(null);
+    } catch (error) {
+      console.error('메모 수정 실패:', error);
+      alert('메모 수정에 실패했습니다: ' + error.message);
+    }
   };
 
   const handleMemoDelete = async () => {
@@ -438,9 +484,20 @@ function Dashboard({ user, consultations }) {
         important: memo.important,
         createdAt: new Date(memo.created_at),
         author: memo.author,
+        author_name: memo.author_name,
+        expire_date: memo.expire_date,
       }));
 
-      setMemos(formattedMemos);
+      // 만료되지 않은 메모만 표시
+      const activeMemos = formattedMemos.filter(memo => {
+        if (!memo.expire_date) return true; // 만료일 없으면 항상 표시
+        const expireDate = new Date(memo.expire_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return expireDate >= today;
+      });
+
+      setMemos(activeMemos);
     } catch (error) {
       console.error('메모 로드 실패:', error);
       // 에러 발생 시 빈 배열 유지
@@ -465,6 +522,7 @@ function Dashboard({ user, consultations }) {
         end_date: new Date(schedule.end_date),
         type: schedule.type === 'company' ? '회사' : '개인',
         author: schedule.author,
+        author_name: schedule.author_name,
       }));
 
       setSchedules(formattedSchedules);
@@ -752,6 +810,15 @@ function Dashboard({ user, consultations }) {
               rows="6"
             />
           </div>
+          <div className="form-group">
+            <label>만료일 (선택)</label>
+            <input
+              type="date"
+              value={memoForm.expire_date}
+              onChange={(e) => setMemoForm({ ...memoForm, expire_date: e.target.value })}
+              placeholder="만료일을 설정하세요 (기본: 당일)"
+            />
+          </div>
           <div className="form-checkbox">
             <input
               type="checkbox"
@@ -767,6 +834,67 @@ function Dashboard({ user, consultations }) {
             </button>
             <button type="submit" className="modal-btn primary">
               추가
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 메모 수정 모달 */}
+      <Modal
+        isOpen={showMemoEditModal}
+        onClose={() => {
+          setShowMemoEditModal(false);
+          setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+        }}
+        title="메모 수정"
+      >
+        <form className="modal-form" onSubmit={(e) => { e.preventDefault(); handleMemoUpdate(); }}>
+          <div className="form-group">
+            <label>제목 (선택)</label>
+            <input
+              type="text"
+              value={memoForm.title}
+              onChange={(e) => setMemoForm({ ...memoForm, title: e.target.value })}
+              placeholder="제목을 입력하세요 (비워두면 내용 일부가 제목이 됩니다)"
+            />
+          </div>
+          <div className="form-group">
+            <label>내용</label>
+            <textarea
+              value={memoForm.content}
+              onChange={(e) => setMemoForm({ ...memoForm, content: e.target.value })}
+              placeholder="메모 내용을 입력하세요"
+              required
+              rows="6"
+            />
+          </div>
+          <div className="form-group">
+            <label>만료일 (선택)</label>
+            <input
+              type="date"
+              value={memoForm.expire_date}
+              onChange={(e) => setMemoForm({ ...memoForm, expire_date: e.target.value })}
+              placeholder="만료일을 설정하세요"
+            />
+          </div>
+          <div className="form-checkbox">
+            <input
+              type="checkbox"
+              id="important-edit"
+              checked={memoForm.important}
+              onChange={(e) => setMemoForm({ ...memoForm, important: e.target.checked })}
+            />
+            <label htmlFor="important-edit">중요 메모로 표시</label>
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="modal-btn secondary" onClick={() => {
+              setShowMemoEditModal(false);
+              setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+            }}>
+              취소
+            </button>
+            <button type="submit" className="modal-btn primary">
+              저장
             </button>
           </div>
         </form>
@@ -790,8 +918,17 @@ function Dashboard({ user, consultations }) {
             <div className="memo-detail-content">
               <p>{selectedMemo.content}</p>
               {selectedMemo.author && <p className="memo-author">작성자: {selectedMemo.author}</p>}
+              {selectedMemo.expire_date && (
+                <p className="memo-expire">만료일: {new Date(selectedMemo.expire_date).toLocaleDateString('ko-KR')}</p>
+              )}
             </div>
             <div className="memo-detail-actions">
+              <button
+                className="modal-btn primary"
+                onClick={() => handleMemoEdit(selectedMemo)}
+              >
+                수정
+              </button>
               <button
                 className="modal-btn danger"
                 onClick={() => confirmDelete(selectedMemo, 'memo')}

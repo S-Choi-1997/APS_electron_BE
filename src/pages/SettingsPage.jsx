@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { getCurrentUser, updateDisplayName, onAuthStateChanged } from '../auth/authManager';
+import { getCurrentUser, onAuthStateChanged } from '../auth/authManager';
 import { updateDisplayName as updateDisplayNameAPI } from '../services/userService';
 import '../components/css/PageLayout.css';
 import './SettingsPage.css';
@@ -32,12 +32,16 @@ function SettingsPage() {
     }
 
     try {
-      // 1. 백엔드 API 호출 (users 테이블 업데이트)
+      // Backend API call to update displayName
       const auth = { currentUser: user };
-      await updateDisplayNameAPI(displayName, auth);
+      const updatedUserInfo = await updateDisplayNameAPI(displayName, auth);
 
-      // 2. 로컬 스토리지 업데이트 (authManager)
-      updateDisplayName(displayName);
+      // Update local user state with backend response
+      const updatedUser = {
+        ...user,
+        displayName: updatedUserInfo.display_name,
+      };
+      setUser(updatedUser);
 
       setIsEditingName(false);
       setSaveSuccess(true);

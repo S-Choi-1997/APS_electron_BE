@@ -16,6 +16,7 @@ import ConsultationsPage from './pages/ConsultationsPage';
 import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
 import { fetchInquiries } from './services/inquiryService';
+import { apiRequest } from './config/api';
 import './App.css';
 
 function AppRouter() {
@@ -32,6 +33,7 @@ function AppRouter() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showUnauthorized, setShowUnauthorized] = useState(false);
   const [consultations, setConsultations] = useState([]);
+  const [stats, setStats] = useState({ website: 0, email: 0 });
   const [loading, setLoading] = useState(true);
 
   // 인증 상태 감지
@@ -44,10 +46,26 @@ function AppRouter() {
     return () => unsubscribe();
   }, []);
 
+  // 통계 불러오기
+  const loadStats = async () => {
+    try {
+      const response = await apiRequest('/inquiries/stats', {
+        method: 'GET',
+      }, auth);
+
+      if (response.data) {
+        setStats(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+    }
+  };
+
   // 문의 목록 불러오기
   useEffect(() => {
     if (!user) {
       setConsultations([]);
+      setStats({ website: 0, email: 0 });
       setLoading(false);
       return;
     }
@@ -62,6 +80,9 @@ function AppRouter() {
         console.log(`[App Performance] fetchInquiries completed in ${fetchDuration.toFixed(0)}ms`);
 
         setConsultations(data);
+
+        // 통계도 함께 로드
+        await loadStats();
 
         const totalDuration = performance.now() - loadStartTime;
         console.log(`[App Performance] Total loadInquiries (including state updates) completed in ${totalDuration.toFixed(0)}ms`);
@@ -96,8 +117,6 @@ function AppRouter() {
     loadInquiries();
   }, [user]);
 
-  const uncheckedCount = consultations.filter((c) => !c.check).length;
-
   // 로딩 중
   if (authLoading) {
     return (
@@ -131,7 +150,7 @@ function AppRouter() {
       <div className="app-container">
         <TitleBar />
         <div className="app-content-wrapper">
-          <Sidebar user={user} uncheckedCount={uncheckedCount} />
+          <Sidebar user={user} stats={stats} />
 
           <div className="main-wrapper">
             <main className="main-content">
@@ -148,10 +167,25 @@ function AppRouter() {
                   />
                   <Route
                     path="/consultations"
+                    element={<Navigate to="/consultations/website" replace />}
+                  />
+                  <Route
+                    path="/consultations/website"
                     element={
                       <ConsultationsPage
                         consultations={consultations}
                         setConsultations={setConsultations}
+                        type="website"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/consultations/email"
+                    element={
+                      <ConsultationsPage
+                        consultations={consultations}
+                        setConsultations={setConsultations}
+                        type="email"
                       />
                     }
                   />

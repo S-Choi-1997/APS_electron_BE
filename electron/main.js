@@ -10,7 +10,7 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
-    width: 1400,
+    width: 1500,
     height: 900,
     frame: false, // Windows 기본 타이틀바 제거
     webPreferences: {
@@ -159,7 +159,7 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
   }
 
   const stickyWindow = new BrowserWindow({
-    width: 350,
+    width: 300,
     height: 200,
     frame: false,
     alwaysOnTop: true,

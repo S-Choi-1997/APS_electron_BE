@@ -12,6 +12,7 @@ RUN npm ci --only=production
 
 # 소스 코드 복사
 COPY server.js ./
+COPY db.js ./
 
 # GCP 서비스 계정 JSON 마운트 포인트 (docker-compose에서 volume으로 제공)
 # /app/service-account.json

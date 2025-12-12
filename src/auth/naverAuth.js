@@ -156,6 +156,7 @@ export function signInWithNaver() {
         currentUser = {
           email: user.email,
           name: user.name,
+          displayName: '', // Will be set by authManager with customDisplayName
           picture: user.picture,
           accessToken: accessToken,
           refreshToken: refreshToken,
@@ -244,6 +245,7 @@ export function signInWithNaver() {
             currentUser = {
               email: user.email,
               name: user.name,
+              displayName: '', // Will be set by authManager with customDisplayName
               picture: user.picture,
               accessToken: accessToken,
               refreshToken: refreshToken,
@@ -322,6 +324,7 @@ export async function restoreSession() {
   // If token is expired, it will fail on actual API calls
   currentUser = {
     ...stored,
+    displayName: stored.displayName || '', // Will be overridden by authManager
     provider: 'naver',
   };
 
@@ -343,7 +346,5 @@ onAuthStateChanged((user) => {
 
 export { NAVER_CLIENT_ID };
 
-// Attempt to restore session on module load
-restoreSession().catch(() => {
-  // silent failure; listener already notified in restoreSession on failure
-});
+// Note: Session restoration is handled by authManager.js
+// Do not auto-restore here to prevent displayName override issues

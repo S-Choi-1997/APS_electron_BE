@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import Modal from '../components/Modal';
 import { auth } from '../auth/authManager';
-import { fetchMemos, createMemo, deleteMemo } from '../services/memoService';
+import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
 import './MemoPage.css';
 
 function MemoPage({ user }) {
@@ -21,6 +21,7 @@ function MemoPage({ user }) {
   const [memosLoading, setMemosLoading] = useState(true);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedMemo, setSelectedMemo] = useState(null);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
@@ -30,6 +31,7 @@ function MemoPage({ user }) {
     title: '',
     content: '',
     important: false,
+    expire_date: '',
   });
 
   // 컴포넌트 마운트 시 메모 로드
@@ -51,6 +53,8 @@ function MemoPage({ user }) {
         important: memo.important,
         createdAt: new Date(memo.created_at),
         author: memo.author,
+        author_name: memo.author_name,
+        expire_date: memo.expire_date,
       }));
 
       setMemos(formattedMemos);
@@ -114,6 +118,7 @@ function MemoPage({ user }) {
         title: finalTitle,
         content: memoForm.content,
         important: memoForm.important,
+        expire_date: memoForm.expire_date || null,
         // author is automatically set by backend using req.user.email
       };
 
@@ -122,11 +127,58 @@ function MemoPage({ user }) {
       // 메모 목록 새로고침
       await loadMemos();
 
-      setMemoForm({ title: '', content: '', important: false });
+      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowCreateModal(false);
     } catch (error) {
       console.error('메모 생성 실패:', error);
       alert('메모 생성에 실패했습니다: ' + error.message);
+    }
+  };
+
+  // 메모 수정 시작
+  const handleMemoEdit = (memo) => {
+    setSelectedMemo(memo);
+    setMemoForm({
+      title: memo.title,
+      content: memo.content,
+      important: memo.important,
+      expire_date: memo.expire_date || '',
+    });
+    setShowDetailModal(false);
+    setShowEditModal(true);
+  };
+
+  // 메모 수정 저장
+  const handleMemoUpdate = async () => {
+    if (!memoForm.content.trim()) return;
+
+    try {
+      let finalTitle = memoForm.title.trim();
+
+      // 제목이 없을 때만 자동 생성
+      if (!finalTitle) {
+        const content = memoForm.content.trim();
+        finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
+      }
+
+      const updates = {
+        title: finalTitle,
+        content: memoForm.content,
+        important: memoForm.important,
+        expire_date: memoForm.expire_date || null,
+      };
+
+      await updateMemo(selectedMemo.id, updates, auth);
+
+      // 메모 목록 새로고침
+      await loadMemos();
+
+      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+      setShowEditModal(false);
+      setSelectedMemo(null);
+    } catch (error) {
+      console.error('메모 수정 실패:', error);
+      alert('메모 수정에 실패했습니다: ' + error.message);
     }
   };
 
@@ -158,7 +210,7 @@ function MemoPage({ user }) {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">📝 팀 메모</h1>
+        <h1 className="page-title">팀 메모</h1>
         <button className="add-btn" onClick={() => setShowCreateModal(true)}>
           + 메모 추가
         </button>
@@ -220,6 +272,15 @@ function MemoPage({ user }) {
               rows="6"
             />
           </div>
+          <div className="form-group">
+            <label>만료일 (선택)</label>
+            <input
+              type="date"
+              value={memoForm.expire_date}
+              onChange={(e) => setMemoForm({ ...memoForm, expire_date: e.target.value })}
+              placeholder="만료일을 설정하세요 (기본: 당일)"
+            />
+          </div>
           <div className="form-group checkbox-group">
             <input
               type="checkbox"
@@ -235,6 +296,67 @@ function MemoPage({ user }) {
             </button>
             <button type="submit" className="modal-btn primary">
               추가
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 메모 수정 모달 */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+        }}
+        title="메모 수정"
+      >
+        <form className="modal-form" onSubmit={(e) => { e.preventDefault(); handleMemoUpdate(); }}>
+          <div className="form-group">
+            <label>제목 (선택)</label>
+            <input
+              type="text"
+              value={memoForm.title}
+              onChange={(e) => setMemoForm({ ...memoForm, title: e.target.value })}
+              placeholder="제목을 입력하세요 (비워두면 내용 일부가 제목이 됩니다)"
+            />
+          </div>
+          <div className="form-group">
+            <label>내용</label>
+            <textarea
+              value={memoForm.content}
+              onChange={(e) => setMemoForm({ ...memoForm, content: e.target.value })}
+              placeholder="메모 내용을 입력하세요"
+              required
+              rows="6"
+            />
+          </div>
+          <div className="form-group">
+            <label>만료일 (선택)</label>
+            <input
+              type="date"
+              value={memoForm.expire_date}
+              onChange={(e) => setMemoForm({ ...memoForm, expire_date: e.target.value })}
+              placeholder="만료일을 설정하세요"
+            />
+          </div>
+          <div className="form-group checkbox-group">
+            <input
+              type="checkbox"
+              id="important-edit"
+              checked={memoForm.important}
+              onChange={(e) => setMemoForm({ ...memoForm, important: e.target.checked })}
+            />
+            <label htmlFor="important-edit">중요 메모로 표시</label>
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="modal-btn secondary" onClick={() => {
+              setShowEditModal(false);
+              setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+            }}>
+              취소
+            </button>
+            <button type="submit" className="modal-btn primary">
+              저장
             </button>
           </div>
         </form>
@@ -258,6 +380,12 @@ function MemoPage({ user }) {
                 <span className="meta-label">작성일:</span>
                 <span>{selectedMemo.createdAt.toLocaleDateString('ko-KR')}</span>
               </div>
+              {selectedMemo.expire_date && (
+                <div className="meta-item">
+                  <span className="meta-label">만료일:</span>
+                  <span>{new Date(selectedMemo.expire_date).toLocaleDateString('ko-KR')}</span>
+                </div>
+              )}
               {selectedMemo.important && (
                 <div className="meta-item">
                   <span className="important-badge">⭐ 중요</span>
@@ -265,6 +393,12 @@ function MemoPage({ user }) {
               )}
             </div>
             <div className="modal-actions">
+              <button
+                className="modal-btn primary"
+                onClick={() => handleMemoEdit(selectedMemo)}
+              >
+                수정
+              </button>
               <button
                 className="modal-btn danger"
                 onClick={() => {

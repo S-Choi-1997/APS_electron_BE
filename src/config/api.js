@@ -1,81 +1,132 @@
-// API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://inquiryapi-mbi34yrklq-uc.a.run.app';
+/**
+ * api.js - API 설정 및 공통 요청 헬퍼
+ *
+ * 백엔드 API와 통신하는 공통 설정 및 함수
+ */
 
-// API endpoints
+// API 기본 URL (로컬 Docker Compose 백엔드)
+const API_BASE_URL = 'http://localhost:3001';
+
+/**
+ * API 엔드포인트 상수
+ */
 export const API_ENDPOINTS = {
+  // Users
+  USERS_ME: '/users/me',
+
+  // Memos
+  MEMOS: '/memos',
+  MEMO_BY_ID: (id) => `/memos/${id}`,
+
+  // Schedules
+  SCHEDULES: '/schedules',
+  SCHEDULE_BY_ID: (id) => `/schedules/${id}`,
+
+  // Inquiries (Consultations)
   INQUIRIES: '/inquiries',
   INQUIRY_DETAIL: (id) => `/inquiries/${id}`,
   INQUIRY_UPDATE: (id) => `/inquiries/${id}`,
   INQUIRY_DELETE: (id) => `/inquiries/${id}`,
-  ATTACHMENTS: (id) => `/inquiries/${id}/attachments/urls`,
-  SMS_SEND: '/sms/send',
+  ATTACHMENTS: (id) => `/inquiries/${id}/attachments`,
+
+  // Health Check
+  HEALTH: '/',
 };
 
 /**
- * Make an authenticated API request
- * @param {string} endpoint - API endpoint
- * @param {object} options - Fetch options
- * @param {object} auth - Google auth object
- * @returns {Promise<any>}
+ * 인증된 API 요청 헬퍼
+ * @param {string} endpoint - API 엔드포인트 (예: '/memos', '/schedules')
+ * @param {Object} options - fetch 옵션 { method, body, headers }
+ * @param {Object} auth - 인증 정보 { currentUser }
+ * @returns {Promise<Object>} API 응답
+ * @throws {Error} 인증 실패 또는 네트워크 오류
  */
-export async function apiRequest(endpoint, options = {}, auth) {
-  const startTime = performance.now();
-  const url = `${API_BASE_URL}${endpoint}`;
+export async function apiRequest(endpoint, options = {}, auth = null) {
+  const startTime = Date.now();
 
-  // Log which backend server is being used
-  const isLocalBackend = API_BASE_URL.includes('localhost') || API_BASE_URL.includes('192.168');
-  console.log(`%c[API] ${isLocalBackend ? '🏠 LOCAL BACKEND' : '☁️ GCP BACKEND'}: ${API_BASE_URL}`,
-    `color: ${isLocalBackend ? '#00ff00' : '#00aaff'}; font-weight: bold`);
-
-  // Get Google OAuth token
-  let token = null;
-  if (auth && auth.currentUser) {
-    try {
-      token = auth.currentUser.idToken;
-      console.log('Google OAuth Token obtained:', token ? 'Yes' : 'No');
-      console.log('User email:', auth.currentUser.email);
-    } catch (error) {
-      console.error('Failed to get token:', error);
-      throw new Error('로그인이 필요합니다. 다시 로그인해주세요.');
-    }
-  } else {
-    console.warn('No authenticated user found');
-    throw new Error('로그인이 필요합니다.');
+  // 인증 정보 확인
+  if (!auth || !auth.currentUser) {
+    throw new Error('인증 정보가 필요합니다. 로그인해주세요.');
   }
 
+  const { currentUser } = auth;
+
+  // ID 토큰 가져오기 (Google/Naver 모두 idToken 필드 사용)
+  const idToken = currentUser.idToken;
+
+  if (!idToken) {
+    throw new Error('인증 토큰이 없습니다. 다시 로그인해주세요.');
+  }
+
+  // 요청 헤더 구성
   const headers = {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${idToken}`,
+    'X-Provider': currentUser.provider, // 'google' | 'naver'
     ...options.headers,
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // 요청 URL 구성
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  try {
+    console.log(`[API Request] ${options.method || 'GET'} ${endpoint}`);
+
+    const fetchStart = Date.now();
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+    const fetchTime = Date.now() - fetchStart;
+
+    console.log(`[API Response] ${response.status} (${fetchTime}ms)`);
+
+    // 에러 응답 처리
+    if (!response.ok) {
+      let errorMessage = `API 요청 실패: ${response.status}`;
+
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch (parseError) {
+        // JSON 파싱 실패 시 기본 메시지 사용
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    // 성공 응답 파싱
+    const data = await response.json();
+    const totalTime = Date.now() - startTime;
+
+    console.log(`[API Success] Total time: ${totalTime}ms`);
+
+    return data;
+
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[API Error] ${endpoint} (${totalTime}ms):`, error);
+
+    // 네트워크 오류 처리
+    if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
+      throw new Error('백엔드 서버에 연결할 수 없습니다. Docker Compose가 실행 중인지 확인해주세요.');
+    }
+
+    throw error;
   }
+}
 
-  // Add X-Provider header for provider-based token verification
-  if (auth && auth.currentUser && auth.currentUser.provider) {
-    headers['X-Provider'] = auth.currentUser.provider;
+/**
+ * API 서버 상태 확인
+ * @returns {Promise<boolean>} 서버 정상 여부
+ */
+export async function checkApiHealth() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/`);
+    const data = await response.json();
+    return data.status === 'ok';
+  } catch (error) {
+    console.error('[API Health Check] Failed:', error);
+    return false;
   }
-
-  const fetchStartTime = performance.now();
-  console.log(`[Frontend Performance] Starting fetch to ${endpoint}`);
-
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  const fetchEndTime = performance.now();
-  console.log(`[Frontend Performance] Fetch completed in ${(fetchEndTime - fetchStartTime).toFixed(0)}ms`);
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'unknown_error' }));
-    throw new Error(error.message || `API Error: ${response.status}`);
-  }
-
-  const result = await response.json();
-  const totalTime = performance.now() - startTime;
-  console.log(`[Frontend Performance] Total apiRequest time: ${totalTime.toFixed(0)}ms`);
-
-  return result;
 }

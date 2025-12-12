@@ -26,7 +26,25 @@
       "Bash(git rm:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(..dev-scriptsstart-dev.ps1)",
+      "Bash(docker pull:*)",
+      "Bash(docker run:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(tasklist:*)",
+      "Bash(npm run dev:*)",
+      "Bash(powershell:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker-compose stop:*)",
+      "Bash(docker-compose rm:*)",
+      "Bash(docker-compose:*)",
+      "Bash(npm run electron:dev:*)",
+      "Bash(git checkout:*)",
+      "Bash(timeout 3 cmd:*)",
+      "Bash(timeout 5 npm start)"
     ]
   }
 }

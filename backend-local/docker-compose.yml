@@ -1,8 +1,32 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aps-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: aps_admin
+      POSTGRES_USER: apsuser
+      POSTGRES_PASSWORD: aps_secure_password_2025
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - aps-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apsuser -d aps_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   aps-backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aps-admin-backend:local
     container_name: aps-admin-backend
     restart: unless-stopped
     ports:
@@ -12,17 +36,31 @@ services:
     volumes:
       # GCP 서비스 계정 JSON 파일 마운트 (반드시 필요)
       - ./service-account.json:/app/service-account.json:ro
+      # 개발 중 실시간 코드 반영 (소스 코드 마운트)
+      - ./server.js:/app/server.js
+      - ./db.js:/app/db.js
     environment:
       # 서비스 계정 JSON 경로 (컨테이너 내부 경로)
       GOOGLE_APPLICATION_CREDENTIALS: /app/service-account.json
+      # PostgreSQL 연결 정보
+      DATABASE_URL: postgresql://apsuser:aps_secure_password_2025@postgres:5432/aps_admin
+      # 개발 모드
+      NODE_ENV: development
     networks:
       - aps-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
 
 networks:
   aps-network:

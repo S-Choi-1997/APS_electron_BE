@@ -9,14 +9,19 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../auth/authManager';
 import './Sidebar.css';
 
-function Sidebar({ user, uncheckedCount }) {
+function Sidebar({ user, stats = { website: 0, email: 0 } }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState({ consultations: true }); // 문의 메뉴 기본 펼침
   const userMenuRef = useRef(null);
 
   const isActive = (path) => {
     return location.pathname === path;
+  };
+
+  const toggleMenu = (menuKey) => {
+    setExpandedMenus(prev => ({ ...prev, [menuKey]: !prev[menuKey] }));
   };
 
   const handleLogout = async () => {
@@ -62,15 +67,37 @@ function Sidebar({ user, uncheckedCount }) {
           <span className="nav-label">대시보드</span>
         </Link>
 
-        <Link
-          to="/consultations"
-          className={`nav-item ${isActive('/consultations') ? 'active' : ''}`}
-        >
-          <span className="nav-label">문의 목록</span>
-          {uncheckedCount > 0 && (
-            <span className="nav-badge">{uncheckedCount}</span>
+        <div className="nav-section">
+          <div
+            className="nav-item nav-parent"
+            onClick={() => toggleMenu('consultations')}
+          >
+            <span className="nav-label">문의 목록</span>
+            <span className={`nav-arrow ${expandedMenus.consultations ? 'expanded' : ''}`}>›</span>
+          </div>
+          {expandedMenus.consultations && (
+            <div className="nav-submenu">
+              <Link
+                to="/consultations/website"
+                className={`nav-item nav-sub ${isActive('/consultations/website') || isActive('/consultations') ? 'active' : ''}`}
+              >
+                <span className="nav-label">홈페이지</span>
+                {stats.website > 0 && (
+                  <span className="nav-badge">{stats.website}</span>
+                )}
+              </Link>
+              <Link
+                to="/consultations/email"
+                className={`nav-item nav-sub ${isActive('/consultations/email') ? 'active' : ''}`}
+              >
+                <span className="nav-label">이메일</span>
+                {stats.email > 0 && (
+                  <span className="nav-badge">{stats.email}</span>
+                )}
+              </Link>
+            </div>
           )}
-        </Link>
+        </div>
 
         <Link
           to="/memo"

@@ -28,6 +28,7 @@ require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
+const db_postgres = require("./db"); // PostgreSQL connection
 
 // 환경변수 로드 확인
 console.log("=".repeat(60));
@@ -58,6 +59,13 @@ try {
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
+
+// Test PostgreSQL connection on startup
+db_postgres.testConnection().then(success => {
+  if (!success) {
+    console.error("⚠️  Warning: PostgreSQL connection failed. Memos and schedules will not work.");
+  }
+});
 
 const app = express();
 
@@ -309,6 +317,23 @@ const authenticate = async (req, res, next) => {
     const authDuration = Date.now() - authStartTime;
     console.log(`[Auth] ${provider} authentication successful for ${userEmail} (${authDuration}ms)`);
 
+    // Auto-register user in PostgreSQL if not exists (for memos/schedules FK constraint)
+    try {
+      const userInsertQuery = `
+        INSERT INTO users (email, display_name, provider, role, active)
+        VALUES ($1, $2, $3, 'user', true)
+        ON CONFLICT (email) DO UPDATE
+        SET provider = EXCLUDED.provider,
+            updated_at = CURRENT_TIMESTAMP,
+            synced_at = CURRENT_TIMESTAMP
+      `;
+      await db_postgres.query(userInsertQuery, [userEmail, userName || userEmail, provider]);
+      console.log(`[Auth] User ${userEmail} ensured in database`);
+    } catch (dbError) {
+      console.error(`[Auth] Failed to ensure user in database:`, dbError);
+      // Don't fail the request - just log the error
+    }
+
     next();
   } catch (error) {
     console.error("Authentication error:", error);
@@ -379,6 +404,30 @@ app.get("/inquiries", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching inquiries:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// GET /inquiries/stats - Get unchecked inquiry statistics
+app.get("/inquiries/stats", async (req, res) => {
+  try {
+    const snapshot = await db.collection("inquiries")
+      .where("check", "==", false)
+      .get();
+
+    const websiteCount = snapshot.docs.length;
+    const emailCount = 0; // 이메일 로직 없음, 일단 0
+
+    res.json({
+      status: "ok",
+      data: {
+        website: websiteCount,
+        email: emailCount,
+        total: websiteCount + emailCount
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching inquiry stats:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
   }
 });
@@ -598,6 +647,687 @@ app.delete("/inquiries/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("Error deleting inquiry:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// USERS API (PostgreSQL)
+// ============================================
+
+// PATCH /users/me - Update current user's displayName
+app.patch("/users/me", authenticate, async (req, res) => {
+  try {
+    const { displayName } = req.body;
+
+    if (displayName === undefined) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Missing displayName field"
+      });
+    }
+
+    const query = `
+      UPDATE users
+      SET display_name = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE email = $2
+      RETURNING email, display_name, provider, role, active, created_at, updated_at
+    `;
+
+    const result = await db_postgres.query(query, [displayName, req.user.email]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "User not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// GET /users/me - Get current user info
+app.get("/users/me", authenticate, async (req, res) => {
+  try {
+    const query = `
+      SELECT email, display_name, provider, role, active, created_at, updated_at
+      FROM users
+      WHERE email = $1
+    `;
+
+    const result = await db_postgres.query(query, [req.user.email]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "User not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// MEMOS API (PostgreSQL)
+// ============================================
+
+// GET /memos - List memos with search and pagination
+app.get("/memos", authenticate, async (req, res) => {
+  try {
+    const { search, author, important, limit = "50", offset = "0" } = req.query;
+
+    let query = `
+      SELECT m.id, m.title, m.content, m.important, m.author,
+             m.created_at, m.updated_at, m.expire_date,
+             COALESCE(u.display_name, m.author) as author_name
+      FROM active_memos m
+      LEFT JOIN users u ON m.author = u.email
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    // Search filter (title or content)
+    if (search) {
+      query += ` AND (m.title ILIKE $${paramIndex} OR m.content ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    // Author filter
+    if (author) {
+      query += ` AND m.author = $${paramIndex}`;
+      params.push(author);
+      paramIndex++;
+    }
+
+    // Important filter
+    if (important !== undefined) {
+      query += ` AND m.important = $${paramIndex}`;
+      params.push(important === 'true');
+      paramIndex++;
+    }
+
+    // Order by creation date (newest first)
+    query += ` ORDER BY m.created_at DESC`;
+
+    // Pagination
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await db_postgres.query(query, params);
+
+    res.json({
+      status: "ok",
+      data: result.rows,
+      count: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching memos:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// POST /memos - Create new memo
+app.post("/memos", authenticate, async (req, res) => {
+  try {
+    const { title, content, important = false, expire_date } = req.body;
+
+    if (!title || !content) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Missing required fields: title, content"
+      });
+    }
+
+    const insertQuery = `
+      INSERT INTO memos (title, content, important, author, expire_date)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, title, content, important, author, created_at, updated_at, expire_date
+    `;
+
+    const expireDate = expire_date || new Date().toISOString().split('T')[0]; // Default: today
+    const result = await db_postgres.query(insertQuery, [
+      title,
+      content,
+      important,
+      req.user.email,
+      expireDate,
+    ]);
+
+    // Get author_name from users table
+    const selectQuery = `
+      SELECT m.*, COALESCE(u.display_name, m.author) as author_name
+      FROM memos m
+      LEFT JOIN users u ON m.author = u.email
+      WHERE m.id = $1
+    `;
+    const memoWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
+
+    res.json({
+      status: "ok",
+      data: memoWithAuthor.rows[0],
+    });
+  } catch (error) {
+    console.error("Error creating memo:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// PATCH /memos/:id - Update memo
+app.patch("/memos/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, content, important, expire_date } = req.body;
+
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (title !== undefined) {
+      updates.push(`title = $${paramIndex++}`);
+      params.push(title);
+    }
+    if (content !== undefined) {
+      updates.push(`content = $${paramIndex++}`);
+      params.push(content);
+    }
+    if (important !== undefined) {
+      updates.push(`important = $${paramIndex++}`);
+      params.push(important);
+    }
+    if (expire_date !== undefined) {
+      updates.push(`expire_date = $${paramIndex++}`);
+      params.push(expire_date);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+    }
+
+    params.push(id);
+    const query = `
+      UPDATE memos
+      SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $${paramIndex} AND deleted_at IS NULL
+      RETURNING id, title, content, important, author, created_at, updated_at, expire_date
+    `;
+
+    const result = await db_postgres.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Memo not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating memo:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// DELETE /memos/:id - Soft delete memo
+app.delete("/memos/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      UPDATE memos
+      SET deleted_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING id
+    `;
+
+    const result = await db_postgres.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Memo not found" });
+    }
+
+    res.json({
+      status: "ok",
+      message: "Memo deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting memo:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// SCHEDULES API (PostgreSQL)
+// ============================================
+
+// GET /schedules - List schedules with filtering
+app.get("/schedules", authenticate, async (req, res) => {
+  try {
+    const { start_date, end_date, type, author, limit = "100", offset = "0" } = req.query;
+
+    let query = `
+      SELECT s.id, s.title, s.time, s.start_date, s.end_date, s.type, s.author,
+             s.created_at, s.updated_at,
+             COALESCE(u.display_name, s.author) as author_name
+      FROM active_schedules s
+      LEFT JOIN users u ON s.author = u.email
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    // Date range filter
+    if (start_date) {
+      query += ` AND s.end_date >= $${paramIndex}`;
+      params.push(start_date);
+      paramIndex++;
+    }
+    if (end_date) {
+      query += ` AND s.start_date <= $${paramIndex}`;
+      params.push(end_date);
+      paramIndex++;
+    }
+
+    // Type filter
+    if (type) {
+      query += ` AND s.type = $${paramIndex}`;
+      params.push(type);
+      paramIndex++;
+    }
+
+    // Author filter
+    if (author) {
+      query += ` AND s.author = $${paramIndex}`;
+      params.push(author);
+      paramIndex++;
+    }
+
+    // Order by start date
+    query += ` ORDER BY s.start_date DESC, s.time`;
+
+    // Pagination
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await db_postgres.query(query, params);
+
+    res.json({
+      status: "ok",
+      data: result.rows,
+      count: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching schedules:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// POST /schedules - Create new schedule
+app.post("/schedules", authenticate, async (req, res) => {
+  try {
+    const { title, time, start_date, end_date, type } = req.body;
+
+    if (!title || !start_date || !end_date || !type) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Missing required fields: title, start_date, end_date, type"
+      });
+    }
+
+    const insertQuery = `
+      INSERT INTO schedules (title, time, start_date, end_date, type, author)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, title, time, start_date, end_date, type, author, created_at, updated_at
+    `;
+
+    const result = await db_postgres.query(insertQuery, [
+      title,
+      time || null,
+      start_date,
+      end_date,
+      type,
+      req.user.email,
+    ]);
+
+    // Get author_name from users table
+    const selectQuery = `
+      SELECT s.*, COALESCE(u.display_name, s.author) as author_name
+      FROM schedules s
+      LEFT JOIN users u ON s.author = u.email
+      WHERE s.id = $1
+    `;
+    const scheduleWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
+
+    res.json({
+      status: "ok",
+      data: scheduleWithAuthor.rows[0],
+    });
+  } catch (error) {
+    console.error("Error creating schedule:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// PATCH /schedules/:id - Update schedule
+app.patch("/schedules/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, time, start_date, end_date, type } = req.body;
+
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (title !== undefined) {
+      updates.push(`title = $${paramIndex++}`);
+      params.push(title);
+    }
+    if (time !== undefined) {
+      updates.push(`time = $${paramIndex++}`);
+      params.push(time);
+    }
+    if (start_date !== undefined) {
+      updates.push(`start_date = $${paramIndex++}`);
+      params.push(start_date);
+    }
+    if (end_date !== undefined) {
+      updates.push(`end_date = $${paramIndex++}`);
+      params.push(end_date);
+    }
+    if (type !== undefined) {
+      updates.push(`type = $${paramIndex++}`);
+      params.push(type);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+    }
+
+    params.push(id);
+    const query = `
+      UPDATE schedules
+      SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $${paramIndex} AND deleted_at IS NULL
+      RETURNING id, title, time, start_date, end_date, type, author, created_at, updated_at
+    `;
+
+    const result = await db_postgres.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Schedule not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating schedule:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// DELETE /schedules/:id - Soft delete schedule
+app.delete("/schedules/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      UPDATE schedules
+      SET deleted_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING id
+    `;
+
+    const result = await db_postgres.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Schedule not found" });
+    }
+
+    res.json({
+      status: "ok",
+      message: "Schedule deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting schedule:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// EMAIL INQUIRIES API (PostgreSQL - Gmail polling)
+// ============================================
+
+// GET /email-inquiries - List email inquiries
+app.get("/email-inquiries", authenticate, async (req, res) => {
+  try {
+    const { checked, limit = "100", offset = "0" } = req.query;
+
+    let query = `
+      SELECT id, subject, from_email, from_name, body_text, body_html,
+             attachments, received_at, synced_at, checked, checked_by,
+             checked_at, notes, labels, thread_id
+      FROM email_inquiries
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    if (checked !== undefined) {
+      query += ` AND checked = $${paramIndex}`;
+      params.push(checked === 'true');
+      paramIndex++;
+    }
+
+    query += ` ORDER BY received_at DESC`;
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await db_postgres.query(query, params);
+
+    res.json({
+      status: "ok",
+      data: result.rows,
+      count: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching email inquiries:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// PATCH /email-inquiries/:id - Update email inquiry (mark as checked)
+app.patch("/email-inquiries/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { checked, notes } = req.body;
+
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (checked !== undefined) {
+      updates.push(`checked = $${paramIndex++}`);
+      params.push(checked);
+
+      if (checked) {
+        updates.push(`checked_by = $${paramIndex++}`);
+        params.push(req.user.email);
+        updates.push(`checked_at = CURRENT_TIMESTAMP`);
+      }
+    }
+
+    if (notes !== undefined) {
+      updates.push(`notes = $${paramIndex++}`);
+      params.push(notes);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+    }
+
+    params.push(id);
+    const query = `
+      UPDATE email_inquiries
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await db_postgres.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Email inquiry not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating email inquiry:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// WEB FORM INQUIRIES API (PostgreSQL - Firestore polling)
+// ============================================
+
+// GET /web-form-inquiries - List web form inquiries
+app.get("/web-form-inquiries", authenticate, async (req, res) => {
+  try {
+    const { checked, consultation_type, limit = "100", offset = "0" } = req.query;
+
+    let query = `
+      SELECT id, name, email, phone, consultation_type, content,
+             preferred_contact, consent_privacy, created_at, synced_at,
+             checked, checked_by, checked_at, notes, ip_address, user_agent
+      FROM web_form_inquiries
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    if (checked !== undefined) {
+      query += ` AND checked = $${paramIndex}`;
+      params.push(checked === 'true');
+      paramIndex++;
+    }
+
+    if (consultation_type) {
+      query += ` AND consultation_type = $${paramIndex}`;
+      params.push(consultation_type);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY created_at DESC`;
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await db_postgres.query(query, params);
+
+    res.json({
+      status: "ok",
+      data: result.rows,
+      count: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching web form inquiries:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// PATCH /web-form-inquiries/:id - Update web form inquiry (mark as checked)
+app.patch("/web-form-inquiries/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { checked, notes } = req.body;
+
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (checked !== undefined) {
+      updates.push(`checked = $${paramIndex++}`);
+      params.push(checked);
+
+      if (checked) {
+        updates.push(`checked_by = $${paramIndex++}`);
+        params.push(req.user.email);
+        updates.push(`checked_at = CURRENT_TIMESTAMP`);
+      }
+    }
+
+    if (notes !== undefined) {
+      updates.push(`notes = $${paramIndex++}`);
+      params.push(notes);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+    }
+
+    params.push(id);
+    const query = `
+      UPDATE web_form_inquiries
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await db_postgres.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "Web form inquiry not found" });
+    }
+
+    res.json({
+      status: "ok",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating web form inquiry:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// ============================================
+// UNIFIED INQUIRIES VIEW
+// ============================================
+
+// GET /inquiries/all - Get all unchecked inquiries (unified view)
+app.get("/inquiries/all", authenticate, async (req, res) => {
+  try {
+    const { limit = "100", offset = "0" } = req.query;
+
+    const query = `
+      SELECT * FROM all_unchecked_inquiries
+      LIMIT $1 OFFSET $2
+    `;
+
+    const result = await db_postgres.query(query, [
+      parseInt(limit, 10),
+      parseInt(offset, 10),
+    ]);
+
+    res.json({
+      status: "ok",
+      data: result.rows,
+      count: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching all inquiries:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
   }
 });

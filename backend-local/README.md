@@ -2,6 +2,18 @@
 
 로컬 Docker 환경에서 실행되는 APS Admin 백엔드 API 서버입니다.
 
+## 🐳 Docker Hub
+
+**이미지**: https://hub.docker.com/r/choho97/aps-admin-backend
+
+```bash
+# 최신 버전 다운로드
+docker pull choho97/aps-admin-backend:latest
+
+# 특정 버전 다운로드
+docker pull choho97/aps-admin-backend:1.0.0
+```
+
 ## 📋 개요
 
 - **원본**: GCP Cloud Run (GCP2)
@@ -39,6 +51,62 @@
 - **NAS/로컬 서버**: 24시간 실행 가능한 환경 (권장)
 
 ## 🚀 빠른 시작
+
+### 방법 1: Quick Start 스크립트 (가장 간단)
+
+Docker Hub에서 이미지를 받아서 바로 실행합니다.
+
+**Linux/Mac**:
+```bash
+# 필수 파일 준비
+# 1. .env 파일 생성 (환경 설정)
+# 2. service-account.json 복사 (GCP 인증)
+
+# Quick Start 실행
+./quick-start.sh
+```
+
+**Windows**:
+```powershell
+# 필수 파일 준비
+# 1. .env 파일 생성 (환경 설정)
+# 2. service-account.json 복사 (GCP 인증)
+
+# Quick Start 실행
+.\quick-start.ps1
+```
+
+**스크립트가 자동으로**:
+1. 환경 파일 확인
+2. Docker Hub에서 최신 이미지 다운로드
+3. 컨테이너 실행
+4. 상태 확인
+
+---
+
+### 방법 2: Docker Hub에서 직접 실행
+
+```bash
+# 1. 이미지 다운로드
+docker pull choho97/aps-admin-backend:latest
+
+# 2. 실행 (.env와 service-account.json 필요)
+docker run -d \
+  --name aps-admin-backend \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  --env-file .env \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json \
+  -v $(pwd)/service-account.json:/app/service-account.json:ro \
+  choho97/aps-admin-backend:latest
+
+# 3. 상태 확인
+docker logs aps-admin-backend
+```
+
+---
+
+### 방법 3: 처음부터 설정 (GCP 서비스 계정 생성)
 
 ### 1. GCP 서비스 계정 생성 (자동화)
 

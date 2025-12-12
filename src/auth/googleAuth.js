@@ -98,6 +98,7 @@ export function signInWithGoogle() {
           currentUser = {
             email: userInfo.email,
             name: userInfo.name,
+            displayName: '', // Will be set by authManager with customDisplayName
             picture: userInfo.picture,
             accessToken: response.access_token,
             // Store ID token for backend authentication
@@ -184,6 +185,7 @@ export async function restoreSession() {
   // If token is expired, it will fail on actual API calls
   currentUser = {
     ...stored,
+    displayName: stored.displayName || '', // Will be overridden by authManager
     provider: 'google',
   };
 
@@ -205,7 +207,5 @@ onAuthStateChanged((user) => {
 
 export { GOOGLE_CLIENT_ID };
 
-// Attempt to restore session on module load
-restoreSession().catch(() => {
-  // silent failure; listener already notified in restoreSession on failure
-});
+// Note: Session restoration is handled by authManager.js
+// Do not auto-restore here to prevent displayName override issues
