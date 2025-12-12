@@ -971,9 +971,9 @@
     }
 
     function updateConsultationStats() {
-      // 이메일/홈페이지 분류
-      const emailCount = consultations.filter(c => c.type === 'email' || c.source === 'email').length;
-      const websiteCount = consultations.filter(c => c.type === 'website' || c.source === 'website' || !c.type).length;
+      // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
+      const emailCount = 0;
+      const websiteCount = consultations.filter(c => !c.check).length;
 
       document.getElementById('emailCount').textContent = emailCount;
       document.getElementById('websiteCount').textContent = websiteCount;
@@ -1011,9 +1011,9 @@
 
     // 상담 통계 업데이트 함수
     function updateConsultationStats() {
-      // 이메일/홈페이지 분류
-      const emailCount = consultations.filter(c => c.type === 'email' || c.source === 'email').length;
-      const websiteCount = consultations.filter(c => c.type === 'website' || c.source === 'website' || !c.type).length;
+      // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
+      const emailCount = 0;
+      const websiteCount = consultations.filter(c => !c.check).length;
 
       document.getElementById('emailCount').textContent = emailCount;
       document.getElementById('websiteCount').textContent = websiteCount;

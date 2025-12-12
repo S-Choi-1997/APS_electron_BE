@@ -163,7 +163,7 @@ function AppRouter() {
                 <Routes>
                   <Route
                     path="/"
-                    element={<Dashboard user={user} consultations={consultations} />}
+                    element={<Dashboard user={user} consultations={consultations} stats={stats} />}
                   />
                   <Route
                     path="/consultations"

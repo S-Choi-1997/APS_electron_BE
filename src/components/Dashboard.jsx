@@ -20,7 +20,7 @@ import './css/DashboardNotice.css';
 import './css/DashboardPending.css';
 import './css/DashboardCalendar.css';
 
-function Dashboard({ user, consultations }) {
+function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -63,10 +63,11 @@ function Dashboard({ user, consultations }) {
     hasTime: false, // 시간 지정 체크박스
   });
 
-  // 미처리 상담 요청 통계
+  // 미처리 상담 요청 통계 (API stats 사용)
   const uncheckedConsultations = consultations.filter(c => !c.check);
-  const emailInquiries = uncheckedConsultations.filter(c => c.email);
-  const webInquiries = uncheckedConsultations.filter(c => !c.email || c.source === 'web');
+  // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
+  const emailCount = stats.email || 0;
+  const websiteCount = stats.website || 0;
 
   // 캘린더 생성 로직
   const getDaysInMonth = (date) => {
@@ -768,14 +769,14 @@ function Dashboard({ user, consultations }) {
                 <div className="pending-icon">✉️</div>
                 <div className="pending-info">
                   <span className="pending-label">이메일</span>
-                  <span className="pending-count">{emailInquiries.length}건</span>
+                  <span className="pending-count">{emailCount}건</span>
                 </div>
               </div>
               <div className="pending-item web">
                 <div className="pending-icon">🌐</div>
                 <div className="pending-info">
                   <span className="pending-label">홈페이지</span>
-                  <span className="pending-count">{webInquiries.length}건</span>
+                  <span className="pending-count">{websiteCount}건</span>
                 </div>
               </div>
             </div>
