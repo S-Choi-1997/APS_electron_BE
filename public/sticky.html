@@ -88,10 +88,60 @@
       font-weight: 700;
     }
 
+    .titlebar-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      -webkit-app-region: no-drag;
+    }
+
+    .opacity-slider-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .opacity-slider-label {
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .opacity-slider {
+      width: 80px;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .opacity-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .opacity-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
     .titlebar-buttons {
       display: flex;
       gap: 8px;
-      -webkit-app-region: no-drag;
     }
 
     .titlebar-btn {
@@ -690,8 +740,22 @@
     <!-- 커스텀 타이틀바 -->
     <div class="custom-titlebar">
       <div class="titlebar-title">알림창</div>
-      <div class="titlebar-buttons">
-        <button class="titlebar-btn close" onclick="window.close()" title="닫기">✕</button>
+      <div class="titlebar-controls">
+        <div class="opacity-slider-container">
+          <span class="opacity-slider-label">투명도</span>
+          <input
+            type="range"
+            class="opacity-slider"
+            id="opacitySlider"
+            min="50"
+            max="100"
+            value="95"
+            oninput="changeOpacity(this.value)"
+          />
+        </div>
+        <div class="titlebar-buttons">
+          <button class="titlebar-btn close" onclick="window.close()" title="닫기">✕</button>
+        </div>
       </div>
     </div>
 
@@ -987,12 +1051,17 @@
       const pendingBody = document.getElementById('pendingBody');
       const pendingCount = document.getElementById('pendingCount');
 
+      // 미처리 상담: 이메일(0건) + 홈페이지(check=false)
+      const emailCount = 0;
+      const websiteCount = consultations.filter(c => !c.check).length;
+      const totalPendingCount = emailCount + websiteCount;
+
+      pendingCount.textContent = totalPendingCount;
+
       // 미처리 상담: status가 'pending' 또는 '미처리'인 것들
       const pendingConsultations = consultations.filter(c =>
         c.status === 'pending' || c.status === '미처리' || !c.status
       );
-
-      pendingCount.textContent = pendingConsultations.length;
 
       if (pendingConsultations.length === 0) {
         pendingBody.innerHTML = '<div class="empty-state">미처리 상담 요청이 없습니다</div>';
@@ -1113,12 +1182,21 @@
         return;
       }
 
-      memoCount.textContent = memos.length;
+      // 만료되지 않은 메모만 필터링 (Dashboard.jsx lines 493-499와 동일한 로직)
+      const validMemos = memos.filter(memo => {
+        if (!memo.expire_date) return true; // 만료일 없으면 항상 표시
+        const expireDate = new Date(memo.expire_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return expireDate >= today;
+      });
 
-      if (memos.length === 0) {
+      memoCount.textContent = validMemos.length;
+
+      if (validMemos.length === 0) {
         memoBody.innerHTML = '<div class="empty-state">메모가 없습니다</div>';
       } else {
-        memoBody.innerHTML = memos.map((memo, index) => `
+        memoBody.innerHTML = validMemos.map((memo, index) => `
           <div class="memo-item" onclick="showMemoDetail(${index})" style="cursor: pointer;">
             <div class="memo-header">
               ${memo.important ? '<span class="memo-badge">중요</span>' : ''}
@@ -1129,7 +1207,7 @@
           </div>
         `).join('');
       }
-      console.log('[Sticky] Memos rendered successfully');
+      console.log('[Sticky] Memos rendered successfully, valid memos:', validMemos.length);
 
       // 메모 렌더링 후 윈도우 높이 재조정
       adjustWindowHeight();
@@ -1141,6 +1219,15 @@
       document.getElementById('memoTitle').value = '';
       document.getElementById('memoContent').value = '';
       document.getElementById('memoImportant').checked = false;
+
+      // 만료일을 당일로 기본 설정
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      const todayString = `${year}-${month}-${day}`;
+      document.getElementById('memoExpireDate').value = todayString;
+
       document.getElementById('memoTitle').focus();
     }
 
@@ -1270,6 +1357,14 @@
           renderMemos();
         }
       });
+    }
+
+    // 투명도 변경 함수
+    function changeOpacity(value) {
+      const opacity = value / 100; // 50-100 -> 0.5-1.0
+      if (window.electron && window.electron.setWindowOpacity) {
+        window.electron.setWindowOpacity(opacity);
+      }
     }
 
     // IPC 이벤트 리스너: 다른 창에서 상담/일정 생성/수정/삭제 시 자동 업데이트

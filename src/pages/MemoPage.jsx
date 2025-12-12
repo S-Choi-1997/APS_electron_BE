@@ -211,7 +211,17 @@ function MemoPage({ user }) {
     <div className="page-container">
       <div className="page-header">
         <h1 className="page-title">팀 메모</h1>
-        <button className="add-btn" onClick={() => setShowCreateModal(true)}>
+        <button className="add-btn" onClick={() => {
+          // 만료일을 당일로 기본 설정
+          const today = new Date();
+          const year = today.getFullYear();
+          const month = String(today.getMonth() + 1).padStart(2, '0');
+          const day = String(today.getDate()).padStart(2, '0');
+          const todayString = `${year}-${month}-${day}`;
+
+          setMemoForm({ title: '', content: '', important: false, expire_date: todayString });
+          setShowCreateModal(true);
+        }}>
           + 메모 추가
         </button>
       </div>

@@ -165,6 +165,7 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
     alwaysOnTop: true,
     show: false,
     resizable: false,
+    opacity: 0.95, // 95% 불투명도 (5% 투명)
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -216,6 +217,15 @@ ipcMain.handle('show-sticky-window', async (event) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (senderWindow) {
     senderWindow.show();
+    return { success: true };
+  }
+  return { success: false };
+});
+
+ipcMain.handle('set-window-opacity', async (event, opacity) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.setOpacity(opacity);
     return { success: true };
   }
   return { success: false };

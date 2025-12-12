@@ -733,7 +733,17 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
           <div className="dashboard-card memo-card">
             <div className="card-header">
               <h2>📝 팀 메모</h2>
-              <button className="add-btn" onClick={() => setShowMemoCreateModal(true)}>
+              <button className="add-btn" onClick={() => {
+                // 만료일을 당일로 기본 설정
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const todayString = `${year}-${month}-${day}`;
+
+                setMemoForm({ title: '', content: '', important: false, expire_date: todayString });
+                setShowMemoCreateModal(true);
+              }}>
                 + 메모 추가
               </button>
             </div>
