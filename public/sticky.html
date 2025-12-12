@@ -119,7 +119,6 @@
 
     /* 컨테이너 */
     .sticky-container {
-      height: calc(100vh - 40px);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -127,7 +126,7 @@
     }
 
     .sticky-content {
-      flex: 1;
+      flex: 0 0 auto;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -143,13 +142,8 @@
       flex-shrink: 0;
     }
 
-    /* 팀 메모 섹션 - 남은 공간 모두 차지 */
-    #memoSection {
-      flex: 1;
-      min-height: 0;
-    }
-
-    /* 미처리 상담 요청, 오늘 일정 - 내용만큼만 차지 */
+    /* 팀 메모, 미처리 상담 요청, 오늘 일정 - 내용만큼만 차지 */
+    #memoSection,
     #pendingSection,
     #scheduleSection {
       flex: 0 0 auto;
@@ -190,7 +184,7 @@
       min-height: 0;
     }
 
-    /* 팀 메모 body - 더 큰 공간 */
+    /* 팀 메모 body - 내용만큼 차지, 넘으면 스크롤 */
     #memoBody {
       max-height: 300px;
     }
@@ -273,7 +267,7 @@
     }
 
     .memo-title {
-      font-size: 0.75rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: #1a1a1a;
       flex: 1;
@@ -294,8 +288,9 @@
     .memo-author {
       font-size: 0.625rem;
       color: #999;
-      margin-top: 0.25rem;
       font-weight: 600;
+      margin-left: auto;
+      flex-shrink: 0;
     }
 
     /* 일정 카테고리 */
@@ -360,7 +355,7 @@
     }
 
     .schedule-name {
-      font-size: 0.75rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: #1a1a1a;
       flex: 1;
@@ -1014,69 +1009,6 @@
       }
     }
 
-    function renderSchedules() {
-      // 오늘 일정 필터링 (예약일자가 오늘인 상담)
-      const todayString = getTodayString();
-      const todaySchedules = consultations.filter(c => {
-        if (!c.appointmentDate) return false;
-        const appointmentDate = c.appointmentDate.split('T')[0]; // YYYY-MM-DD 추출
-        return appointmentDate === todayString;
-      });
-
-      // 회사/개인 분류
-      const companySchedules = todaySchedules.filter(c => c.scheduleType === '회사' || c.scheduleType === 'company');
-      const personalSchedules = todaySchedules.filter(c => c.scheduleType === '개인' || c.scheduleType === 'personal');
-
-      // 일정 카운트 업데이트
-      document.getElementById('scheduleCount').textContent = todaySchedules.length;
-
-      // 일정 렌더링
-      const scheduleBody = document.getElementById('scheduleBody');
-      if (todaySchedules.length === 0) {
-        scheduleBody.innerHTML = '<div class="empty-state">오늘 일정이 없습니다</div>';
-      } else {
-        let scheduleHTML = '';
-
-        // 회사 일정
-        if (companySchedules.length > 0) {
-          scheduleHTML += `
-            <div class="schedule-category company">
-              <div class="schedule-category-title">회사</div>
-          `;
-          companySchedules.forEach(schedule => {
-            const time = schedule.appointmentTime || '시간 미정';
-            scheduleHTML += `
-              <div class="schedule-item">
-                <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
-              </div>
-            `;
-          });
-          scheduleHTML += '</div>';
-        }
-
-        // 개인 일정
-        if (personalSchedules.length > 0) {
-          scheduleHTML += `
-            <div class="schedule-category personal">
-              <div class="schedule-category-title">개인</div>
-          `;
-          personalSchedules.forEach(schedule => {
-            const time = schedule.appointmentTime || '시간 미정';
-            scheduleHTML += `
-              <div class="schedule-item">
-                <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.name || '이름 없음'}</span>
-              </div>
-            `;
-          });
-          scheduleHTML += '</div>';
-        }
-
-        scheduleBody.innerHTML = scheduleHTML;
-      }
-    }
-
     // 상담 통계 업데이트 함수
     function updateConsultationStats() {
       // 이메일/홈페이지 분류
@@ -1146,10 +1078,12 @@
           `;
           personalSchedules.forEach(schedule => {
             const time = schedule.time || '시간 미정';
+            const authorName = schedule.author_name || schedule.author || '';
+            const displayTitle = authorName ? `${schedule.title} - ${authorName}` : schedule.title;
             scheduleHTML += `
               <div class="schedule-item">
                 <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.title}</span>
+                <span class="schedule-name">${displayTitle}</span>
               </div>
             `;
           });
@@ -1159,6 +1093,9 @@
         scheduleBody.innerHTML = scheduleHTML;
       }
       console.log('[Sticky] Schedules rendered successfully');
+
+      // 일정 렌더링 후 윈도우 높이 재조정
+      adjustWindowHeight();
     }
 
     // 메모 렌더링 함수 (재사용 가능하도록 분리)
@@ -1186,13 +1123,16 @@
             <div class="memo-header">
               ${memo.important ? '<span class="memo-badge">중요</span>' : ''}
               <div class="memo-title">${memo.title}</div>
+              ${memo.author ? `<div class="memo-author">${memo.author_name || memo.author || '사용자'}</div>` : ''}
             </div>
             <div class="memo-content">${linkifyContent(memo.content)}</div>
-            ${memo.author ? `<div class="memo-author">작성자: ${memo.author_name || memo.author || '사용자'}</div>` : ''}
           </div>
         `).join('');
       }
       console.log('[Sticky] Memos rendered successfully');
+
+      // 메모 렌더링 후 윈도우 높이 재조정
+      adjustWindowHeight();
     }
 
     // 모달 관련 함수들
@@ -1366,10 +1306,34 @@
           loadSchedules()
         ]);
         console.log('[Sticky] Data loaded:', { memos: memos.length, consultations: consultations.length, schedules: schedules.length });
+
+        // 내용 로드 후 윈도우 높이 자동 조정
+        adjustWindowHeight();
       } catch (error) {
         console.error('[Sticky] Failed to load data:', error);
       }
     });
+
+    // 윈도우 높이 자동 조정 함수
+    function adjustWindowHeight() {
+      // 약간의 지연을 두고 실행 (렌더링 완료 대기)
+      setTimeout(async () => {
+        const container = document.querySelector('.sticky-container');
+        if (container && window.electron && window.electron.resizeStickyWindow) {
+          const contentHeight = container.scrollHeight;
+          const totalHeight = contentHeight + 40; // 타이틀바 40px 추가
+
+          console.log('[Sticky] Adjusting window height:', totalHeight);
+          await window.electron.resizeStickyWindow(350, totalHeight);
+
+          // 크기 조정 후 윈도우 표시
+          if (window.electron.showStickyWindow) {
+            await window.electron.showStickyWindow();
+            console.log('[Sticky] Window shown');
+          }
+        }
+      }, 100);
+    }
   </script>
 </body>
 </html>

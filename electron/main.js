@@ -159,10 +159,12 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
   }
 
   const stickyWindow = new BrowserWindow({
-    width: 400,
-    height: 600,
+    width: 350,
+    height: 200,
     frame: false,
     alwaysOnTop: true,
+    show: false,
+    resizable: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -173,8 +175,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     stickyWindow.loadURL('http://localhost:5173/sticky.html');
-    // 개발 모드에서 DevTools 자동 열기
-    stickyWindow.webContents.openDevTools({ mode: 'detach' });
+    // 개발 모드에서 DevTools 자동 열기 (크기 표시 때문에 주석 처리)
+    // stickyWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'));
   }
@@ -205,6 +207,15 @@ ipcMain.handle('resize-sticky-window', async (event, { width, height }) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (senderWindow) {
     senderWindow.setSize(width, height);
+    return { success: true };
+  }
+  return { success: false };
+});
+
+ipcMain.handle('show-sticky-window', async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.show();
     return { success: true };
   }
   return { success: false };
