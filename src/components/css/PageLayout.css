@@ -1,7 +1,7 @@
 /* PageLayout.css - 모든 페이지 공통 레이아웃 */
 
 .page-container {
-  padding: 0;
+  padding: 2rem;
   width: 100%;
   max-width: 1800px;
   margin: 0 auto;
@@ -14,39 +14,14 @@
 
 .page-header {
   margin-bottom: 1.5rem;
-  padding-top: 0;
   flex-shrink: 0;
-}
-
-.header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .page-title {
   font-size: 2rem;
   font-weight: 700;
   color: #1a1a1a;
-  margin: 0;
-}
-
-.float-window-btn {
-  padding: 0.625rem 1.25rem;
-  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
-}
-
-.float-window-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);
+  margin: 0 0 1rem 0;
 }
 
 .page-content {

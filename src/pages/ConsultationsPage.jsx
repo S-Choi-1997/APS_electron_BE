@@ -20,7 +20,7 @@ import './ConsultationsPage.css';
 const ITEMS_PER_PAGE = 10;
 const BASE_TYPES = ['전체', '비자', '비영리단체', '기업 인허가', '민원 행정', '기타'];
 
-function ConsultationsPage({ consultations, setConsultations }) {
+function ConsultationsPage({ consultations, setConsultations, type = 'website' }) {
   const [filteredConsultations, setFilteredConsultations] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -305,25 +305,27 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
 
   const uncheckedCount = consultations.filter((c) => !c.check).length;
 
+  const pageTitle = type === 'email' ? '이메일 문의' : '홈페이지 문의';
+
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">문의 목록</h1>
-        <div className="header-content">
-          <div className="header-left">
-          <div className="stats">
-            <span className="stat-item">
-              <span className="stat-label">전체</span>
-              <span className="stat-value">{filteredConsultations.length}</span>
-            </span>
-            <span className="stat-divider">|</span>
-            <span className="stat-item">
-              <span className="stat-label">미확인</span>
-              <span className="stat-value unread">{uncheckedCount}</span>
-            </span>
-          </div>
+        <h1 className="page-title">{pageTitle}</h1>
+        <div className="stats">
+          <span className="stat-item">
+            <span className="stat-label">전체</span>
+            <span className="stat-value">{filteredConsultations.length}</span>
+          </span>
+          <span className="stat-divider">|</span>
+          <span className="stat-item">
+            <span className="stat-label">미확인</span>
+            <span className="stat-value unread">{uncheckedCount}</span>
+          </span>
         </div>
-        <div className="header-actions">
+      </div>
+
+      <div className="page-content">
+        <div className="consultations-controls">
           <div className="filter-row">
             <div className="bulk-actions">
               <button
@@ -361,10 +363,6 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
           </div>
           <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
         </div>
-        </div>
-      </div>
-
-      <div className="page-content">
       {filteredConsultations.length === 0 ? (
         <div className="empty-state">
           <p>검색 결과에 해당하는 문의가 없습니다.</p>

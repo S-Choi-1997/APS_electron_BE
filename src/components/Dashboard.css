@@ -69,19 +69,6 @@
   }
 }
 
-/* 카드 공통 스타일 */
-.dashboard-card {
-  background: white;
-  border-radius: 16px;
-  padding: 2rem;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.dashboard-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-}
-
 .card-header {
   display: flex;
   justify-content: space-between;

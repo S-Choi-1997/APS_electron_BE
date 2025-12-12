@@ -1,21 +1,17 @@
 /* ConsultationsPage.css - 문의 목록 페이지 스타일 */
 
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 2rem;
-  flex-wrap: wrap;
-}
-
-.header-left {
-  flex-shrink: 0;
-}
-
 .stats {
   display: flex;
   align-items: center;
   gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.consultations-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
 .stat-item {
@@ -42,12 +38,6 @@
 
 .stat-divider {
   color: #d1d5db;
-}
-
-.header-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
 }
 
 .filter-row {
