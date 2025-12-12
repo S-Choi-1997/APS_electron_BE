@@ -560,22 +560,41 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     return groups;
   };
 
-  // URL 자동 링크 변환 함수 (XSS 방지)
-  const linkifyContent = (text) => {
+  // URL 자동 링크 변환 함수 - 카드용 (클릭 불가)
+  const linkifyContentCard = (text) => {
     if (!text) return '';
-
-    // URL 패턴: http://, https://, www. 로 시작하는 URL 감지
     const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
-
     const linkedText = text.replace(urlPattern, (url) => {
-      // www로 시작하는 경우 https:// 추가
-      const href = url.startsWith('www.') ? `https://${url}` : url;
-      return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline;">${url}</a>`;
+      return `<span class="link-text" style="color: #667eea; text-decoration: underline; cursor: default;">${url}</span>`;
     });
-
-    // DOMPurify로 XSS 공격 방지
     return DOMPurify.sanitize(linkedText);
   };
+
+  // URL 자동 링크 변환 함수 - 모달용 (클릭 가능, 외부 브라우저)
+  const linkifyContentModal = (text) => {
+    if (!text) return '';
+    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
+    const linkedText = text.replace(urlPattern, (url) => {
+      const href = url.startsWith('www.') ? `https://${url}` : url;
+      return `<a href="${href}" class="external-link-modal" data-clickable="true" style="color: #667eea; text-decoration: underline; cursor: pointer;">${url}</a>`;
+    });
+    return DOMPurify.sanitize(linkedText);
+  };
+
+  // 외부 링크를 기본 브라우저에서 열기
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (e.target.tagName === 'A' && e.target.dataset.clickable === 'true') {
+        e.preventDefault();
+        const href = e.target.getAttribute('href');
+        if (window.electron && window.electron.openExternal) {
+          window.electron.openExternal(href);
+        }
+      }
+    };
+    document.addEventListener('click', handleLinkClick);
+    return () => document.removeEventListener('click', handleLinkClick);
+  }, []);
 
   return (
     <div className="page-container">
@@ -753,17 +772,13 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
                 .slice(0, 5)
                 .map((memo) => (
                   <div key={memo.id} className="memo-item" onClick={() => handleMemoClick(memo)}>
-                    <div className="memo-header-line">
-                      <div className="memo-title-section">
-                        {memo.important && <span className="memo-badge important">중요</span>}
-                        <h4>{memo.title}</h4>
-                      </div>
-                      <span className="memo-author-inline">{memo.author_name || memo.author || '사용자'}</span>
+                    <div className="memo-card-header">
+                      {memo.important && <span className="memo-badge important">중요</span>}
+                      <h4 className="memo-card-title">{memo.title}</h4>
+                      <span className="memo-card-author">{memo.author_name || memo.author || '사용자'}</span>
                     </div>
-                    <div className="memo-text">
-                      <p dangerouslySetInnerHTML={{ __html: linkifyContent(memo.content) }} />
-                      <span className="memo-date">{memo.createdAt.toLocaleDateString()}</span>
-                    </div>
+                    <div className="memo-card-content" dangerouslySetInnerHTML={{ __html: linkifyContentCard(memo.content) }} />
+                    <div className="memo-card-date">{memo.createdAt.toLocaleDateString()}</div>
                   </div>
                 ))}
             </div>
@@ -918,28 +933,29 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         title="메모 상세"
       >
         {selectedMemo && (
-          <div className="memo-detail">
-            <div className="memo-detail-header">
-              <h3>
-                {selectedMemo.important && <span className="memo-badge important">중요</span>}
-                {selectedMemo.title}
-              </h3>
-              <span className="memo-detail-date">{selectedMemo.createdAt.toLocaleDateString()}</span>
+          <div className="memo-detail-view">
+            <div className="detail-title">
+              {selectedMemo.important && <span className="detail-badge">중요</span>}
+              {selectedMemo.title}
             </div>
-            <div className="memo-detail-content">
-              <p>{selectedMemo.content}</p>
-              {selectedMemo.author && <p className="memo-author">작성자: {selectedMemo.author}</p>}
+            <div className="detail-meta">
+              <span className="detail-meta-item">
+                <span className="detail-meta-label">작성자:</span> {selectedMemo.author || '사용자'}
+              </span>
+              <span className="detail-meta-item">
+                <span className="detail-meta-label">작성일:</span> {selectedMemo.createdAt.toLocaleString('ko-KR')}
+              </span>
               {selectedMemo.expire_date && (
-                <p className="memo-expire">만료일: {new Date(selectedMemo.expire_date).toLocaleDateString('ko-KR')}</p>
+                <span className="detail-meta-item">
+                  <span className="detail-meta-label">만료일:</span> {new Date(selectedMemo.expire_date).toLocaleDateString('ko-KR')}
+                </span>
               )}
             </div>
+            <div
+              className="detail-content"
+              dangerouslySetInnerHTML={{ __html: linkifyContentModal(selectedMemo.content) }}
+            />
             <div className="memo-detail-actions">
-              <button
-                className="modal-btn primary"
-                onClick={() => handleMemoEdit(selectedMemo)}
-              >
-                수정
-              </button>
               <button
                 className="modal-btn danger"
                 onClick={() => confirmDelete(selectedMemo, 'memo')}

@@ -47,6 +47,12 @@ contextBridge.exposeInMainWorld('electron', {
   // 대시보드에서 상담 생성/수정/삭제 시 다른 창들에게 브로드캐스트
   broadcastConsultationUpdated: () => ipcRenderer.invoke('broadcast-consultation-updated'),
 
+  // 메모 서브 윈도우 열기
+  openMemoSubWindow: (mode, memoId) => ipcRenderer.invoke('open-memo-sub-window', { mode, memoId }),
+
+  // 외부 브라우저에서 URL 열기
+  openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
+
   // 이벤트 리스너 (메인 프로세스 → 렌더러)
   onMemoCreated: (callback) => {
     ipcRenderer.on('memo-created', (event, data) => callback(data));

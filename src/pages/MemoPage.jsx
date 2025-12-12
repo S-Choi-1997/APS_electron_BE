@@ -72,10 +72,25 @@ function MemoPage({ user }) {
     const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
     const linkedText = text.replace(urlPattern, (url) => {
       const href = url.startsWith('www.') ? `https://${url}` : url;
-      return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline;">${url}</a>`;
+      return `<a href="${href}" class="external-link" style="color: #667eea; text-decoration: underline;">${url}</a>`;
     });
     return DOMPurify.sanitize(linkedText);
   };
+
+  // 외부 링크를 기본 브라우저에서 열기
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (e.target.tagName === 'A' && e.target.classList.contains('external-link')) {
+        e.preventDefault();
+        const href = e.target.getAttribute('href');
+        if (window.electron && window.electron.openExternal) {
+          window.electron.openExternal(href);
+        }
+      }
+    };
+    document.addEventListener('click', handleLinkClick);
+    return () => document.removeEventListener('click', handleLinkClick);
+  }, []);
 
   // 메모 날짜별 그룹화 함수
   const groupMemosByDate = (memos) => {

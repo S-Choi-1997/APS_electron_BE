@@ -244,3 +244,93 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
+
+/* 메모 상세보기 모달 (알림창 스타일 적용) */
+.memo-detail-view {
+  padding: 8px 0;
+}
+
+.detail-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.detail-meta {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.detail-meta-item {
+  display: inline;
+  margin-right: 16px;
+}
+
+.detail-meta-label {
+  font-weight: 600;
+  color: #666;
+}
+
+.detail-content {
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  color: #333;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 20px;
+}
+
+.detail-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.detail-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.detail-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  border-radius: 3px;
+}
+
+.detail-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
+}
+
+.detail-content a {
+  color: #667eea;
+  text-decoration: underline;
+}
+
+.detail-content a:hover {
+  color: #764ba2;
+}
+
+.memo-detail-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

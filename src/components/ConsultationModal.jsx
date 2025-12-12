@@ -188,9 +188,15 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                           {file.downloadUrl ? (
                             <a
                               href={file.downloadUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="download-link"
+                              className="download-link external-link"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (window.electron && window.electron.openExternal) {
+                                  window.electron.openExternal(file.downloadUrl);
+                                } else {
+                                  window.open(file.downloadUrl, '_blank');
+                                }
+                              }}
                             >
                               다운로드
                             </a>

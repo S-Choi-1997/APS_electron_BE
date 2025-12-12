@@ -180,11 +180,11 @@
 }
 
 .schedule-indicator.company {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
 }
 
 .schedule-indicator.personal {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
 }
 
 /* 선택된 날짜 정보 */
@@ -341,4 +341,15 @@
 .schedule-item:hover .schedule-edit-btn,
 .schedule-item:hover .schedule-delete-btn {
   opacity: 1;
+}
+
+/* 일정 타입별 색상 */
+.schedule-item.schedule-company {
+  border-left: 4px solid #667eea;
+  background: linear-gradient(to right, rgba(102, 126, 234, 0.05) 0%, white 100%);
+}
+
+.schedule-item.schedule-personal {
+  border-left: 4px solid #10b981;
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.05) 0%, white 100%);
 }
