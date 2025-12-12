@@ -1,45 +1,15 @@
-/* Dashboard.css - 새로운 레이아웃 */
+/* Dashboard.css - Dashboard 컴포넌트 전용 스타일 */
 
-.page-container {
-  padding: 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
-}
+/*
+  주의:
+  - 레이아웃 관련: DashboardLayout.css 사용
+  - 캘린더 관련: DashboardCalendar.css 사용
+  - 공지사항(메모) 관련: DashboardNotice.css 사용
+  - 미처리 상담 관련: DashboardPending.css 사용
+  - 페이지 공통: PageLayout.css 사용
+*/
 
-.page-header {
-  margin-bottom: 2rem;
-}
-
-.header-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.page-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1a1a1a;
-  margin: 0;
-}
-
-.add-btn {
-  padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.add-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
+/* Dashboard 기본 컨테이너 */
 .dashboard {
   padding: 2rem;
   width: 100%;
@@ -55,583 +25,101 @@
   color: #1a1a1a;
 }
 
-/* 레이아웃: 좌측(공지사항+미처리) + 우측(캘린더) */
-.dashboard-layout {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 2rem;
-  align-items: start;
-}
-
-@media (max-width: 1200px) {
-  .dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #f1f1f1;
-}
-
-.card-header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin: 0;
-}
-
-/* 좌측 영역 */
-.dashboard-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-/* 공지사항 */
-.notice-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.notice-item {
-  padding: 1.25rem;
-  background: #fafafa;
-  border-radius: 12px;
-  border-left: 4px solid #667eea;
-  display: flex;
-  gap: 1rem;
-  transition: all 0.2s;
-}
-
-.notice-item:hover {
-  background: #f5f5f5;
-  transform: translateX(4px);
-}
-
-.notice-badge {
-  padding: 0.375rem 0.75rem;
-  background: #ef4444;
-  color: white;
-  font-size: 0.75rem;
-  font-weight: 700;
-  border-radius: 6px;
-  height: fit-content;
-}
-
-.notice-content {
-  flex: 1;
-}
-
-.notice-content h4 {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 0.5rem;
-}
-
-.notice-content p {
-  font-size: 0.875rem;
-  color: #666;
-  margin-bottom: 0.5rem;
-  line-height: 1.5;
-}
-
-.notice-date {
-  font-size: 0.8125rem;
-  color: #999;
-}
-
-/* 미처리 상담 요청 */
-.total-badge {
-  padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 0.875rem;
-  font-weight: 600;
-  border-radius: 20px;
-}
-
-.pending-stats {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.pending-item {
-  padding: 1.5rem;
-  background: #fafafa;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  transition: all 0.2s;
-}
-
-.pending-item:hover {
-  background: #f0f0f0;
-  transform: translateY(-2px);
-}
-
-.pending-item.email {
-  border-left: 4px solid #3b82f6;
-}
-
-.pending-item.web {
-  border-left: 4px solid #10b981;
-}
-
-.pending-icon {
-  font-size: 2rem;
-}
-
-.pending-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.pending-label {
-  font-size: 0.875rem;
-  color: #666;
-}
-
-.pending-count {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #1a1a1a;
-}
-
-.recent-pending h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 1rem;
-}
-
-.pending-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-/* 커스텀 스크롤바 for pending-list */
-.pending-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.pending-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-.pending-list::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
-}
-
-.pending-list::-webkit-scrollbar-thumb:hover {
-  background: #999;
-}
-
-.pending-list-item {
-  padding: 1rem;
-  background: #f9fafb;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-
-.pending-list-item:hover {
-  background: #e5e7eb;
-  transform: translateX(4px);
-}
-
-.pending-list-icon {
-  font-size: 1.25rem;
-}
-
-.pending-list-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.pending-list-name {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 0.25rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pending-list-type {
-  font-size: 0.8125rem;
-  color: #666;
-}
-
-.pending-list-time {
-  font-size: 0.75rem;
-  color: #999;
-  white-space: nowrap;
-}
-
-.empty-pending {
-  text-align: center;
-  padding: 3rem 1rem;
-  color: #999;
-}
-
-.empty-pending p {
-  font-size: 1rem;
-}
-
-/* 우측 캘린더 영역 */
-.calendar-card {
-  position: sticky;
-  top: 2rem;
-}
-
-.today-btn {
-  padding: 0.625rem 1.25rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.today-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.calendar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-}
-
-.calendar-header h3 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-
-.nav-btn {
-  width: 40px;
-  height: 40px;
-  border: none;
-  background: #f5f5f5;
-  border-radius: 50%;
-  font-size: 1.5rem;
-  cursor: pointer;
-  transition: all 0.2s;
+/* 모달 관련 스타일 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
 }
 
-.nav-btn:hover {
-  background: #e0e0e0;
-  transform: scale(1.05);
-}
-
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 50px;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-}
-
-.calendar-day-header {
-  text-align: center;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: #666;
-  padding: 0.5rem 0;
-  height: auto;
-}
-
-.calendar-day {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 4px 4px 0;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
-  background: #fafafa;
-  height: 50px;
-  overflow: visible !important;
-}
-
-.calendar-day.empty {
-  background: transparent;
-  cursor: default;
-}
-
-.calendar-day:not(.empty):hover {
-  background: #f0f0f0;
-  transform: scale(1.05);
-}
-
-.calendar-day.today {
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-  font-weight: 600;
-}
-
-.calendar-day.selected {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.calendar-day.has-schedules {
-  background: #fff3e0;
-}
-
-.calendar-day.today.has-schedules {
-  background: linear-gradient(135deg, #bbdefb 0%, #90caf9 100%);
-}
-
-.calendar-day.selected.has-schedules {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-}
-
-.day-number {
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 2px;
-  flex-shrink: 0;
-  align-self: flex-start;
-  padding-left: 6px;
-}
-
-/* 선택된 날짜 정보 */
-.selected-date-info {
-  padding: 1.5rem;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+.modal-content {
+  background: white;
   border-radius: 12px;
-  text-align: center;
-}
-
-.selected-date-info h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 0.5rem;
-}
-
-.inquiry-count {
-  font-size: 0.9375rem;
-  color: #667eea;
-  font-weight: 600;
-}
-
-/* 메모 리스트 스크롤바 */
-.memo-list {
-  max-height: 500px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
   overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
 
-.memo-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.memo-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
-  margin: 4px 0;
-}
-
-.memo-list::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 3px;
-  transition: all 0.2s;
-}
-
-.memo-list::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
-}
-
-/* 일정 타입별 색상 인디케이터 - 새로운 방식 */
-.schedule-indicators {
-  position: absolute !important;
-  bottom: 3px !important;
-  right: 4px !important;
-  display: flex !important;
-  flex-direction: row !important;
-  justify-content: flex-end !important;
-  align-items: center !important;
-  pointer-events: none !important;
-  z-index: 100 !important;
-}
-
-.schedule-indicator {
-  width: 18px !important;
-  height: 18px !important;
-  border-radius: 50% !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  color: white !important;
-  flex-shrink: 0 !important;
-  margin: 0 2px !important;
-}
-
-.schedule-indicator.company {
-  background: #667eea !important;
-}
-
-.schedule-indicator.personal {
-  background: #10b981 !important;
-}
-
-/* 일정 리스트 스크롤 */
-.schedule-list {
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.schedule-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.schedule-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
-  margin: 4px 0;
-}
-
-.schedule-list::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 3px;
-  transition: all 0.2s;
-}
-
-.schedule-list::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
-}
-
-/* 일정 아이템 타입별 스타일 */
-.schedule-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.schedule-item.schedule-company {
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-  border-left: 4px solid #667eea;
-}
-
-.schedule-item.schedule-personal {
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-  border-left: 4px solid #10b981;
-}
-
-.schedule-item:hover {
-  transform: translateX(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.schedule-type-icon {
-  font-size: 1.125rem;
-}
-
-.schedule-type-badge {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.schedule-item.schedule-company .schedule-type-badge {
-  background: #667eea;
-  color: white;
-}
-
-.schedule-item.schedule-personal .schedule-type-badge {
-  background: #10b981;
-  color: white;
-}
-
-.schedule-author {
-  font-size: 0.8125rem;
-  color: #666;
-  font-weight: 400;
-}
-
-.memo-header-line {
+.modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
-.memo-title-section {
+.modal-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
 }
 
-.memo-title-section h4 {
-  margin: 0;
+.close-btn:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+/* 폼 관련 스타일 */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
   font-size: 0.9375rem;
   font-weight: 600;
   color: #1a1a1a;
+  margin-bottom: 0.5rem;
 }
 
-.memo-author-inline {
-  font-size: 0.8125rem;
-  color: #999;
-  font-weight: 600;
-  white-space: nowrap;
+.form-input,
+.form-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-.memo-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.form-input:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.memo-text p {
-  font-size: 0.875rem;
-  color: #666;
-  margin: 0;
-  line-height: 1.4;
-}
-
-.memo-date {
-  font-size: 0.8125rem;
-  color: #999;
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
 }
 
 /* 라디오 버튼 그룹 */
@@ -707,4 +195,52 @@
   padding: 0.5rem;
   font-size: 0.9375rem;
   color: #1a1a1a;
+}
+
+/* 버튼 스타일 */
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.btn {
+  flex: 1;
+  padding: 0.875rem;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.btn-secondary:hover {
+  background: #e5e5e5;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
