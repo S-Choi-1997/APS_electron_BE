@@ -61,6 +61,12 @@ export async function signInWithGoogle() {
   // Save to localStorage for Electron IPC access
   localStorage.setItem('currentUser', JSON.stringify(user));
 
+  // Save auto-login preference
+  localStorage.setItem('autoLogin', JSON.stringify({
+    provider: 'google',
+    email: user.email,
+  }));
+
   notifyAuthListeners(user);
   return user;
 }
@@ -85,6 +91,12 @@ export async function signInWithNaver() {
   // Save to localStorage for Electron IPC access
   localStorage.setItem('currentUser', JSON.stringify(user));
 
+  // Save auto-login preference
+  localStorage.setItem('autoLogin', JSON.stringify({
+    provider: 'naver',
+    email: user.email,
+  }));
+
   notifyAuthListeners(user);
   return user;
 }
@@ -100,8 +112,9 @@ export function signOut() {
       naverAuth.signOut();
     }
   }
-  // Clear currentUser from localStorage
+  // Clear currentUser and auto-login from localStorage
   localStorage.removeItem('currentUser');
+  localStorage.removeItem('autoLogin');
   currentUser = null;
   notifyAuthListeners(null);
 }
@@ -180,10 +193,12 @@ export function onAuthStateChanged(callback) {
 
 /**
  * Restore session from localStorage
- * Tries to restore from both providers
+ * First tries to restore existing token, then falls back to auto-login if enabled
  */
 export async function restoreSession() {
-  // Try to restore from both providers
+  console.log('[Auto-Login] Attempting to restore session...');
+
+  // Step 1: Try to restore from existing tokens
   const [googleUser, naverUser] = await Promise.allSettled([
     googleAuth.restoreSession(),
     naverAuth.restoreSession(),
@@ -192,6 +207,7 @@ export async function restoreSession() {
   // Return the first successful restore
   if (googleUser.status === 'fulfilled' && googleUser.value) {
     currentUser = googleUser.value;
+    console.log('[Auto-Login] Restored from Google token:', currentUser.email);
 
     // Fetch user info from backend to get displayName
     try {
@@ -202,7 +218,6 @@ export async function restoreSession() {
       currentUser.displayName = '';
     }
 
-    // Save to localStorage for Electron IPC access
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
     notifyAuthListeners(currentUser);
     return currentUser;
@@ -210,6 +225,7 @@ export async function restoreSession() {
 
   if (naverUser.status === 'fulfilled' && naverUser.value) {
     currentUser = naverUser.value;
+    console.log('[Auto-Login] Restored from Naver token:', currentUser.email);
 
     // Fetch user info from backend to get displayName
     try {
@@ -220,10 +236,36 @@ export async function restoreSession() {
       currentUser.displayName = '';
     }
 
-    // Save to localStorage for Electron IPC access
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
     notifyAuthListeners(currentUser);
     return currentUser;
+  }
+
+  // Step 2: If no valid token, check auto-login preference
+  console.log('[Auto-Login] No valid token found, checking auto-login preference...');
+  const autoLoginData = localStorage.getItem('autoLogin');
+
+  if (!autoLoginData) {
+    console.log('[Auto-Login] No auto-login preference found');
+    return null;
+  }
+
+  try {
+    const { provider, email } = JSON.parse(autoLoginData);
+    console.log(`[Auto-Login] Auto-login enabled for ${email} via ${provider}`);
+
+    // Trigger re-authentication based on provider
+    if (provider === 'google') {
+      console.log('[Auto-Login] Re-authenticating with Google...');
+      return await signInWithGoogle();
+    } else if (provider === 'naver') {
+      console.log('[Auto-Login] Re-authenticating with Naver...');
+      return await signInWithNaver();
+    }
+  } catch (error) {
+    console.error('[Auto-Login] Auto-login failed:', error);
+    // Clear invalid auto-login data
+    localStorage.removeItem('autoLogin');
   }
 
   return null;
