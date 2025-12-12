@@ -44,7 +44,8 @@
       "Bash(npm run electron:dev:*)",
       "Bash(git checkout:*)",
       "Bash(timeout 3 cmd:*)",
-      "Bash(timeout 5 npm start)"
+      "Bash(timeout 5 npm start)",
+      "Bash(timeout:*)"
     ]
   }
 }
