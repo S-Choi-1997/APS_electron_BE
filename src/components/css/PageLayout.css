@@ -9,7 +9,8 @@
   flex-direction: column;
   box-sizing: border-box;
   background: #f8f9fa;
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .page-header {
@@ -37,6 +38,26 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+/* 커스텀 스크롤바 */
+.page-container::-webkit-scrollbar {
+  width: 12px;
+}
+
+.page-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.page-container::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+  border: 2px solid #f1f1f1;
+}
+
+.page-container::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
 }
 
 /* 반응형 */
