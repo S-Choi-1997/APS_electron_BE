@@ -75,19 +75,20 @@ function generateTokens(user) {
 }
 
 /**
- * Verify refresh token and generate new access token
+ * Verify refresh token and generate new access token + new refresh token
+ * Rolling refresh token strategy: extends login duration as long as user is active
  */
-function refreshAccessToken(refreshToken) {
+function refreshAccessToken(oldRefreshToken) {
   return new Promise((resolve, reject) => {
     // Check if refresh token exists in storage
-    if (!refreshTokens.has(refreshToken)) {
+    if (!refreshTokens.has(oldRefreshToken)) {
       return reject(new Error('Invalid refresh token'));
     }
 
     // Verify refresh token
-    jwt.verify(refreshToken, JWT_REFRESH_SECRET, (err, decoded) => {
+    jwt.verify(oldRefreshToken, JWT_REFRESH_SECRET, (err, decoded) => {
       if (err) {
-        refreshTokens.delete(refreshToken);
+        refreshTokens.delete(oldRefreshToken);
         return reject(new Error('Expired or invalid refresh token'));
       }
 
@@ -98,7 +99,25 @@ function refreshAccessToken(refreshToken) {
         { expiresIn: JWT_EXPIRES_IN }
       );
 
-      resolve({ accessToken, email: decoded.email });
+      // 🎯 Generate NEW refresh token (rolling refresh)
+      const newRefreshToken = jwt.sign(
+        { email: decoded.email, role: decoded.role || 'user' },
+        JWT_REFRESH_SECRET,
+        { expiresIn: JWT_REFRESH_EXPIRES_IN }
+      );
+
+      // Remove old refresh token
+      refreshTokens.delete(oldRefreshToken);
+
+      // Store new refresh token
+      refreshTokens.set(newRefreshToken, {
+        email: decoded.email,
+        createdAt: new Date(),
+      });
+
+      console.log(`[Auth] Rolling refresh token issued for ${decoded.email}`);
+
+      resolve({ accessToken, refreshToken: newRefreshToken, email: decoded.email });
     });
   });
 }

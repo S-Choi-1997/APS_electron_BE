@@ -469,8 +469,8 @@ app.post('/auth/refresh', async (req, res) => {
       });
     }
 
-    // Verify refresh token and generate new access token
-    const { accessToken, email } = await auth.refreshAccessToken(refreshToken);
+    // Verify refresh token and generate new access token + new refresh token (rolling)
+    const { accessToken, refreshToken: newRefreshToken, email } = await auth.refreshAccessToken(refreshToken);
 
     // Get user info from database
     const userQuery = 'SELECT email, display_name, role FROM users WHERE email = $1 AND active = true';
@@ -485,10 +485,11 @@ app.post('/auth/refresh', async (req, res) => {
 
     const user = userResult.rows[0];
 
-    console.log(`[Auth] Token refreshed for ${email}`);
+    console.log(`[Auth] Token refreshed for ${email} (rolling refresh)`);
 
     res.json({
       accessToken,
+      refreshToken: newRefreshToken, // 🎯 New refresh token included!
       user: {
         email: user.email,
         displayName: user.display_name,

@@ -126,9 +126,9 @@ export async function restoreSession() {
     }
 
     const data = await response.json();
-    const { accessToken, user } = data;
+    const { accessToken, refreshToken: newRefreshToken, user } = data;
 
-    // Update user with new access token
+    // Update user with new access token AND new refresh token (rolling refresh)
     currentUser = {
       ...stored,
       email: user.email,
@@ -137,8 +137,8 @@ export async function restoreSession() {
       role: user.role,
       idToken: accessToken,
       accessToken,
+      refreshToken: newRefreshToken || stored.refreshToken, // 🎯 Use new refresh token!
       provider: 'local',
-      // Keep existing refreshToken
     };
 
     persistUser(currentUser);
