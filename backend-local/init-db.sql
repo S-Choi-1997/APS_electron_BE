@@ -10,7 +10,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE users (
   email VARCHAR(255) PRIMARY KEY,
   display_name VARCHAR(255),
-  provider VARCHAR(50) NOT NULL,  -- 'google' | 'naver'
+  provider VARCHAR(50) DEFAULT 'local',  -- 'local' | 'google' | 'naver'
+  password_hash VARCHAR(255),  -- bcrypt hash (local auth only)
   role VARCHAR(50) DEFAULT 'user',  -- 'admin' | 'user'
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

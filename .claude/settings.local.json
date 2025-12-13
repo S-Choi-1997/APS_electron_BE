@@ -46,7 +46,9 @@
       "Bash(timeout 3 cmd:*)",
       "Bash(timeout 5 npm start)",
       "Bash(timeout:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(node create-admin.js:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

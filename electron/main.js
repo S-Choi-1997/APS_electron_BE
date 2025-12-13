@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, session, Menu, screen, shell } = require('e
 const path = require('path');
 
 let mainWindow;
-let oauthWindow = null;
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 
@@ -46,75 +45,6 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-}
-
-// OAuth 팝업 창 생성 (Google, Naver)
-ipcMain.handle('open-oauth-window', async (event, url) => {
-  return new Promise((resolve, reject) => {
-    oauthWindow = new BrowserWindow({
-      width: 500,
-      height: 700,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
-      parent: mainWindow,
-      modal: true,
-      show: false,
-    });
-
-    oauthWindow.loadURL(url);
-
-    oauthWindow.once('ready-to-show', () => {
-      oauthWindow.show();
-    });
-
-    // URL 변경 감지 (리다이렉트 감지)
-    oauthWindow.webContents.on('will-redirect', (event, redirectUrl) => {
-      handleOAuthRedirect(redirectUrl, resolve, reject);
-    });
-
-    oauthWindow.webContents.on('did-navigate', (event, navigationUrl) => {
-      handleOAuthRedirect(navigationUrl, resolve, reject);
-    });
-
-    // 사용자가 창을 닫은 경우
-    oauthWindow.on('closed', () => {
-      reject(new Error('OAuth window was closed by user'));
-      oauthWindow = null;
-    });
-  });
-});
-
-// OAuth 리다이렉트 URL 처리
-function handleOAuthRedirect(url, resolve, reject) {
-  // Naver OAuth 콜백 처리
-  if (url.includes('naver-callback') || url.includes('code=')) {
-    const urlObj = new URL(url);
-    const code = urlObj.searchParams.get('code');
-    const state = urlObj.searchParams.get('state');
-    const error = urlObj.searchParams.get('error');
-
-    if (error) {
-      reject(new Error(`OAuth error: ${error}`));
-    } else if (code && state) {
-      resolve({ code, state });
-    }
-
-    if (oauthWindow) {
-      oauthWindow.close();
-      oauthWindow = null;
-    }
-  }
-
-  // Google OAuth 처리 (필요한 경우)
-  if (url.includes('google') && url.includes('token=')) {
-    // Google OAuth 처리 로직
-    if (oauthWindow) {
-      oauthWindow.close();
-      oauthWindow = null;
-    }
-  }
 }
 
 // 세션 정리 (로그아웃 시 사용)

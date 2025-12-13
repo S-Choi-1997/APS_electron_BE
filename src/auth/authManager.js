@@ -1,7 +1,11 @@
-// Unified Auth Manager - Manages multiple authentication providers
+/**
+ * Unified Auth Manager - Now uses local JWT authentication only
+ *
+ * Replaces OAuth (Google/Naver) with local email/password login
+ * Implements automatic session restoration with refresh tokens
+ */
 
-import * as googleAuth from './googleAuth';
-import * as naverAuth from './naverAuth';
+import * as localAuth from './localAuth';
 import { getCurrentUserInfo } from '../services/userService';
 
 // Global state for current user
@@ -13,89 +17,24 @@ const notifyAuthListeners = (user) => {
 };
 
 /**
- * Initialize all auth providers
+ * Sign in with email and password (local JWT auth)
  */
-export async function initializeAuth() {
-  const results = await Promise.allSettled([
-    googleAuth.initializeGoogleAuth(),
-    naverAuth.initializeNaverAuth(),
-  ]);
-
-  // Check if at least one provider initialized successfully
-  const hasSuccess = results.some((result) => result.status === 'fulfilled');
-
-  if (!hasSuccess) {
-    const errors = results
-      .filter((result) => result.status === 'rejected')
-      .map((result) => result.reason.message)
-      .join(', ');
-    throw new Error(`All auth providers failed to initialize: ${errors}`);
-  }
-
-  // Log any initialization failures
-  results.forEach((result, index) => {
-    if (result.status === 'rejected') {
-      const provider = index === 0 ? 'Google' : 'Naver';
-      console.warn(`${provider} auth initialization failed:`, result.reason.message);
-    }
-  });
-}
-
-/**
- * Sign in with Google
- */
-export async function signInWithGoogle() {
-  const user = await googleAuth.signInWithGoogle();
+export async function signInWithLocal(email, password) {
+  const user = await localAuth.signInWithLocal(email, password);
 
   // Fetch user info from backend to get displayName
   try {
     const userInfo = await getCurrentUserInfo({ currentUser: user });
     user.displayName = userInfo.display_name || '';
   } catch (error) {
-    console.warn('Failed to fetch user info from backend:', error);
-    user.displayName = '';
+    console.warn('[AuthManager] Failed to fetch user info from backend:', error);
+    user.displayName = user.displayName || user.email;
   }
 
   currentUser = user;
 
   // Save to localStorage for Electron IPC access
   localStorage.setItem('currentUser', JSON.stringify(user));
-
-  // Save auto-login preference
-  localStorage.setItem('autoLogin', JSON.stringify({
-    provider: 'google',
-    email: user.email,
-  }));
-
-  notifyAuthListeners(user);
-  return user;
-}
-
-/**
- * Sign in with Naver
- */
-export async function signInWithNaver() {
-  const user = await naverAuth.signInWithNaver();
-
-  // Fetch user info from backend to get displayName
-  try {
-    const userInfo = await getCurrentUserInfo({ currentUser: user });
-    user.displayName = userInfo.display_name || '';
-  } catch (error) {
-    console.warn('Failed to fetch user info from backend:', error);
-    user.displayName = '';
-  }
-
-  currentUser = user;
-
-  // Save to localStorage for Electron IPC access
-  localStorage.setItem('currentUser', JSON.stringify(user));
-
-  // Save auto-login preference
-  localStorage.setItem('autoLogin', JSON.stringify({
-    provider: 'naver',
-    email: user.email,
-  }));
 
   notifyAuthListeners(user);
   return user;
@@ -105,18 +44,16 @@ export async function signInWithNaver() {
  * Sign out from current provider
  */
 export function signOut() {
-  if (currentUser) {
-    if (currentUser.provider === 'google') {
-      googleAuth.signOut();
-    } else if (currentUser.provider === 'naver') {
-      naverAuth.signOut();
-    }
+  if (currentUser && currentUser.provider === 'local') {
+    localAuth.signOut();
   }
-  // Clear currentUser and auto-login from localStorage
+
+  // Clear currentUser from localStorage
   localStorage.removeItem('currentUser');
-  localStorage.removeItem('autoLogin');
   currentUser = null;
   notifyAuthListeners(null);
+
+  console.log('[AuthManager] Signed out');
 }
 
 /**
@@ -158,7 +95,7 @@ export function updateDisplayName(displayName) {
 }
 
 /**
- * Listen to auth state changes from all providers
+ * Listen to auth state changes
  * @param {Function} callback - Called with user object or null
  * @returns {Function} Unsubscribe function
  */
@@ -168,15 +105,8 @@ export function onAuthStateChanged(callback) {
   // Immediately call with current state
   callback(currentUser);
 
-  // Subscribe to both providers
-  const unsubscribeGoogle = googleAuth.onAuthStateChanged((user) => {
-    if (user) {
-      currentUser = user;
-      notifyAuthListeners(user);
-    }
-  });
-
-  const unsubscribeNaver = naverAuth.onAuthStateChanged((user) => {
+  // Subscribe to local auth
+  const unsubscribeLocal = localAuth.onAuthStateChanged((user) => {
     if (user) {
       currentUser = user;
       notifyAuthListeners(user);
@@ -186,36 +116,35 @@ export function onAuthStateChanged(callback) {
   // Return combined unsubscribe function
   return () => {
     authStateListeners = authStateListeners.filter((listener) => listener !== callback);
-    unsubscribeGoogle();
-    unsubscribeNaver();
+    unsubscribeLocal();
   };
 }
 
 /**
- * Restore session from localStorage
- * First tries to restore existing token, then falls back to auto-login if enabled
+ * 🎯 Restore session from localStorage
+ *
+ * This is the KEY function that enables AUTO-LOGIN!
+ * - Calls localAuth.restoreSession() which uses refresh token
+ * - No user interaction needed (no OAuth popup!)
+ * - Runs automatically on app startup
  */
 export async function restoreSession() {
-  console.log('[Auto-Login] Attempting to restore session...');
+  console.log('[AuthManager] Attempting to restore session...');
 
-  // Step 1: Try to restore from existing tokens
-  const [googleUser, naverUser] = await Promise.allSettled([
-    googleAuth.restoreSession(),
-    naverAuth.restoreSession(),
-  ]);
+  // Try to restore session with refresh token
+  const user = await localAuth.restoreSession();
 
-  // Return the first successful restore
-  if (googleUser.status === 'fulfilled' && googleUser.value) {
-    currentUser = googleUser.value;
-    console.log('[Auto-Login] Restored from Google token:', currentUser.email);
+  if (user) {
+    currentUser = user;
+    console.log('[AuthManager] Session restored:', currentUser.email);
 
     // Fetch user info from backend to get displayName
     try {
       const userInfo = await getCurrentUserInfo({ currentUser });
       currentUser.displayName = userInfo.display_name || '';
     } catch (error) {
-      console.warn('Failed to fetch user info from backend:', error);
-      currentUser.displayName = '';
+      console.warn('[AuthManager] Failed to fetch user info from backend:', error);
+      currentUser.displayName = currentUser.displayName || currentUser.email;
     }
 
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
@@ -223,51 +152,8 @@ export async function restoreSession() {
     return currentUser;
   }
 
-  if (naverUser.status === 'fulfilled' && naverUser.value) {
-    currentUser = naverUser.value;
-    console.log('[Auto-Login] Restored from Naver token:', currentUser.email);
-
-    // Fetch user info from backend to get displayName
-    try {
-      const userInfo = await getCurrentUserInfo({ currentUser });
-      currentUser.displayName = userInfo.display_name || '';
-    } catch (error) {
-      console.warn('Failed to fetch user info from backend:', error);
-      currentUser.displayName = '';
-    }
-
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    notifyAuthListeners(currentUser);
-    return currentUser;
-  }
-
-  // Step 2: If no valid token, check auto-login preference
-  console.log('[Auto-Login] No valid token found, checking auto-login preference...');
-  const autoLoginData = localStorage.getItem('autoLogin');
-
-  if (!autoLoginData) {
-    console.log('[Auto-Login] No auto-login preference found');
-    return null;
-  }
-
-  try {
-    const { provider, email } = JSON.parse(autoLoginData);
-    console.log(`[Auto-Login] Auto-login enabled for ${email} via ${provider}`);
-
-    // Trigger re-authentication based on provider
-    if (provider === 'google') {
-      console.log('[Auto-Login] Re-authenticating with Google...');
-      return await signInWithGoogle();
-    } else if (provider === 'naver') {
-      console.log('[Auto-Login] Re-authenticating with Naver...');
-      return await signInWithNaver();
-    }
-  } catch (error) {
-    console.error('[Auto-Login] Auto-login failed:', error);
-    // Clear invalid auto-login data
-    localStorage.removeItem('autoLogin');
-  }
-
+  // No valid session - redirect to login
+  console.log('[AuthManager] No valid session, redirecting to login...');
   return null;
 }
 
@@ -283,7 +169,12 @@ onAuthStateChanged((user) => {
   auth.currentUser = user;
 });
 
-// Attempt to restore session on module load
-restoreSession().catch(() => {
-  // silent failure
-});
+// 🎯 Attempt to restore session on module load (AUTO-LOGIN!)
+// This runs when the app starts, enabling automatic login
+// Only if the user has enabled auto-login
+const autoLoginEnabled = localStorage.getItem('aps-auto-login') === 'true';
+if (autoLoginEnabled) {
+  restoreSession().catch(() => {
+    // silent failure - user will see login page
+  });
+}

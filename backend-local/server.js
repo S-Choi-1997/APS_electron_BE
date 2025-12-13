@@ -29,6 +29,7 @@ const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
+const auth = require("./auth"); // JWT authentication module
 
 // 환경변수 로드 확인
 console.log("=".repeat(60));
@@ -215,6 +216,42 @@ app.post("/auth/naver/token", async (req, res) => {
   }
 });
 
+// Naver token verification endpoint for session restoration
+app.post("/auth/naver/verify", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "unauthorized", message: "Missing or invalid authorization header" });
+    }
+
+    const accessToken = authHeader.split("Bearer ")[1];
+
+    // Verify token by calling Naver's user info endpoint
+    const userInfoResponse = await fetch('https://openapi.naver.com/v1/nid/me', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!userInfoResponse.ok) {
+      return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
+    }
+
+    const userInfoData = await userInfoResponse.json();
+
+    if (userInfoData.resultcode !== '00') {
+      return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
+    }
+
+    // Token is valid
+    res.json({ status: "ok", message: "Token is valid" });
+  } catch (error) {
+    console.error("Naver token verification error:", error);
+    return res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
 // Authentication middleware - verifies OAuth access token based on provider
 const authenticate = async (req, res, next) => {
   const authStartTime = Date.now();
@@ -341,8 +378,223 @@ const authenticate = async (req, res, next) => {
   }
 };
 
+// ============================================
+// Authentication Routes (JWT)
+// ============================================
+
+// POST /auth/login - Login with email/password
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'Email and password are required',
+      });
+    }
+
+    // Check Firestore whitelist
+    const isWhitelisted = await auth.isWhitelisted(email);
+    if (!isWhitelisted) {
+      console.warn(`[Auth] Login denied for non-whitelisted email: ${email}`);
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Access denied - email not in whitelist',
+      });
+    }
+
+    // Get user from PostgreSQL
+    const userQuery = 'SELECT * FROM users WHERE email = $1 AND active = true';
+    const userResult = await db_postgres.query(userQuery, [email]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'unauthorized',
+        message: 'Invalid email or password',
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    // Verify password
+    if (!user.password_hash) {
+      return res.status(401).json({
+        error: 'unauthorized',
+        message: 'Account not configured for local login',
+      });
+    }
+
+    const isValidPassword = await auth.verifyPassword(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        error: 'unauthorized',
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Generate JWT tokens
+    const { accessToken, refreshToken } = auth.generateTokens(user);
+
+    console.log(`[Auth] Login successful for ${email}`);
+
+    res.json({
+      user: {
+        email: user.email,
+        displayName: user.display_name,
+        role: user.role,
+        provider: 'local',
+      },
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    console.error('[Auth] Login error:', error);
+    res.status(500).json({
+      error: 'internal_error',
+      message: 'Login failed',
+    });
+  }
+});
+
+// POST /auth/refresh - Refresh access token
+app.post('/auth/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'Refresh token is required',
+      });
+    }
+
+    // Verify refresh token and generate new access token
+    const { accessToken, email } = await auth.refreshAccessToken(refreshToken);
+
+    // Get user info from database
+    const userQuery = 'SELECT email, display_name, role FROM users WHERE email = $1 AND active = true';
+    const userResult = await db_postgres.query(userQuery, [email]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'unauthorized',
+        message: 'User not found or inactive',
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    console.log(`[Auth] Token refreshed for ${email}`);
+
+    res.json({
+      accessToken,
+      user: {
+        email: user.email,
+        displayName: user.display_name,
+        role: user.role,
+        provider: 'local',
+      },
+    });
+  } catch (error) {
+    console.error('[Auth] Token refresh error:', error.message);
+    res.status(401).json({
+      error: 'unauthorized',
+      message: error.message,
+    });
+  }
+});
+
+// POST /auth/logout - Logout (revoke refresh token)
+app.post('/auth/logout', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (refreshToken) {
+      auth.revokeRefreshToken(refreshToken);
+    }
+
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('[Auth] Logout error:', error);
+    res.status(500).json({
+      error: 'internal_error',
+      message: 'Logout failed',
+    });
+  }
+});
+
+// POST /auth/register - Register new user (admin only)
+app.post('/auth/register', auth.authenticateJWT, async (req, res) => {
+  try {
+    // Check if requester is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Admin access required',
+      });
+    }
+
+    const { email, password, displayName, role = 'user' } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'Email and password are required',
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await db_postgres.query(
+      'SELECT email FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        error: 'conflict',
+        message: 'User already exists',
+      });
+    }
+
+    // Hash password
+    const passwordHash = await auth.hashPassword(password);
+
+    // Insert user
+    const insertQuery = `
+      INSERT INTO users (email, display_name, password_hash, provider, role, active)
+      VALUES ($1, $2, $3, 'local', $4, true)
+      RETURNING email, display_name, role, created_at
+    `;
+
+    const result = await db_postgres.query(insertQuery, [
+      email,
+      displayName || email,
+      passwordHash,
+      role,
+    ]);
+
+    console.log(`[Auth] New user registered: ${email}`);
+
+    res.status(201).json({
+      success: true,
+      user: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[Auth] Registration error:', error);
+    res.status(500).json({
+      error: 'internal_error',
+      message: 'Registration failed',
+    });
+  }
+});
+
+// ============================================
+// Legacy OAuth routes (will be removed)
+// ============================================
+
 // Apply authentication to all /inquiries routes
-app.use("/inquiries", authenticate);
+app.use("/inquiries", auth.authenticateJWT);
 
 // GET /inquiries - List all inquiries with optional filtering
 app.get("/inquiries", async (req, res) => {
@@ -691,7 +943,7 @@ app.patch("/users/me", authenticate, async (req, res) => {
 });
 
 // GET /users/me - Get current user info
-app.get("/users/me", authenticate, async (req, res) => {
+app.get("/users/me", auth.authenticateJWT, async (req, res) => {
   try {
     const query = `
       SELECT email, display_name, provider, role, active, created_at, updated_at
@@ -720,7 +972,7 @@ app.get("/users/me", authenticate, async (req, res) => {
 // ============================================
 
 // GET /memos - List memos with search and pagination
-app.get("/memos", authenticate, async (req, res) => {
+app.get("/memos", auth.authenticateJWT, async (req, res) => {
   try {
     const { search, author, important, limit = "50", offset = "0" } = req.query;
 
@@ -777,7 +1029,7 @@ app.get("/memos", authenticate, async (req, res) => {
 });
 
 // POST /memos - Create new memo
-app.post("/memos", authenticate, async (req, res) => {
+app.post("/memos", auth.authenticateJWT, async (req, res) => {
   try {
     const { title, content, important = false, expire_date } = req.body;
 
@@ -878,7 +1130,7 @@ app.patch("/memos/:id", authenticate, async (req, res) => {
 });
 
 // DELETE /memos/:id - Soft delete memo
-app.delete("/memos/:id", authenticate, async (req, res) => {
+app.delete("/memos/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -910,7 +1162,7 @@ app.delete("/memos/:id", authenticate, async (req, res) => {
 // ============================================
 
 // GET /schedules - List schedules with filtering
-app.get("/schedules", authenticate, async (req, res) => {
+app.get("/schedules", auth.authenticateJWT, async (req, res) => {
   try {
     const { start_date, end_date, type, author, limit = "100", offset = "0" } = req.query;
 
@@ -972,7 +1224,7 @@ app.get("/schedules", authenticate, async (req, res) => {
 });
 
 // POST /schedules - Create new schedule
-app.post("/schedules", authenticate, async (req, res) => {
+app.post("/schedules", auth.authenticateJWT, async (req, res) => {
   try {
     const { title, time, start_date, end_date, type } = req.body;
 
@@ -1077,7 +1329,7 @@ app.patch("/schedules/:id", authenticate, async (req, res) => {
 });
 
 // DELETE /schedules/:id - Soft delete schedule
-app.delete("/schedules/:id", authenticate, async (req, res) => {
+app.delete("/schedules/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
 

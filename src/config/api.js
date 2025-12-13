@@ -7,6 +7,9 @@
 // API 기본 URL (로컬 Docker Compose 백엔드)
 const API_BASE_URL = 'http://localhost:3001';
 
+// Export for use in auth modules
+export const API_URL = API_BASE_URL;
+
 /**
  * API 엔드포인트 상수
  */

@@ -39,6 +39,7 @@ services:
       # 개발 중 실시간 코드 반영 (소스 코드 마운트)
       - ./server.js:/app/server.js
       - ./db.js:/app/db.js
+      - ./auth.js:/app/auth.js
     environment:
       # 서비스 계정 JSON 경로 (컨테이너 내부 경로)
       GOOGLE_APPLICATION_CREDENTIALS: /app/service-account.json
