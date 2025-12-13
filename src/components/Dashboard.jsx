@@ -464,6 +464,36 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     }
   }, []);
 
+  // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
+  useEffect(() => {
+    const checkMidnight = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+      console.log(`[Dashboard] 다음 자정까지 ${Math.floor(msUntilMidnight / 1000 / 60)}분 남음`);
+
+      const timer = setTimeout(() => {
+        console.log('[Dashboard] 날짜 변경 감지 - 메모 및 일정 새로고침');
+        loadMemos(); // 만료된 메모 필터링
+        loadSchedules(); // 일정도 함께 새로고침
+
+        // 다음 자정을 위해 재귀 호출
+        checkMidnight();
+      }, msUntilMidnight);
+
+      return timer;
+    };
+
+    const timer = checkMidnight();
+
+    // 컴포넌트 언마운트 시 타이머 정리
+    return () => clearTimeout(timer);
+  }, []);
+
   // 일정 폼이 열릴 때 기본 시간 설정
   useEffect(() => {
     if (showScheduleCreateModal && !scheduleForm.time) {

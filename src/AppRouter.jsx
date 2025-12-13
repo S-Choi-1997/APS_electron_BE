@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { auth, onAuthStateChanged } from './auth/authManager';
 import TitleBar from './components/TitleBar';
 import LoginPage from './components/LoginPage';
@@ -18,6 +18,24 @@ import SettingsPage from './pages/SettingsPage';
 import { fetchInquiries } from './services/inquiryService';
 import { apiRequest } from './config/api';
 import './App.css';
+
+// 라우팅 이벤트를 처리하는 컴포넌트
+function NavigationListener() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (window.electron && window.electron.onNavigateToRoute) {
+      const cleanup = window.electron.onNavigateToRoute((route) => {
+        console.log('[AppRouter] Navigating to route:', route);
+        navigate(route);
+      });
+
+      return cleanup;
+    }
+  }, [navigate]);
+
+  return null;
+}
 
 function AppRouter() {
   // Electron 환경 체크
@@ -147,6 +165,7 @@ function AppRouter() {
   // 로그인 됨 - 메인 앱
   return (
     <Router>
+      <NavigationListener />
       <div className="app-container">
         <TitleBar />
         <div className="app-content-wrapper">

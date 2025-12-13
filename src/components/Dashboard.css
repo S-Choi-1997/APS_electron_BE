@@ -329,8 +329,7 @@
   color: #764ba2;
 }
 
-.memo-detail-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
+/*
+  .memo-detail-actions는 DashboardNotice.css에 정의되어 있음
+  중복 제거: 2025-12-13
+*/

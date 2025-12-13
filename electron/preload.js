@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld('electron', {
   // 외부 브라우저에서 URL 열기
   openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
 
+  // 메인 창 포커스 및 라우팅
+  focusMainWindow: (route) => ipcRenderer.invoke('focus-main-window', route),
+
   // 이벤트 리스너 (메인 프로세스 → 렌더러)
   onMemoCreated: (callback) => {
     ipcRenderer.on('memo-created', (event, data) => callback(data));
@@ -64,6 +67,12 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('memo-deleted', (event, memoId) => callback(memoId));
     // 정리 함수 반환
     return () => ipcRenderer.removeAllListeners('memo-deleted');
+  },
+
+  onNavigateToRoute: (callback) => {
+    ipcRenderer.on('navigate-to-route', (event, route) => callback(route));
+    // 정리 함수 반환
+    return () => ipcRenderer.removeAllListeners('navigate-to-route');
   },
 
   onConsultationUpdated: (callback) => {

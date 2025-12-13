@@ -147,7 +147,8 @@ ipcMain.handle('window-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   if (mainWindow) {
-    mainWindow.close();
+    // 창을 완전히 닫지 않고 숨김 (백그라운드 실행)
+    mainWindow.hide();
   }
 });
 
@@ -286,6 +287,41 @@ ipcMain.handle('broadcast-consultation-updated', async (event) => {
     }
   });
   return { success: true };
+});
+
+// 메인 창 포커스 및 특정 경로로 이동
+ipcMain.handle('focus-main-window', async (event, route) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // 최소화된 경우 복원
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+
+      // 창을 앞으로 가져오기
+      mainWindow.show();
+      mainWindow.focus();
+
+      // 라우트 변경 (route가 제공된 경우)
+      if (route) {
+        console.log(`[Main] Navigating to route: ${route}`);
+        mainWindow.webContents.send('navigate-to-route', route);
+      }
+
+      // Sticky 창들이 사라지지 않도록 다시 최상단으로
+      Object.values(stickyWindows).forEach(stickyWindow => {
+        if (stickyWindow && !stickyWindow.isDestroyed()) {
+          stickyWindow.setAlwaysOnTop(true);
+        }
+      });
+
+      return { success: true };
+    }
+    return { success: false, error: 'Main window not found' };
+  } catch (error) {
+    console.error('[Main] Failed to focus main window:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // 외부 브라우저에서 URL 열기

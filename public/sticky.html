@@ -268,6 +268,15 @@
       background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
       border-radius: 6px;
       border: 1px solid #e5e7eb;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .pending-item-compact:hover {
+      background: linear-gradient(135deg, #e8eef5 0%, #dce4f0 100%);
+      border-color: #667eea;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
     }
 
     .pending-label {
@@ -791,11 +800,11 @@
 
         <!-- 미처리 상담 요약 (항상 표시) -->
         <div class="pending-summary-bar">
-          <div class="pending-item-compact">
+          <div class="pending-item-compact" onclick="handleSummaryClick('email')">
             <span class="pending-label">이메일</span>
             <span class="pending-count" id="emailCount">0</span>
           </div>
-          <div class="pending-item-compact">
+          <div class="pending-item-compact" onclick="handleSummaryClick('website')">
             <span class="pending-label">홈페이지</span>
             <span class="pending-count" id="websiteCount">0</span>
           </div>
@@ -1050,33 +1059,42 @@
       renderPendingConsultations();
     }
 
+    // 요약 바 클릭 시 메인 창 열기 및 해당 상담 탭으로 이동
+    async function handleSummaryClick(type) {
+      if (window.electron && window.electron.focusMainWindow) {
+        try {
+          // 메인 창을 포커스하고 해당 상담 유형 경로로 이동
+          const route = `/consultations/${type}`;
+          await window.electron.focusMainWindow(route);
+          console.log(`[Sticky] Main window focused, navigated to ${route}`);
+        } catch (error) {
+          console.error('[Sticky] Failed to focus main window:', error);
+        }
+      }
+    }
+
     // 미처리 상담 요청 렌더링
     function renderPendingConsultations() {
       const pendingBody = document.getElementById('pendingBody');
       const pendingCount = document.getElementById('pendingCount');
 
-      // 미처리 상담: 이메일(0건) + 홈페이지(check=false)
-      const emailCount = 0;
-      const websiteCount = consultations.filter(c => !c.check).length;
-      const totalPendingCount = emailCount + websiteCount;
+      // 미처리 상담: check=false인 것들 (확인하지 않은 상담)
+      const pendingConsultations = consultations.filter(c => !c.check);
 
-      pendingCount.textContent = totalPendingCount;
+      pendingCount.textContent = pendingConsultations.length;
 
-      // 미처리 상담: status가 'pending' 또는 '미처리'인 것들
-      const pendingConsultations = consultations.filter(c =>
-        c.status === 'pending' || c.status === '미처리' || !c.status
-      );
+      console.log('[Sticky] Rendering pending consultations:', pendingConsultations.length);
 
       if (pendingConsultations.length === 0) {
         pendingBody.innerHTML = '<div class="empty-state">미처리 상담 요청이 없습니다</div>';
       } else {
         pendingBody.innerHTML = pendingConsultations.map(item => `
           <div class="pending-item">
-            <div class="pending-item-header">
+            <div class="pending-header">
               <span class="pending-name">${item.name || '이름 없음'}</span>
-              <span class="pending-type ${item.type === 'email' ? 'email' : 'website'}">${item.type === 'email' ? '이메일' : '홈페이지'}</span>
+              <span class="pending-type">${item.type === 'email' ? '이메일' : '홈페이지'}</span>
             </div>
-            <div class="pending-item-content">${item.message ? (item.message.length > 30 ? item.message.substring(0, 30) + '...' : item.message) : '내용 없음'}</div>
+            <div class="pending-message">${item.message ? (item.message.length > 30 ? item.message.substring(0, 30) + '...' : item.message) : '내용 없음'}</div>
           </div>
         `).join('');
       }

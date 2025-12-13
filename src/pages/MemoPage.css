@@ -1,26 +1,11 @@
 /* MemoPage.css - 팀 메모 전용 페이지 */
+/*
+  PageLayout.css에서 .page-container, .page-header, .page-title 제공
+  중복 제거: 2025-12-13
+*/
 
-.page-container {
-  padding: 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-
-.page-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1a1a1a;
-  margin: 0;
-}
-
-.add-btn {
+/* 메모 페이지 전용 추가 버튼 */
+.memo-add-btn {
   padding: 0.75rem 1.5rem;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -32,7 +17,7 @@
   transition: all 0.2s;
 }
 
-.add-btn:hover {
+.memo-add-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
@@ -96,6 +81,8 @@
   gap: 0.375rem;
 }
 
+/* 메모 배지 - MemoPage 전용 스타일 */
+/* 주의: DashboardNotice.css에도 .memo-badge 존재 (Dashboard 카드용) */
 .memo-badge {
   padding: 0.125rem 0.5rem;
   border-radius: 10px;
@@ -135,7 +122,8 @@
   color: #999;
 }
 
-/* 메모 상세보기 */
+/* 메모 상세보기 - MemoPage 전용 스타일 */
+/* 주의: DashboardNotice.css에도 .memo-detail 존재 (Dashboard 카드용) */
 .memo-detail {
   display: flex;
   flex-direction: column;
@@ -184,46 +172,20 @@
   font-weight: 700;
 }
 
-/* 모달 폼 */
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
+/*
+  모달/폼 스타일은 Modal.css에서 제공
+  중복 제거: 2025-12-13
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
+  Modal 컴포넌트가 제공하는 클래스:
+  - .modal-form
+  - .form-group
+  - .modal-actions
+  - .modal-btn (.primary, .secondary, .danger)
 
-.form-group label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #333;
-}
+  MemoPage 전용 커스터마이징만 아래에 추가
+*/
 
-.form-group input[type="text"],
-.form-group textarea {
-  padding: 0.75rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  transition: all 0.2s;
-}
-
-.form-group input[type="text"]:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.form-group textarea {
-  resize: vertical;
-  min-height: 120px;
-}
-
+/* 체크박스 그룹 - MemoPage 전용 */
 .checkbox-group {
   flex-direction: row;
   align-items: center;
@@ -241,55 +203,7 @@
   cursor: pointer;
 }
 
-/* 모달 액션 버튼 */
-.modal-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.modal-btn {
-  flex: 1;
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.modal-btn.primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.modal-btn.primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.modal-btn.secondary {
-  background: #f5f5f5;
-  color: #666;
-}
-
-.modal-btn.secondary:hover {
-  background: #e5e5e5;
-}
-
-.modal-btn.danger {
-  background: #ef4444;
-  color: white;
-}
-
-.modal-btn.danger:hover {
-  background: #dc2626;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-}
-
-/* 확인 다이얼로그 */
+/* 확인 다이얼로그 - MemoPage 전용 */
 .confirm-dialog {
   text-align: center;
 }

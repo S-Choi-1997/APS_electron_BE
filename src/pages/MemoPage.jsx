@@ -13,6 +13,7 @@ import DOMPurify from 'dompurify';
 import Modal from '../components/Modal';
 import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
+import '../components/css/PageLayout.css';
 import './MemoPage.css';
 
 function MemoPage({ user }) {
@@ -37,6 +38,35 @@ function MemoPage({ user }) {
   // 컴포넌트 마운트 시 메모 로드
   useEffect(() => {
     loadMemos();
+  }, []);
+
+  // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
+  useEffect(() => {
+    const checkMidnight = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+      console.log(`[MemoPage] 다음 자정까지 ${Math.floor(msUntilMidnight / 1000 / 60)}분 남음`);
+
+      const timer = setTimeout(() => {
+        console.log('[MemoPage] 날짜 변경 감지 - 메모 새로고침');
+        loadMemos(); // 만료된 메모 필터링
+
+        // 다음 자정을 위해 재귀 호출
+        checkMidnight();
+      }, msUntilMidnight);
+
+      return timer;
+    };
+
+    const timer = checkMidnight();
+
+    // 컴포넌트 언마운트 시 타이머 정리
+    return () => clearTimeout(timer);
   }, []);
 
   // 메모 데이터 로드
@@ -226,7 +256,7 @@ function MemoPage({ user }) {
     <div className="page-container">
       <div className="page-header">
         <h1 className="page-title">팀 메모</h1>
-        <button className="add-btn" onClick={() => {
+        <button className="memo-add-btn" onClick={() => {
           // 만료일을 당일로 기본 설정
           const today = new Date();
           const year = today.getFullYear();
