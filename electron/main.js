@@ -372,7 +372,7 @@ function createToastNotification(data) {
 
   const NOTIFICATION_WIDTH = 320;
   const NOTIFICATION_MIN_HEIGHT = 110;
-  const NOTIFICATION_MAX_HEIGHT = 180;
+  const NOTIFICATION_MAX_HEIGHT = 300; // 최대 높이 증가 (180 -> 300)
   const MARGIN = 20;
   const STACK_SPACING = 10;
 
@@ -437,7 +437,41 @@ function createToastNotification(data) {
   }
 
   toastWindow.once('ready-to-show', () => {
-    toastWindow.show();
+    // 렌더러에서 실제 컨텐츠 높이를 측정한 후 윈도우 크기 조정
+    toastWindow.webContents.executeJavaScript(`
+      (async () => {
+        // 폰트 로딩 대기
+        await document.fonts.ready;
+
+        // toast-container의 실제 높이 측정 (box-shadow, padding 포함)
+        const container = document.querySelector('.toast-container');
+        const rect = container.getBoundingClientRect();
+
+        // 추가 여유 공간 (box-shadow 등)
+        const extraSpace = 30;
+
+        return Math.ceil(rect.height) + extraSpace;
+      })();
+    `).then(contentHeight => {
+      const actualHeight = Math.min(NOTIFICATION_MAX_HEIGHT, Math.max(NOTIFICATION_MIN_HEIGHT, contentHeight));
+      const currentBounds = toastWindow.getBounds();
+
+      // 아래쪽 기준으로 높이 조정 (y 위치를 위로 이동)
+      const newY = currentBounds.y + currentBounds.height - actualHeight;
+
+      toastWindow.setBounds({
+        x: currentBounds.x,
+        y: newY,
+        width: NOTIFICATION_WIDTH,
+        height: actualHeight
+      }, true);
+
+      console.log('[Toast] Resized - Content:', contentHeight, 'Actual:', actualHeight, 'Y:', newY);
+      toastWindow.show();
+    }).catch(err => {
+      console.error('[Toast] Failed to measure content height:', err);
+      toastWindow.show();
+    });
   });
 
   // 배열에 추가
@@ -462,7 +496,7 @@ function repositionToasts() {
   const { width, height } = primaryDisplay.workAreaSize;
 
   const NOTIFICATION_WIDTH = 320;
-  const NOTIFICATION_MAX_HEIGHT = 180;
+  const NOTIFICATION_MAX_HEIGHT = 300; // 최대 높이 증가 (180 -> 300)
   const MARGIN = 20;
   const STACK_SPACING = 10;
 

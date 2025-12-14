@@ -48,7 +48,8 @@
       "Bash(timeout:*)",
       "Bash(node -e:*)",
       "Bash(node create-admin.js:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(docker volume:*)"
     ]
   }
 }

@@ -33,6 +33,7 @@ function ConsultationsPage({ consultations, setConsultations, type = 'website' }
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [consultationToConfirm, setConsultationToConfirm] = useState(null);
   const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'success', title: '', message: '' });
+  const [smsLoading, setSmsLoading] = useState(false);
 
   const typeFilters = useMemo(() => {
     const dynamic = Array.from(new Set(consultations.map((c) => c.type).filter(Boolean)));
@@ -108,6 +109,7 @@ function ConsultationsPage({ consultations, setConsultations, type = 'website' }
     try {
       setConfirmModalOpen(false);
       setConsultationToConfirm(null);
+      setSmsLoading(true);
 
       await updateInquiry(id, { check: true }, auth);
 
@@ -130,6 +132,7 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
           prev && prev.id === id ? { ...prev, check: true } : prev
         );
 
+        setSmsLoading(false);
         setAlertModal({
           isOpen: true,
           type: 'success',
@@ -143,6 +146,7 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
         }
       } catch (smsError) {
         console.error('SMS 발송 실패:', smsError);
+        setSmsLoading(false);
 
         try {
           await updateInquiry(id, { check: false }, auth);
@@ -164,6 +168,7 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
       }
     } catch (error) {
       console.error('Failed to update inquiry:', error);
+      setSmsLoading(false);
       alert('상담 상태를 업데이트하지 못했습니다: ' + error.message);
     }
   };
@@ -416,6 +421,15 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
         title={alertModal.title}
         message={alertModal.message}
       />
+
+      {smsLoading && (
+        <div className="sms-loading-overlay">
+          <div className="sms-loading-spinner">
+            <div className="spinner"></div>
+            <p>문자 발송 중...</p>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

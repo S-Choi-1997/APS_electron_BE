@@ -1586,7 +1586,7 @@ app.get("/inquiries/all", authenticate, async (req, res) => {
 });
 
 // POST /sms/send - Send SMS via Aligo API (through GCP3 relay)
-app.post("/sms/send", authenticate, async (req, res) => {
+app.post("/sms/send", auth.authenticateJWT, async (req, res) => {
   try {
     const { receiver, msg, msg_type, title, testmode_yn } = req.body;
 

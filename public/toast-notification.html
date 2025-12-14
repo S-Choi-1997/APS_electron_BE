@@ -12,21 +12,25 @@
       font-family: 'NanumSquareRound', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
 
-    body {
+    html, body {
       width: 320px;
-      min-height: 100px;
-      max-height: 180px;
-      overflow: visible;
+      min-height: 0;
+      max-height: none;
+      overflow: hidden;
       background: transparent;
       cursor: pointer;
       user-select: none;
+    }
+
+    body {
       display: flex;
       flex-direction: column;
+      padding: 0;
+      margin: 0;
     }
 
     .toast-container {
       width: 100%;
-      min-height: 100px;
       background: #f8f9fa;
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
@@ -36,6 +40,7 @@
       transition: opacity 0.5s ease-out;
       display: flex;
       flex-direction: column;
+      flex-shrink: 0;
     }
 
     .toast-container::before {

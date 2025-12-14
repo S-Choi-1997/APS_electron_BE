@@ -32,6 +32,9 @@ export const API_ENDPOINTS = {
   INQUIRY_DELETE: (id) => `/inquiries/${id}`,
   ATTACHMENTS: (id) => `/inquiries/${id}/attachments`,
 
+  // SMS
+  SMS_SEND: '/sms/send',
+
   // Health Check
   HEALTH: '/',
 };
@@ -84,7 +87,44 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
 
     console.log(`[API Response] ${response.status} (${fetchTime}ms)`);
 
-    // 에러 응답 처리
+    // 401 Unauthorized - 토큰 만료, 자동 갱신 시도
+    if (response.status === 401) {
+      console.log('[API] Access token expired, attempting refresh...');
+
+      try {
+        // localAuth의 restoreSession을 사용하여 토큰 갱신
+        const { restoreSession } = await import('../auth/localAuth.js');
+        const refreshedUser = await restoreSession();
+
+        if (refreshedUser) {
+          console.log('[API] Token refreshed successfully, retrying request...');
+
+          // 갱신된 토큰으로 재시도
+          const retryHeaders = {
+            ...headers,
+            'Authorization': `Bearer ${refreshedUser.idToken}`,
+          };
+
+          const retryResponse = await fetch(url, {
+            ...options,
+            headers: retryHeaders,
+          });
+
+          if (retryResponse.ok) {
+            const data = await retryResponse.json();
+            console.log('[API] Retry successful after token refresh');
+            return data;
+          }
+        }
+      } catch (refreshError) {
+        console.error('[API] Token refresh failed:', refreshError);
+      }
+
+      // 갱신 실패 시 로그인 페이지로 리다이렉트
+      throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.');
+    }
+
+    // 기타 에러 응답 처리
     if (!response.ok) {
       let errorMessage = `API 요청 실패: ${response.status}`;
 
