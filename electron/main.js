@@ -371,7 +371,8 @@ function createToastNotification(data) {
   const { width, height } = primaryDisplay.workAreaSize;
 
   const NOTIFICATION_WIDTH = 320;
-  const NOTIFICATION_HEIGHT = 120;
+  const NOTIFICATION_MIN_HEIGHT = 110;
+  const NOTIFICATION_MAX_HEIGHT = 180;
   const MARGIN = 20;
   const STACK_SPACING = 10;
 
@@ -386,9 +387,16 @@ function createToastNotification(data) {
   // 스택 인덱스 계산
   const stackIndex = toastNotifications.length;
 
-  // 우하단 위치 계산
+  // 메시지 길이에 따른 높이 추정 (줄바꿈 포함)
+  const messageLines = (data.message || '').split('\n').length;
+  const estimatedHeight = Math.min(
+    NOTIFICATION_MAX_HEIGHT,
+    Math.max(NOTIFICATION_MIN_HEIGHT, 70 + (messageLines * 24))
+  );
+
+  // 우하단 위치 계산 (아래쪽 기준)
   const x = width - NOTIFICATION_WIDTH - MARGIN;
-  const y = height - NOTIFICATION_HEIGHT - MARGIN - (stackIndex * (NOTIFICATION_HEIGHT + STACK_SPACING));
+  const y = height - estimatedHeight - MARGIN - (stackIndex * (NOTIFICATION_MAX_HEIGHT + STACK_SPACING));
 
   // URL 파라미터 생성
   const params = new URLSearchParams({
@@ -401,7 +409,7 @@ function createToastNotification(data) {
 
   const toastWindow = new BrowserWindow({
     width: NOTIFICATION_WIDTH,
-    height: NOTIFICATION_HEIGHT,
+    height: estimatedHeight,
     x: x,
     y: y,
     frame: false,
@@ -454,14 +462,15 @@ function repositionToasts() {
   const { width, height } = primaryDisplay.workAreaSize;
 
   const NOTIFICATION_WIDTH = 320;
-  const NOTIFICATION_HEIGHT = 120;
+  const NOTIFICATION_MAX_HEIGHT = 180;
   const MARGIN = 20;
   const STACK_SPACING = 10;
 
   toastNotifications.forEach((toast, index) => {
     if (!toast.isDestroyed()) {
+      const toastBounds = toast.getBounds();
       const x = width - NOTIFICATION_WIDTH - MARGIN;
-      const y = height - NOTIFICATION_HEIGHT - MARGIN - (index * (NOTIFICATION_HEIGHT + STACK_SPACING));
+      const y = height - toastBounds.height - MARGIN - (index * (NOTIFICATION_MAX_HEIGHT + STACK_SPACING));
       toast.setPosition(x, y, true);
     }
   });
