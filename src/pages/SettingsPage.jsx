@@ -5,13 +5,15 @@
 import { useState, useEffect } from 'react';
 import { getCurrentUser, onAuthStateChanged } from '../auth/authManager';
 import { updateDisplayName as updateDisplayNameAPI } from '../services/userService';
+import { getNotificationSettings, updateNotificationSettings } from '../utils/notificationHelper';
 import '../components/css/PageLayout.css';
 import './SettingsPage.css';
 
 function SettingsPage() {
   const [user, setUser] = useState(getCurrentUser());
   const [autoLogin, setAutoLogin] = useState(false);
-  const [notifications, setNotifications] = useState(true);
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [notificationSound, setNotificationSound] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -30,6 +32,32 @@ function SettingsPage() {
     const savedAutoLogin = localStorage.getItem('aps-auto-login') === 'true';
     setAutoLogin(savedAutoLogin);
   }, []);
+
+  // 알림 설정 불러오기
+  useEffect(() => {
+    const settings = getNotificationSettings();
+    setNotificationEnabled(settings.enabled);
+    setNotificationSound(settings.sound);
+  }, []);
+
+  // 알림 설정 변경 핸들러
+  const handleNotificationEnabledChange = (enabled) => {
+    setNotificationEnabled(enabled);
+    const currentSettings = getNotificationSettings();
+    updateNotificationSettings({
+      ...currentSettings,
+      enabled: enabled
+    });
+  };
+
+  const handleNotificationSoundChange = (sound) => {
+    setNotificationSound(sound);
+    const currentSettings = getNotificationSettings();
+    updateNotificationSettings({
+      ...currentSettings,
+      sound: sound
+    });
+  };
 
   const handleSaveDisplayName = async () => {
     if (!displayName.trim()) {
@@ -133,15 +161,30 @@ function SettingsPage() {
             <div className="setting-item">
               <div className="setting-info">
                 <div className="setting-label">데스크톱 알림</div>
-                <div className="setting-description">새로운 문의가 있을 때 알림을 표시합니다</div>
+                <div className="setting-description">새로운 문의, 메모, 일정 알림을 표시합니다</div>
               </div>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
-                  checked={notifications}
-                  onChange={(e) => setNotifications(e.target.checked)}
+                  checked={notificationEnabled}
+                  onChange={(e) => handleNotificationEnabledChange(e.target.checked)}
                 />
                 <span className="toggle-slider"></span>
+              </label>
+            </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <div className="setting-label">알림 사운드</div>
+                <div className="setting-description">알림 시 소리를 재생합니다 (추후 구현 예정)</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={notificationSound}
+                  onChange={(e) => handleNotificationSoundChange(e.target.checked)}
+                  disabled
+                />
+                <span className="toggle-slider" style={{ opacity: 0.5 }}></span>
               </label>
             </div>
           </div>

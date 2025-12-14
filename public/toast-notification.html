@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APS 알림</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'NanumSquareRound', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    body {
+      width: 320px;
+      min-height: 100px;
+      max-height: 150px;
+      overflow: hidden;
+      background: transparent;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toast-container {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      padding: 16px 20px;
+      position: relative;
+      animation: slideIn 0.3s ease-out;
+      transition: opacity 0.5s ease-out;
+    }
+
+    .toast-container.fade-out {
+      animation: fadeOut 0.5s ease-out forwards;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeOut {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 24px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      z-index: 10;
+    }
+
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .toast-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .toast-icon {
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .toast-title {
+      color: white;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .toast-message {
+      color: rgba(255, 255, 255, 0.95);
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.5;
+      margin-left: 32px;
+      white-space: pre-line;
+      max-height: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toast-action {
+      margin-top: 12px;
+      margin-left: 32px;
+    }
+
+    .action-button {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 6px;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .action-button:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <div class="toast-container" id="toastContainer">
+    <button class="close-btn" id="closeBtn">✕</button>
+
+    <div class="toast-header">
+      <span class="toast-icon" id="toastIcon">🔔</span>
+      <span class="toast-title" id="toastTitle">알림</span>
+    </div>
+
+    <div class="toast-message" id="toastMessage">
+      새로운 알림이 도착했습니다.
+    </div>
+
+    <!-- 액션 버튼 (옵션) -->
+    <div class="toast-action" id="toastAction" style="display: none;">
+      <button class="action-button" id="actionButton">지금 확인하기</button>
+    </div>
+  </div>
+
+  <script>
+    let closeTimer = null;
+    let isHovering = false;
+
+    // URL 파라미터에서 알림 데이터 읽기
+    const params = new URLSearchParams(window.location.search);
+    const notificationData = {
+      icon: params.get('icon') || '🔔',
+      title: params.get('title') || '알림',
+      message: decodeURIComponent(params.get('message') || '새로운 알림이 도착했습니다.'),
+      route: params.get('route') || null,
+      duration: parseInt(params.get('duration') || '5000', 10)
+    };
+
+    // UI 업데이트
+    document.getElementById('toastIcon').textContent = notificationData.icon;
+    document.getElementById('toastTitle').textContent = notificationData.title;
+    document.getElementById('toastMessage').textContent = notificationData.message;
+
+    // 액션 버튼 표시 (route가 있는 경우)
+    if (notificationData.route) {
+      document.getElementById('toastAction').style.display = 'block';
+    }
+
+    // 자동 닫기 타이머 시작
+    function startCloseTimer() {
+      if (closeTimer) clearTimeout(closeTimer);
+
+      closeTimer = setTimeout(() => {
+        if (!isHovering) {
+          closeNotification();
+        }
+      }, notificationData.duration);
+    }
+
+    // 알림 닫기
+    function closeNotification() {
+      const container = document.getElementById('toastContainer');
+      container.classList.add('fade-out');
+
+      setTimeout(() => {
+        if (window.electron && window.electron.closeNotification) {
+          window.electron.closeNotification();
+        } else {
+          window.close();
+        }
+      }, 500);
+    }
+
+    // 메인 창으로 이동 및 라우팅
+    function navigateToRoute() {
+      if (notificationData.route && window.electron && window.electron.navigateFromNotification) {
+        window.electron.navigateFromNotification(notificationData.route);
+      }
+      closeNotification();
+    }
+
+    // 이벤트 리스너
+    document.getElementById('closeBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeNotification();
+    });
+
+    document.getElementById('toastContainer').addEventListener('click', () => {
+      navigateToRoute();
+    });
+
+    document.getElementById('actionButton').addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigateToRoute();
+    });
+
+    // 호버 시 타이머 일시 정지
+    document.getElementById('toastContainer').addEventListener('mouseenter', () => {
+      isHovering = true;
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+    });
+
+    document.getElementById('toastContainer').addEventListener('mouseleave', () => {
+      isHovering = false;
+      startCloseTimer();
+    });
+
+    // 초기 타이머 시작
+    startCloseTimer();
+
+    console.log('[Toast] Notification displayed:', notificationData);
+  </script>
+</body>
+</html>

@@ -13,6 +13,7 @@ import Modal from './Modal';
 import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
 import { fetchSchedules, createSchedule, updateSchedule, deleteSchedule } from '../services/scheduleService';
+import { showToastNotification } from '../utils/notificationHelper';
 import './Dashboard.css';
 import './css/PageLayout.css';
 import './css/DashboardLayout.css';
@@ -173,6 +174,12 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         window.electron.broadcastMemoCreated(createdMemo);
       }
 
+      // Toast 알림 표시
+      showToastNotification(
+        'memo',
+        `${createdMemo.author_name || user?.displayName || '사용자'}님이 메모를 등록했습니다.`
+      );
+
       // 중요 메모일 경우 알림창 자동으로 열기
       if (memoForm.important && window.electron && window.electron.openStickyWindow) {
         try {
@@ -277,10 +284,18 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         // author is automatically set by backend using req.user.email
       };
 
-      await createSchedule(scheduleData, auth);
+      const createdSchedule = await createSchedule(scheduleData, auth);
 
       // 일정 목록 새로고침
       await loadSchedules();
+
+      // Toast 알림 표시 (개인 일정 vs 단체 일정)
+      const isPersonal = scheduleForm.type === '개인';
+      const timeDisplay = scheduleForm.hasTime ? scheduleForm.time : '시간 미정';
+      showToastNotification(
+        isPersonal ? 'personalSchedule' : 'teamSchedule',
+        `${timeDisplay} ${scheduleForm.title} 일정이 등록되었습니다.`
+      );
 
       setScheduleForm({ title: '', time: '', start_date: '', end_date: '', type: '회사', author: '', multiDay: false, hasTime: false });
       setShowScheduleCreateModal(false);

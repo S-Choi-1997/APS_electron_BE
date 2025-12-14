@@ -4,7 +4,7 @@
  * App.jsx의 기존 로직을 유지하면서 라우팅 기능 추가
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { auth, onAuthStateChanged } from './auth/authManager';
 import TitleBar from './components/TitleBar';
@@ -17,6 +17,7 @@ import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
 import { fetchInquiries } from './services/inquiryService';
 import { apiRequest } from './config/api';
+import { showToastNotification } from './utils/notificationHelper';
 import './App.css';
 
 // 라우팅 이벤트를 처리하는 컴포넌트
@@ -24,9 +25,22 @@ function NavigationListener() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // 기존 onNavigateToRoute 이벤트
     if (window.electron && window.electron.onNavigateToRoute) {
       const cleanup = window.electron.onNavigateToRoute((route) => {
         console.log('[AppRouter] Navigating to route:', route);
+        navigate(route);
+      });
+
+      return cleanup;
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    // Toast 알림에서 navigate-to 이벤트
+    if (window.electron && window.electron.onNavigateTo) {
+      const cleanup = window.electron.onNavigateTo((route) => {
+        console.log('[AppRouter] Navigating from notification:', route);
         navigate(route);
       });
 
@@ -53,6 +67,7 @@ function AppRouter() {
   const [consultations, setConsultations] = useState([]);
   const [stats, setStats] = useState({ website: 0, email: 0 });
   const [loading, setLoading] = useState(true);
+  const prevStatsRef = useRef({ website: 0, email: 0 });
 
   // 인증 상태 감지
   useEffect(() => {
@@ -78,6 +93,23 @@ function AppRouter() {
       console.error('Failed to fetch stats:', error);
     }
   };
+
+  // 통계 변화 감지 및 알림 표시
+  useEffect(() => {
+    if (!user) return;
+
+    const prevTotal = prevStatsRef.current.website + prevStatsRef.current.email;
+    const currentTotal = stats.website + stats.email;
+
+    // 통계가 증가한 경우에만 알림 (초기 로드 제외)
+    if (prevTotal > 0 && currentTotal > prevTotal) {
+      const message = `홈페이지: ${stats.website}건\n이메일: ${stats.email}건`;
+      showToastNotification('consultation', message);
+    }
+
+    // 현재 통계 저장
+    prevStatsRef.current = { ...stats };
+  }, [stats, user]);
 
   // 문의 목록 불러오기
   useEffect(() => {

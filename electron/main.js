@@ -4,6 +4,7 @@ const path = require('path');
 let mainWindow;
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
+let toastNotifications = []; // Toast 알림창 배열 (스택 관리)
 
 function createWindow() {
   // 메뉴바 완전히 제거
@@ -361,6 +362,134 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   });
 
   return { success: true, alreadyOpen: false };
+});
+
+// Toast 알림창 생성 함수
+function createToastNotification(data) {
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  const NOTIFICATION_WIDTH = 320;
+  const NOTIFICATION_HEIGHT = 120;
+  const MARGIN = 20;
+  const STACK_SPACING = 10;
+
+  // 최대 동시 표시 알림: 3개로 제한
+  if (toastNotifications.length >= 3) {
+    const oldest = toastNotifications.shift();
+    if (oldest && !oldest.isDestroyed()) {
+      oldest.close();
+    }
+  }
+
+  // 스택 인덱스 계산
+  const stackIndex = toastNotifications.length;
+
+  // 우하단 위치 계산
+  const x = width - NOTIFICATION_WIDTH - MARGIN;
+  const y = height - NOTIFICATION_HEIGHT - MARGIN - (stackIndex * (NOTIFICATION_HEIGHT + STACK_SPACING));
+
+  // URL 파라미터 생성
+  const params = new URLSearchParams({
+    icon: data.icon || '🔔',
+    title: data.title || '알림',
+    message: encodeURIComponent(data.message || '새로운 알림이 도착했습니다.'),
+    route: data.route || '',
+    duration: data.duration || 5000
+  });
+
+  const toastWindow = new BrowserWindow({
+    width: NOTIFICATION_WIDTH,
+    height: NOTIFICATION_HEIGHT,
+    x: x,
+    y: y,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    transparent: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  // 개발 모드: Vite 개발 서버 로드
+  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+    toastWindow.loadURL(`http://localhost:5173/toast-notification.html?${params.toString()}`);
+  } else {
+    // 프로덕션: 빌드된 파일 로드
+    toastWindow.loadFile(path.join(__dirname, '../dist/toast-notification.html'), {
+      search: params.toString()
+    });
+  }
+
+  toastWindow.once('ready-to-show', () => {
+    toastWindow.show();
+  });
+
+  // 배열에 추가
+  toastNotifications.push(toastWindow);
+
+  // 창이 닫힐 때 배열에서 제거 및 스택 재정렬
+  toastWindow.on('closed', () => {
+    const index = toastNotifications.indexOf(toastWindow);
+    if (index > -1) {
+      toastNotifications.splice(index, 1);
+      repositionToasts();
+    }
+  });
+
+  console.log('[Toast] Notification created:', data);
+}
+
+// 토스트 알림 재정렬
+function repositionToasts() {
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  const NOTIFICATION_WIDTH = 320;
+  const NOTIFICATION_HEIGHT = 120;
+  const MARGIN = 20;
+  const STACK_SPACING = 10;
+
+  toastNotifications.forEach((toast, index) => {
+    if (!toast.isDestroyed()) {
+      const x = width - NOTIFICATION_WIDTH - MARGIN;
+      const y = height - NOTIFICATION_HEIGHT - MARGIN - (index * (NOTIFICATION_HEIGHT + STACK_SPACING));
+      toast.setPosition(x, y, true);
+    }
+  });
+}
+
+// Toast 알림창 표시 IPC 핸들러
+ipcMain.handle('show-toast-notification', async (event, data) => {
+  createToastNotification(data);
+  return { success: true };
+});
+
+// Toast 알림창 닫기 IPC 핸들러
+ipcMain.handle('close-notification', async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.close();
+  }
+  return { success: true };
+});
+
+// Toast 알림에서 메인 창으로 네비게이션 IPC 핸들러
+ipcMain.handle('navigate-from-notification', async (event, route) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('navigate-to', route);
+  }
+  return { success: true };
 });
 
 app.whenReady().then(createWindow);

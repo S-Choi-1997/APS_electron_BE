@@ -78,6 +78,19 @@ contextBridge.exposeInMainWorld('electron', {
     return () => ipcRenderer.removeAllListeners('consultation-updated');
   },
 
+  // Toast 알림 관련 API
+  showToastNotification: (data) => ipcRenderer.invoke('show-toast-notification', data),
+
+  closeNotification: () => ipcRenderer.invoke('close-notification'),
+
+  navigateFromNotification: (route) => ipcRenderer.invoke('navigate-from-notification', route),
+
+  // 메인 창에서 네비게이션 이벤트 수신
+  onNavigateTo: (callback) => {
+    ipcRenderer.on('navigate-to', (event, route) => callback(route));
+    return () => ipcRenderer.removeAllListeners('navigate-to');
+  },
+
   // Electron 환경 확인
   isElectron: true,
 });
