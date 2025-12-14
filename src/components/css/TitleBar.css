@@ -57,8 +57,8 @@
 }
 
 .titlebar-control-btn.maximize {
-  font-size: 1rem;
-  padding-bottom: 2px;
+  font-size: 1.25rem;
+  transform: translateY(-4px);
 }
 
 .titlebar-control-btn:hover {

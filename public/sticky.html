@@ -771,17 +771,16 @@
     <!-- 컨텐츠 -->
     <div class="sticky-container">
       <div class="sticky-content">
-        <!-- 팀 메모 섹션 -->
-        <div class="section" id="memoSection">
+        <!-- 오늘 일정 섹션 -->
+        <div class="section" id="scheduleSection">
           <div class="section-header">
             <div class="section-title">
-              팀 메모
-              <span class="section-count" id="memoCount">0</span>
+              오늘 일정
+              <span class="section-count" id="scheduleCount">0</span>
             </div>
-            <button class="add-memo-btn" onclick="showAddMemoModal()">+ 추가</button>
           </div>
-          <div class="section-body" id="memoBody">
-            <!-- 메모 아이템이 여기에 렌더링됩니다 -->
+          <div class="section-body" id="scheduleBody">
+            <!-- 일정 아이템이 여기에 렌더링됩니다 -->
           </div>
         </div>
 
@@ -792,9 +791,6 @@
               미처리 상담 요청
               <span class="section-count" id="pendingCount">0</span>
             </div>
-          </div>
-          <div class="section-body" id="pendingBody">
-            <!-- 미처리 상담 아이템이 여기에 렌더링됩니다 -->
           </div>
         </div>
 
@@ -810,16 +806,17 @@
           </div>
         </div>
 
-        <!-- 오늘 일정 섹션 -->
-        <div class="section" id="scheduleSection">
+        <!-- 팀 메모 섹션 -->
+        <div class="section" id="memoSection">
           <div class="section-header">
             <div class="section-title">
-              오늘 일정
-              <span class="section-count" id="scheduleCount">0</span>
+              팀 메모
+              <span class="section-count" id="memoCount">0</span>
             </div>
+            <button class="add-memo-btn" onclick="showAddMemoModal()">+ 추가</button>
           </div>
-          <div class="section-body" id="scheduleBody">
-            <!-- 일정 아이템이 여기에 렌더링됩니다 -->
+          <div class="section-body" id="memoBody">
+            <!-- 메모 아이템이 여기에 렌더링됩니다 -->
           </div>
         </div>
       </div>
@@ -928,8 +925,8 @@
 
     // 전역 데이터
     let memos = [];
-    let consultations = [];
     let schedules = [];
+    let stats = { website: 0, email: 0 };
 
     // 즉시 초기값 설정 (API 로드 전이라도 0 표시)
     window.addEventListener('load', () => {
@@ -1015,21 +1012,22 @@
       }
     }
 
-    // 상담 목록 불러오기
-    async function loadConsultations() {
+    // 상담 통계 불러오기
+    async function loadConsultationStats() {
       try {
-        console.log('[Sticky] Loading consultations from API...');
-        const response = await apiRequest('/inquiries');
-        console.log('[Sticky] Consultations API response:', response);
-        consultations = response.data || [];
-        console.log('[Sticky] Parsed consultations:', consultations.length);
+        console.log('[Sticky] Loading consultation stats from API...');
+        const response = await apiRequest('/inquiries/stats');
+        console.log('[Sticky] Stats API response:', response);
+        stats = response.data || { website: 0, email: 0 };
+        console.log('[Sticky] Parsed stats:', stats);
         updateConsultationStats();
       } catch (error) {
-        console.error('[Sticky] 상담 불러오기 실패:', error);
-        consultations = [];
+        console.error('[Sticky] 통계 불러오기 실패:', error);
+        stats = { website: 0, email: 0 };
         updateConsultationStats();
       }
     }
+
 
     // 일정 목록 불러오기
     async function loadSchedules() {
@@ -1048,15 +1046,16 @@
     }
 
     function updateConsultationStats() {
-      // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
-      const emailCount = 0;
-      const websiteCount = consultations.filter(c => !c.check).length;
+      // stats API에서 받아온 통계 사용
+      const emailCount = stats.email || 0;
+      const websiteCount = stats.website || 0;
+      const totalPending = emailCount + websiteCount;
+
+      console.log('[Sticky] Updating stats display:', { emailCount, websiteCount, totalPending });
 
       document.getElementById('emailCount').textContent = emailCount;
       document.getElementById('websiteCount').textContent = websiteCount;
-
-      // 미처리 상담 렌더링
-      renderPendingConsultations();
+      document.getElementById('pendingCount').textContent = totalPending;
     }
 
     // 요약 바 클릭 시 메인 창 열기 및 해당 상담 탭으로 이동
@@ -1073,42 +1072,7 @@
       }
     }
 
-    // 미처리 상담 요청 렌더링
-    function renderPendingConsultations() {
-      const pendingBody = document.getElementById('pendingBody');
-      const pendingCount = document.getElementById('pendingCount');
 
-      // 미처리 상담: check=false인 것들 (확인하지 않은 상담)
-      const pendingConsultations = consultations.filter(c => !c.check);
-
-      pendingCount.textContent = pendingConsultations.length;
-
-      console.log('[Sticky] Rendering pending consultations:', pendingConsultations.length);
-
-      if (pendingConsultations.length === 0) {
-        pendingBody.innerHTML = '<div class="empty-state">미처리 상담 요청이 없습니다</div>';
-      } else {
-        pendingBody.innerHTML = pendingConsultations.map(item => `
-          <div class="pending-item">
-            <div class="pending-header">
-              <span class="pending-name">${item.name || '이름 없음'}</span>
-              <span class="pending-type">${item.type === 'email' ? '이메일' : '홈페이지'}</span>
-            </div>
-            <div class="pending-message">${item.message ? (item.message.length > 30 ? item.message.substring(0, 30) + '...' : item.message) : '내용 없음'}</div>
-          </div>
-        `).join('');
-      }
-    }
-
-    // 상담 통계 업데이트 함수
-    function updateConsultationStats() {
-      // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
-      const emailCount = 0;
-      const websiteCount = consultations.filter(c => !c.check).length;
-
-      document.getElementById('emailCount').textContent = emailCount;
-      document.getElementById('websiteCount').textContent = websiteCount;
-    }
 
     // 일정 렌더링 함수
     function renderSchedules() {
@@ -1330,9 +1294,9 @@
     if (window.electron && window.electron.onConsultationUpdated) {
       window.electron.onConsultationUpdated(async () => {
         console.log('[Sticky] 상담/일정 업데이트 이벤트 수신');
-        // 상담 및 일정 목록 다시 불러오기
+        // 상담 통계, 일정 목록 다시 불러오기
         await Promise.all([
-          loadConsultations(),
+          loadConsultationStats(),
           loadSchedules()
         ]);
       });
@@ -1356,10 +1320,10 @@
       try {
         await Promise.all([
           loadMemos(),
-          loadConsultations(),
+          loadConsultationStats(),
           loadSchedules()
         ]);
-        console.log('[Sticky] Data loaded:', { memos: memos.length, consultations: consultations.length, schedules: schedules.length });
+        console.log('[Sticky] Data loaded:', { memos: memos.length, schedules: schedules.length, stats });
 
         // 내용 로드 후 윈도우 높이 자동 조정
         adjustWindowHeight();

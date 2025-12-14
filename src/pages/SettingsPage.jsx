@@ -25,6 +25,12 @@ function SettingsPage() {
     return () => unsubscribe();
   }, []);
 
+  // localStorage에서 자동 로그인 설정 불러오기
+  useEffect(() => {
+    const savedAutoLogin = localStorage.getItem('aps-auto-login') === 'true';
+    setAutoLogin(savedAutoLogin);
+  }, []);
+
   const handleSaveDisplayName = async () => {
     if (!displayName.trim()) {
       alert('이름을 입력해주세요.');
@@ -99,12 +105,6 @@ function SettingsPage() {
             {saveSuccess && (
               <div className="save-success-message">이름이 저장되었습니다.</div>
             )}
-            <div className="setting-item">
-              <div className="setting-label">로그인 제공자</div>
-              <div className="setting-value">
-                {user?.provider === 'google' ? 'Google' : user?.provider === 'naver' ? 'Naver' : '-'}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -121,7 +121,11 @@ function SettingsPage() {
                 <input
                   type="checkbox"
                   checked={autoLogin}
-                  onChange={(e) => setAutoLogin(e.target.checked)}
+                  onChange={(e) => {
+                    const newValue = e.target.checked;
+                    setAutoLogin(newValue);
+                    localStorage.setItem('aps-auto-login', newValue.toString());
+                  }}
                 />
                 <span className="toggle-slider"></span>
               </label>
