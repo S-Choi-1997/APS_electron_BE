@@ -5,27 +5,31 @@
  * GCP2 Cloud Run 코드를 로컬 환경용으로 수정
  *
  * 주요 기능:
- * - Google/Naver OAuth 토큰 검증 및 이메일 기반 접근 제어
+ * - JWT 토큰 기반 인증 (로컬 이메일/비밀번호 로그인)
  * - 문의 목록 조회/상세/업데이트/삭제 (GCP Firestore)
+ * - 메모/일정 관리 (PostgreSQL)
  * - 첨부파일 서명된 URL 발급 (GCP Storage)
  * - SMS 발송 (Aligo API via GCP3 Relay 서버)
- * - Naver OAuth 토큰 교환
+ * - WebSocket 실시간 동기화 (Socket.IO)
  *
  * 환경변수:
  * - PORT: 서버 포트 (기본값: 3001)
+ * - JWT_SECRET: JWT 토큰 서명 키
  * - ALLOWED_ORIGINS: CORS 허용 도메인
  * - ALLOWED_EMAILS: 접근 허용 이메일 목록
  * - STORAGE_BUCKET: GCP Storage 버킷
  * - GOOGLE_APPLICATION_CREDENTIALS: GCP 서비스 계정 JSON 경로
- * - NAVER_CLIENT_ID, NAVER_CLIENT_SECRET: Naver OAuth
  * - ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER_PHONE: Aligo SMS
  * - RELAY_URL: GCP3 SMS Relay 서버 주소
+ * - POSTGRES_*: PostgreSQL 연결 정보
  */
 
 // Load environment variables from .env file
 require('dotenv').config();
 
 const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 const cors = require("cors");
 const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
@@ -69,6 +73,7 @@ db_postgres.testConnection().then(success => {
 });
 
 const app = express();
+const server = http.createServer(app);
 
 // CORS configuration
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "").split(",").filter(Boolean);
@@ -87,6 +92,57 @@ const corsOptions = {
   },
   credentials: true,
 };
+
+// ============================================
+// WebSocket (Socket.IO) Setup
+// ============================================
+const io = new Server(server, {
+  cors: corsOptions
+});
+
+// WebSocket 인증 미들웨어 (JWT only)
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+
+    if (!token) {
+      return next(new Error('Authentication token required'));
+    }
+
+    // JWT 검증
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // 화이트리스트 검증
+    const allowedEmails = (process.env.ALLOWED_EMAILS || "").split(",").map(e => e.trim());
+    if (!allowedEmails.includes(decoded.email)) {
+      return next(new Error('Unauthorized email'));
+    }
+
+    socket.user = { email: decoded.email, provider: 'local' };
+    next();
+  } catch (error) {
+    console.error('[WebSocket] Authentication failed:', error.message);
+    next(new Error('Authentication failed'));
+  }
+});
+
+// 연결 이벤트
+io.on('connection', (socket) => {
+  console.log(`[WebSocket] User connected: ${socket.user.email}`);
+
+  socket.on('disconnect', () => {
+    console.log(`[WebSocket] User disconnected: ${socket.user.email}`);
+  });
+});
+
+// 전역 broadcast 함수 (CRUD 작업에서 사용)
+global.broadcastEvent = (eventType, data) => {
+  io.emit(eventType, data);
+  console.log(`[WebSocket] Broadcasted event: ${eventType}`);
+};
+
+console.log('✓ WebSocket (Socket.IO) server initialized');
 
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -111,272 +167,6 @@ app.get("/", (req, res) => {
     environment: "local",
   });
 });
-
-// Naver OAuth token exchange endpoint (no auth required - validates during exchange)
-app.post("/auth/naver/token", async (req, res) => {
-  try {
-    const { code, state } = req.body;
-
-    if (!code || !state) {
-      return res.status(400).json({ error: "bad_request", message: "Missing code or state" });
-    }
-
-    const NAVER_CLIENT_ID = process.env.NAVER_CLIENT_ID;
-    const NAVER_CLIENT_SECRET = process.env.NAVER_CLIENT_SECRET;
-    const NAVER_REDIRECT_URI = process.env.NAVER_REDIRECT_URI;
-
-    if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
-      console.error("Naver OAuth credentials not configured");
-      return res.status(500).json({ error: "server_config_error", message: "Naver OAuth not configured" });
-    }
-
-    // Exchange code for access token
-    const tokenResponse = await fetch('https://nid.naver.com/oauth2.0/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: NAVER_CLIENT_ID,
-        client_secret: NAVER_CLIENT_SECRET,
-        code: code,
-        state: state,
-        redirect_uri: NAVER_REDIRECT_URI,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error("Naver token exchange failed:", errorText);
-      return res.status(401).json({ error: "unauthorized", message: "Failed to exchange code for token" });
-    }
-
-    const tokenData = await tokenResponse.json();
-
-    if (tokenData.error) {
-      console.error("Naver token error:", tokenData.error_description);
-      return res.status(401).json({ error: "unauthorized", message: tokenData.error_description || tokenData.error });
-    }
-
-    // Get user info using access token
-    const userInfoResponse = await fetch('https://openapi.naver.com/v1/nid/me', {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-      },
-    });
-
-    if (!userInfoResponse.ok) {
-      console.error("Failed to get Naver user info");
-      return res.status(401).json({ error: "unauthorized", message: "Failed to get user info" });
-    }
-
-    const userInfoData = await userInfoResponse.json();
-
-    if (userInfoData.resultcode !== '00') {
-      console.error("Naver user info error:", userInfoData.message);
-      return res.status(401).json({ error: "unauthorized", message: userInfoData.message || 'Failed to get user info' });
-    }
-
-    const profile = userInfoData.response;
-
-    if (!profile.email) {
-      console.error("Naver profile does not contain email");
-      return res.status(401).json({ error: "unauthorized", message: "Email not provided by Naver" });
-    }
-
-    // Check if email is in the whitelist
-    const allowedEmails = (process.env.ALLOWED_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
-
-    if (allowedEmails.length === 0) {
-      console.error("ALLOWED_EMAILS environment variable is not set");
-      return res.status(500).json({ error: "server_config_error", message: "Server configuration error" });
-    }
-
-    if (!allowedEmails.includes(profile.email)) {
-      console.warn(`Access denied for unauthorized Naver email: ${profile.email}`);
-      return res.status(403).json({ error: "forbidden", message: "Access denied - unauthorized email" });
-    }
-
-    // Return user info and tokens
-    res.json({
-      status: "ok",
-      user: {
-        email: profile.email,
-        name: profile.name,
-        picture: profile.profile_image,
-        provider: 'naver',
-      },
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-    });
-  } catch (error) {
-    console.error("Naver token exchange error:", error);
-    return res.status(500).json({ error: "internal_error", message: error.message });
-  }
-});
-
-// Naver token verification endpoint for session restoration
-app.post("/auth/naver/verify", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "unauthorized", message: "Missing or invalid authorization header" });
-    }
-
-    const accessToken = authHeader.split("Bearer ")[1];
-
-    // Verify token by calling Naver's user info endpoint
-    const userInfoResponse = await fetch('https://openapi.naver.com/v1/nid/me', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!userInfoResponse.ok) {
-      return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
-    }
-
-    const userInfoData = await userInfoResponse.json();
-
-    if (userInfoData.resultcode !== '00') {
-      return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
-    }
-
-    // Token is valid
-    res.json({ status: "ok", message: "Token is valid" });
-  } catch (error) {
-    console.error("Naver token verification error:", error);
-    return res.status(500).json({ error: "internal_error", message: error.message });
-  }
-});
-
-// Authentication middleware - verifies OAuth access token based on provider
-const authenticate = async (req, res, next) => {
-  const authStartTime = Date.now();
-  try {
-    const authHeader = req.headers.authorization;
-    const provider = req.headers['x-provider'] || 'google'; // Default to google for backward compatibility
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "unauthorized", message: "Missing or invalid authorization header" });
-    }
-
-    const accessToken = authHeader.split("Bearer ")[1];
-
-    let userEmail = null;
-    let userName = null;
-    let userSub = null;
-
-    // Verify token based on provider
-    if (provider === 'google') {
-      // Verify Google OAuth access token using Google's tokeninfo endpoint
-      const response = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`);
-
-      if (!response.ok) {
-        console.error("Google token verification failed:", response.status);
-        return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
-      }
-
-      const tokenInfo = await response.json();
-
-      // Check if token has email scope
-      if (!tokenInfo.email) {
-        console.error("Token does not contain email");
-        return res.status(401).json({ error: "unauthorized", message: "Token missing required email scope" });
-      }
-
-      // Check if email is verified
-      if (tokenInfo.email_verified !== "true" && tokenInfo.email_verified !== true) {
-        console.warn("Email not verified:", tokenInfo.email);
-        return res.status(403).json({ error: "forbidden", message: "Email not verified" });
-      }
-
-      userEmail = tokenInfo.email;
-      userName = tokenInfo.name;
-      userSub = tokenInfo.sub;
-    } else if (provider === 'naver') {
-      // Verify Naver OAuth access token using Naver's user info endpoint
-      const response = await fetch('https://openapi.naver.com/v1/nid/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error("Naver token verification failed:", response.status);
-        return res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
-      }
-
-      const data = await response.json();
-
-      if (data.resultcode !== '00') {
-        console.error("Naver API error:", data.message);
-        return res.status(401).json({ error: "unauthorized", message: "Naver token validation failed" });
-      }
-
-      const profile = data.response;
-
-      if (!profile.email) {
-        console.error("Naver profile does not contain email");
-        return res.status(401).json({ error: "unauthorized", message: "Token missing required email scope" });
-      }
-
-      userEmail = profile.email;
-      userName = profile.name;
-      userSub = profile.id;
-    } else {
-      console.error("Unsupported provider:", provider);
-      return res.status(400).json({ error: "bad_request", message: "Unsupported authentication provider" });
-    }
-
-    // Check if email is in the whitelist
-    const allowedEmails = (process.env.ALLOWED_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
-
-    if (allowedEmails.length === 0) {
-      console.error("ALLOWED_EMAILS environment variable is not set");
-      return res.status(500).json({ error: "server_config_error", message: "Server configuration error" });
-    }
-
-    if (!allowedEmails.includes(userEmail)) {
-      console.warn(`Access denied for unauthorized email: ${userEmail} (provider: ${provider})`);
-      return res.status(403).json({ error: "forbidden", message: "Access denied - unauthorized email" });
-    }
-
-    req.user = {
-      email: userEmail,
-      sub: userSub,
-      name: userName,
-      provider: provider,
-    };
-
-    const authDuration = Date.now() - authStartTime;
-    console.log(`[Auth] ${provider} authentication successful for ${userEmail} (${authDuration}ms)`);
-
-    // Auto-register user in PostgreSQL if not exists (for memos/schedules FK constraint)
-    try {
-      const userInsertQuery = `
-        INSERT INTO users (email, display_name, provider, role, active)
-        VALUES ($1, $2, $3, 'user', true)
-        ON CONFLICT (email) DO UPDATE
-        SET provider = EXCLUDED.provider,
-            updated_at = CURRENT_TIMESTAMP,
-            synced_at = CURRENT_TIMESTAMP
-      `;
-      await db_postgres.query(userInsertQuery, [userEmail, userName || userEmail, provider]);
-      console.log(`[Auth] User ${userEmail} ensured in database`);
-    } catch (dbError) {
-      console.error(`[Auth] Failed to ensure user in database:`, dbError);
-      // Don't fail the request - just log the error
-    }
-
-    next();
-  } catch (error) {
-    console.error("Authentication error:", error);
-    return res.status(401).json({ error: "unauthorized", message: "Invalid token" });
-  }
-};
 
 // ============================================
 // Authentication Routes (JWT)
@@ -909,7 +699,7 @@ app.delete("/inquiries/:id", async (req, res) => {
 // ============================================
 
 // PATCH /users/me - Update current user's displayName
-app.patch("/users/me", authenticate, async (req, res) => {
+app.patch("/users/me", auth.authenticateJWT, async (req, res) => {
   try {
     const { displayName } = req.body;
 
@@ -1065,6 +855,11 @@ app.post("/memos", auth.authenticateJWT, async (req, res) => {
     `;
     const memoWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
 
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('memo:created', memoWithAuthor.rows[0]);
+    }
+
     res.json({
       status: "ok",
       data: memoWithAuthor.rows[0],
@@ -1076,7 +871,7 @@ app.post("/memos", auth.authenticateJWT, async (req, res) => {
 });
 
 // PATCH /memos/:id - Update memo
-app.patch("/memos/:id", authenticate, async (req, res) => {
+app.patch("/memos/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, content, important, expire_date } = req.body;
@@ -1146,6 +941,11 @@ app.delete("/memos/:id", auth.authenticateJWT, async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "not_found", message: "Memo not found" });
+    }
+
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('memo:deleted', { id: parseInt(id) });
     }
 
     res.json({
@@ -1260,6 +1060,11 @@ app.post("/schedules", auth.authenticateJWT, async (req, res) => {
     `;
     const scheduleWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
 
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('schedule:created', scheduleWithAuthor.rows[0]);
+    }
+
     res.json({
       status: "ok",
       data: scheduleWithAuthor.rows[0],
@@ -1271,7 +1076,7 @@ app.post("/schedules", auth.authenticateJWT, async (req, res) => {
 });
 
 // PATCH /schedules/:id - Update schedule
-app.patch("/schedules/:id", authenticate, async (req, res) => {
+app.patch("/schedules/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, time, start_date, end_date, type } = req.body;
@@ -1319,6 +1124,11 @@ app.patch("/schedules/:id", authenticate, async (req, res) => {
       return res.status(404).json({ error: "not_found", message: "Schedule not found" });
     }
 
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('schedule:updated', result.rows[0]);
+    }
+
     res.json({
       status: "ok",
       data: result.rows[0],
@@ -1347,6 +1157,11 @@ app.delete("/schedules/:id", auth.authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: "not_found", message: "Schedule not found" });
     }
 
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('schedule:deleted', { id: parseInt(id) });
+    }
+
     res.json({
       status: "ok",
       message: "Schedule deleted successfully",
@@ -1362,7 +1177,7 @@ app.delete("/schedules/:id", auth.authenticateJWT, async (req, res) => {
 // ============================================
 
 // GET /email-inquiries - List email inquiries
-app.get("/email-inquiries", authenticate, async (req, res) => {
+app.get("/email-inquiries", auth.authenticateJWT, async (req, res) => {
   try {
     const { checked, limit = "100", offset = "0" } = req.query;
 
@@ -1400,7 +1215,7 @@ app.get("/email-inquiries", authenticate, async (req, res) => {
 });
 
 // PATCH /email-inquiries/:id - Update email inquiry (mark as checked)
-app.patch("/email-inquiries/:id", authenticate, async (req, res) => {
+app.patch("/email-inquiries/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { checked, notes } = req.body;
@@ -1458,7 +1273,7 @@ app.patch("/email-inquiries/:id", authenticate, async (req, res) => {
 // ============================================
 
 // GET /web-form-inquiries - List web form inquiries
-app.get("/web-form-inquiries", authenticate, async (req, res) => {
+app.get("/web-form-inquiries", auth.authenticateJWT, async (req, res) => {
   try {
     const { checked, consultation_type, limit = "100", offset = "0" } = req.query;
 
@@ -1502,7 +1317,7 @@ app.get("/web-form-inquiries", authenticate, async (req, res) => {
 });
 
 // PATCH /web-form-inquiries/:id - Update web form inquiry (mark as checked)
-app.patch("/web-form-inquiries/:id", authenticate, async (req, res) => {
+app.patch("/web-form-inquiries/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { checked, notes } = req.body;
@@ -1560,7 +1375,7 @@ app.patch("/web-form-inquiries/:id", authenticate, async (req, res) => {
 // ============================================
 
 // GET /inquiries/all - Get all unchecked inquiries (unified view)
-app.get("/inquiries/all", authenticate, async (req, res) => {
+app.get("/inquiries/all", auth.authenticateJWT, async (req, res) => {
   try {
     const { limit = "100", offset = "0" } = req.query;
 
@@ -1677,11 +1492,68 @@ app.post("/sms/send", auth.authenticateJWT, async (req, res) => {
   }
 });
 
-// Start server
+// ============================================
+// Firestore Real-time Listener
+// ============================================
+// 초기 로드 완료 플래그 (중복 알림 방지)
+let firestoreInitialized = false;
+
+db.collection('inquiries').onSnapshot(snapshot => {
+  // 첫 로드 시 기존 데이터는 무시 (added 이벤트 중복 방지)
+  if (!firestoreInitialized) {
+    firestoreInitialized = true;
+    console.log('[Firestore] Initial snapshot loaded, skipping existing documents');
+    return;
+  }
+
+  snapshot.docChanges().forEach(change => {
+    const inquiryData = { id: change.doc.id, ...change.doc.data() };
+
+    switch (change.type) {
+      case 'added':
+        // 신규 상담 생성 (웹 폼 제출)
+        console.log(`[Firestore] New inquiry created: ${change.doc.id}`);
+        if (global.broadcastEvent) {
+          global.broadcastEvent('consultation:created', inquiryData);
+        }
+        break;
+
+      case 'modified':
+        // 상담 확인 (check: true), 메모 수정 등
+        console.log(`[Firestore] Inquiry modified: ${change.doc.id}`);
+        if (global.broadcastEvent) {
+          global.broadcastEvent('consultation:updated', {
+            id: change.doc.id,
+            updates: inquiryData
+          });
+        }
+        break;
+
+      case 'removed':
+        // 상담 삭제 (DELETE API 또는 외부 삭제)
+        console.log(`[Firestore] Inquiry removed: ${change.doc.id}`);
+        if (global.broadcastEvent) {
+          global.broadcastEvent('consultation:deleted', {
+            id: change.doc.id
+          });
+        }
+        break;
+    }
+  });
+}, error => {
+  console.error('[Firestore] Snapshot listener error:', error);
+});
+
+console.log('✓ Firestore real-time listener registered for inquiries collection');
+
+// ============================================
+// Start Server
+// ============================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log("=".repeat(60));
   console.log(`✓ APS Admin Local Backend Server running on port ${PORT}`);
   console.log(`✓ Health check: http://localhost:${PORT}/`);
+  console.log(`✓ WebSocket (Socket.IO) ready on same port`);
   console.log("=".repeat(60));
 });

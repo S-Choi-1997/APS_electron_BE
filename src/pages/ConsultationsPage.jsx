@@ -315,22 +315,24 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">{pageTitle}</h1>
-        <div className="stats">
-          <span className="stat-item">
-            <span className="stat-label">전체</span>
-            <span className="stat-value">{filteredConsultations.length}</span>
-          </span>
-          <span className="stat-divider">|</span>
-          <span className="stat-item">
-            <span className="stat-label">미확인</span>
-            <span className="stat-value unread">{uncheckedCount}</span>
-          </span>
+        {/* 좌측: 제목 + 통계 */}
+        <div className="header-left">
+          <h1 className="page-title">{pageTitle}</h1>
+          <div className="stats">
+            <span className="stat-item">
+              <span className="stat-label">전체</span>
+              <span className="stat-value">{filteredConsultations.length}</span>
+            </span>
+            <span className="stat-divider">|</span>
+            <span className="stat-item">
+              <span className="stat-label">미확인</span>
+              <span className="stat-value unread">{uncheckedCount}</span>
+            </span>
+          </div>
         </div>
-      </div>
 
-      <div className="page-content">
-        <div className="consultations-controls">
+        {/* 우측: 컨트롤 */}
+        <div className="header-right">
           <div className="filter-row">
             <div className="bulk-actions">
               <button
@@ -368,6 +370,9 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
           </div>
           <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
         </div>
+      </div>
+
+      <div className="page-content">
       {filteredConsultations.length === 0 ? (
         <div className="empty-state">
           <p>검색 결과에 해당하는 문의가 없습니다.</p>
