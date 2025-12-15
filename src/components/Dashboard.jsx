@@ -14,6 +14,7 @@ import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
 import { fetchSchedules, createSchedule, updateSchedule, deleteSchedule } from '../services/scheduleService';
 import { showToastNotification } from '../utils/notificationHelper';
+import { getSocket } from '../services/websocketService';
 import './Dashboard.css';
 import './css/PageLayout.css';
 import './css/DashboardLayout.css';
@@ -174,11 +175,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         window.electron.broadcastMemoCreated(createdMemo);
       }
 
-      // Toast 알림 표시
-      showToastNotification(
-        'memo',
-        `${createdMemo.author_name || user?.displayName || '사용자'}님이 메모를 등록했습니다.`
-      );
+      // Toast 알림은 WebSocket 이벤트 핸들러에서 처리됨 (중복 방지)
 
       // 중요 메모일 경우 알림창 자동으로 열기
       if (memoForm.important && window.electron && window.electron.openStickyWindow) {
@@ -289,13 +286,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       // 일정 목록 새로고침
       await loadSchedules();
 
-      // Toast 알림 표시 (개인 일정 vs 단체 일정)
-      const isPersonal = scheduleForm.type === '개인';
-      const timeDisplay = scheduleForm.hasTime ? scheduleForm.time : '시간 미정';
-      showToastNotification(
-        isPersonal ? 'personalSchedule' : 'teamSchedule',
-        `${timeDisplay} ${scheduleForm.title} 일정이 등록되었습니다.`
-      );
+      // Toast 알림은 WebSocket 이벤트 핸들러에서 처리됨 (중복 방지)
 
       setScheduleForm({ title: '', time: '', start_date: '', end_date: '', type: '회사', author: '', multiDay: false, hasTime: false });
       setShowScheduleCreateModal(false);
@@ -478,6 +469,81 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       return cleanup;
     }
   }, []);
+
+  // WebSocket 이벤트 리스너 - 메모/일정 실시간 동기화
+  useEffect(() => {
+    if (!user) return;
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    // 메모 생성 이벤트
+    socket.on('memo:created', (newMemo) => {
+      console.log('[WebSocket] Memo created:', newMemo);
+      loadMemos(); // 전체 리로드
+
+      // 알림 메시지: 제목 + 내용(50자) + 작성자
+      const memoContent = newMemo.content.length > 50
+        ? newMemo.content.substring(0, 50) + '...'
+        : newMemo.content;
+
+      showToastNotification('memo',
+        `${newMemo.title}\n${memoContent}\n\n${newMemo.author_name || '사용자'}`
+      );
+    });
+
+    // 메모 삭제 이벤트
+    socket.on('memo:deleted', (data) => {
+      console.log('[WebSocket] Memo deleted:', data.id);
+      loadMemos();
+    });
+
+    // 일정 생성 이벤트
+    socket.on('schedule:created', (newSchedule) => {
+      console.log('[WebSocket] Schedule created:', newSchedule);
+      loadSchedules();
+
+      const isPersonal = newSchedule.type === 'personal';
+
+      // 알림 메시지: 제목 + 날짜+시간 + 작성자(개인 일정만)
+      const timeInfo = newSchedule.time || '시간 미정';
+      const dateInfo = new Date(newSchedule.start_date).toLocaleDateString('ko-KR', {
+        month: 'long',
+        day: 'numeric'
+      });
+
+      const authorInfo = isPersonal
+        ? newSchedule.author_name || '사용자'
+        : '';
+
+      showToastNotification(
+        isPersonal ? 'personalSchedule' : 'teamSchedule',
+        authorInfo
+          ? `${newSchedule.title}\n${dateInfo} ${timeInfo}\n\n${authorInfo}`
+          : `${newSchedule.title}\n${dateInfo} ${timeInfo}`
+      );
+    });
+
+    // 일정 수정 이벤트
+    socket.on('schedule:updated', (data) => {
+      console.log('[WebSocket] Schedule updated:', data);
+      loadSchedules();
+    });
+
+    // 일정 삭제 이벤트
+    socket.on('schedule:deleted', (data) => {
+      console.log('[WebSocket] Schedule deleted:', data.id);
+      loadSchedules();
+    });
+
+    return () => {
+      socket.off('memo:created');
+      socket.off('memo:deleted');
+      socket.off('schedule:created');
+      socket.off('schedule:updated');
+      socket.off('schedule:deleted');
+    };
+  }, [user]);
 
   // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
   useEffect(() => {

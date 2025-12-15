@@ -1,0 +1,5 @@
+# 1. 관리자 계정 생성
+node create-admin.js nothingjustfake@gmail.com 123123123 "최승호"
+
+# 2. Firestore 화이트리스트 추가
+node init-whitelist.js nothingjustfake@gmail.com admin

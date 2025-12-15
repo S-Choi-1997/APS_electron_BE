@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>알림창</title>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <style>
     @font-face {
       font-family: 'NanumSquareRound';
@@ -1302,6 +1303,120 @@
       });
     }
 
+    // WebSocket 연결 및 이벤트 리스너
+    let socket = null;
+
+    function connectWebSocket() {
+      const userStr = localStorage.getItem('currentUser');
+      if (!userStr) {
+        console.warn('[Sticky WebSocket] No user found, cannot connect');
+        return null;
+      }
+
+      try {
+        const user = JSON.parse(userStr);
+        const token = user.idToken;
+        const provider = user.provider;
+
+        if (!token) {
+          console.warn('[Sticky WebSocket] No token found');
+          return null;
+        }
+
+        console.log('[Sticky WebSocket] Connecting to', API_BASE_URL);
+
+        socket = io(API_BASE_URL, {
+          auth: {
+            token: token,
+            provider: provider
+          },
+          reconnectionDelay: 1000,
+          reconnection: true,
+          reconnectionAttempts: 10,
+          timeout: 10000
+        });
+
+        socket.on('connect', () => {
+          console.log('[Sticky WebSocket] Connected to server');
+        });
+
+        socket.on('disconnect', (reason) => {
+          console.log('[Sticky WebSocket] Disconnected from server:', reason);
+        });
+
+        socket.on('connect_error', (error) => {
+          console.error('[Sticky WebSocket] Connection error:', error.message);
+        });
+
+        // 신규 상담 생성 이벤트
+        socket.on('consultation:created', () => {
+          console.log('[Sticky WebSocket] New consultation created');
+          loadConsultationStats();
+        });
+
+        // 상담 업데이트 이벤트
+        socket.on('consultation:updated', () => {
+          console.log('[Sticky WebSocket] Consultation updated');
+          loadConsultationStats();
+        });
+
+        // 상담 삭제 이벤트
+        socket.on('consultation:deleted', () => {
+          console.log('[Sticky WebSocket] Consultation deleted');
+          loadConsultationStats();
+        });
+
+        // 메모 생성 이벤트
+        socket.on('memo:created', (newMemo) => {
+          console.log('[Sticky WebSocket] Memo created:', newMemo);
+          loadMemos();
+        });
+
+        // 메모 삭제 이벤트
+        socket.on('memo:deleted', (data) => {
+          console.log('[Sticky WebSocket] Memo deleted:', data.id);
+          loadMemos();
+        });
+
+        // 일정 생성 이벤트
+        socket.on('schedule:created', (newSchedule) => {
+          console.log('[Sticky WebSocket] Schedule created:', newSchedule);
+          loadSchedules();
+        });
+
+        // 일정 수정 이벤트
+        socket.on('schedule:updated', (data) => {
+          console.log('[Sticky WebSocket] Schedule updated:', data);
+          loadSchedules();
+        });
+
+        // 일정 삭제 이벤트
+        socket.on('schedule:deleted', (data) => {
+          console.log('[Sticky WebSocket] Schedule deleted:', data.id);
+          loadSchedules();
+        });
+
+        // 재연결 시 데이터 동기화
+        socket.on('connect', async () => {
+          console.log('[Sticky WebSocket] Connected, reloading data...');
+          try {
+            await Promise.all([
+              loadMemos(),
+              loadConsultationStats(),
+              loadSchedules()
+            ]);
+          } catch (error) {
+            console.error('[Sticky WebSocket] Failed to reload data on reconnect:', error);
+          }
+        });
+
+        return socket;
+      } catch (error) {
+        console.error('[Sticky WebSocket] Failed to connect:', error);
+        return null;
+      }
+    }
+
     // 페이지 로드 시 데이터 초기화
     document.addEventListener('DOMContentLoaded', async () => {
       console.log('[Sticky] Initializing data...');
@@ -1327,6 +1442,9 @@
 
         // 내용 로드 후 윈도우 높이 자동 조정
         adjustWindowHeight();
+
+        // WebSocket 연결
+        connectWebSocket();
       } catch (error) {
         console.error('[Sticky] Failed to load data:', error);
       }

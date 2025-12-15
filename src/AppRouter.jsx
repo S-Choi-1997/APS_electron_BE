@@ -4,7 +4,7 @@
  * App.jsx의 기존 로직을 유지하면서 라우팅 기능 추가
  */
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { auth, onAuthStateChanged } from './auth/authManager';
 import TitleBar from './components/TitleBar';
@@ -18,6 +18,7 @@ import SettingsPage from './pages/SettingsPage';
 import { fetchInquiries } from './services/inquiryService';
 import { apiRequest } from './config/api';
 import { showToastNotification } from './utils/notificationHelper';
+import { connectWebSocket, disconnectWebSocket, getSocket } from './services/websocketService';
 import './App.css';
 
 // 라우팅 이벤트를 처리하는 컴포넌트
@@ -67,7 +68,6 @@ function AppRouter() {
   const [consultations, setConsultations] = useState([]);
   const [stats, setStats] = useState({ website: 0, email: 0 });
   const [loading, setLoading] = useState(true);
-  const prevStatsRef = useRef({ website: 0, email: 0 });
 
   // 인증 상태 감지
   useEffect(() => {
@@ -94,22 +94,6 @@ function AppRouter() {
     }
   };
 
-  // 통계 변화 감지 및 알림 표시
-  useEffect(() => {
-    if (!user) return;
-
-    const prevTotal = prevStatsRef.current.website + prevStatsRef.current.email;
-    const currentTotal = stats.website + stats.email;
-
-    // 통계가 증가한 경우에만 알림 (초기 로드 제외)
-    if (prevTotal > 0 && currentTotal > prevTotal) {
-      const message = `홈페이지: ${stats.website}건\n이메일: ${stats.email}건`;
-      showToastNotification('consultation', message);
-    }
-
-    // 현재 통계 저장
-    prevStatsRef.current = { ...stats };
-  }, [stats, user]);
 
   // 문의 목록 불러오기
   useEffect(() => {
@@ -165,6 +149,78 @@ function AppRouter() {
     };
 
     loadInquiries();
+  }, [user]);
+
+  // WebSocket 연결 및 이벤트 리스너
+  useEffect(() => {
+    if (!user) {
+      disconnectWebSocket();
+      return;
+    }
+
+    const socket = connectWebSocket();
+    if (!socket) return;
+
+    // 신규 상담 생성 이벤트
+    socket.on('consultation:created', (newConsultation) => {
+      console.log('[WebSocket] New consultation received:', newConsultation);
+
+      setConsultations(prev => [newConsultation, ...prev]);
+
+      // 통계 갱신
+      loadStats();
+
+      // Toast 알림
+      showToastNotification('consultation', `신규 문의: ${newConsultation.name}님`);
+    });
+
+    // 상담 업데이트 이벤트 (check 상태 변경 등)
+    socket.on('consultation:updated', (data) => {
+      console.log('[WebSocket] Consultation updated:', data);
+
+      setConsultations(prev => {
+        const existing = prev.find(c => c.id === data.id);
+        // 이미 같은 상태면 업데이트 스킵 (리렌더링 방지)
+        if (existing && existing.check === data.updates.check) {
+          return prev;
+        }
+        return prev.map(c => c.id === data.id ? { ...c, ...data.updates } : c);
+      });
+
+      // 통계 갱신 (미확인 수 변경)
+      loadStats();
+
+      // Toast 알림 (확인 처리된 경우)
+      if (data.updates.check === true) {
+        showToastNotification('consultation', `${data.updates.name}님 문의가 확인되었습니다.`);
+      }
+    });
+
+    // 상담 삭제 이벤트
+    socket.on('consultation:deleted', (data) => {
+      console.log('[WebSocket] Consultation deleted:', data.id);
+      setConsultations(prev => prev.filter(c => c.id !== data.id));
+      loadStats();
+    });
+
+    // 재연결 시 데이터 동기화
+    socket.on('connect', async () => {
+      console.log('[WebSocket] Connected, reloading data...');
+      try {
+        const data = await fetchInquiries(auth);
+        setConsultations(data);
+        await loadStats();
+      } catch (error) {
+        console.error('[WebSocket] Failed to reload data on reconnect:', error);
+      }
+    });
+
+    return () => {
+      socket.off('consultation:created');
+      socket.off('consultation:updated');
+      socket.off('consultation:deleted');
+      socket.off('connect');
+    };
   }, [user]);
 
   // 로딩 중

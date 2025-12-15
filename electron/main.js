@@ -394,9 +394,17 @@ function createToastNotification(data) {
     Math.max(NOTIFICATION_MIN_HEIGHT, 70 + (messageLines * 24))
   );
 
-  // 우하단 위치 계산 (아래쪽 기준)
+  // 이전 알림들의 실제 높이 누적
+  let previousHeights = 0;
+  for (let i = 0; i < stackIndex; i++) {
+    if (toastNotifications[i] && !toastNotifications[i].isDestroyed()) {
+      previousHeights += toastNotifications[i].getBounds().height + STACK_SPACING;
+    }
+  }
+
+  // 우하단 위치 계산 (아래쪽 기준, 실제 높이 기반)
   const x = width - NOTIFICATION_WIDTH - MARGIN;
-  const y = height - estimatedHeight - MARGIN - (stackIndex * (NOTIFICATION_MAX_HEIGHT + STACK_SPACING));
+  const y = height - estimatedHeight - MARGIN - previousHeights;
 
   // URL 파라미터 생성
   const params = new URLSearchParams({
@@ -496,15 +504,23 @@ function repositionToasts() {
   const { width, height } = primaryDisplay.workAreaSize;
 
   const NOTIFICATION_WIDTH = 320;
-  const NOTIFICATION_MAX_HEIGHT = 300; // 최대 높이 증가 (180 -> 300)
   const MARGIN = 20;
   const STACK_SPACING = 10;
 
   toastNotifications.forEach((toast, index) => {
     if (!toast.isDestroyed()) {
       const toastBounds = toast.getBounds();
+
+      // 이전 알림들의 실제 높이 누적
+      let previousHeights = 0;
+      for (let i = 0; i < index; i++) {
+        if (toastNotifications[i] && !toastNotifications[i].isDestroyed()) {
+          previousHeights += toastNotifications[i].getBounds().height + STACK_SPACING;
+        }
+      }
+
       const x = width - NOTIFICATION_WIDTH - MARGIN;
-      const y = height - toastBounds.height - MARGIN - (index * (NOTIFICATION_MAX_HEIGHT + STACK_SPACING));
+      const y = height - toastBounds.height - MARGIN - previousHeights;
       toast.setPosition(x, y, true);
     }
   });

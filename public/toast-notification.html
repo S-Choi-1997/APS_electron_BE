@@ -137,28 +137,6 @@
       overflow-wrap: break-word;
     }
 
-    .toast-action {
-      margin-top: 12px;
-      margin-left: 32px;
-    }
-
-    .action-button {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border: none;
-      border-radius: 6px;
-      color: white;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 6px 14px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .action-button:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-    }
   </style>
 </head>
 <body>
@@ -174,10 +152,6 @@
       새로운 알림이 도착했습니다.
     </div>
 
-    <!-- 액션 버튼 (옵션) -->
-    <div class="toast-action" id="toastAction" style="display: none;">
-      <button class="action-button" id="actionButton">지금 확인하기</button>
-    </div>
   </div>
 
   <script>
@@ -198,11 +172,6 @@
     document.getElementById('toastIcon').textContent = notificationData.icon;
     document.getElementById('toastTitle').textContent = notificationData.title;
     document.getElementById('toastMessage').textContent = notificationData.message;
-
-    // 액션 버튼 표시 (route가 있는 경우)
-    if (notificationData.route) {
-      document.getElementById('toastAction').style.display = 'block';
-    }
 
     // 자동 닫기 타이머 시작
     function startCloseTimer() {
@@ -244,11 +213,6 @@
     });
 
     document.getElementById('toastContainer').addEventListener('click', () => {
-      navigateToRoute();
-    });
-
-    document.getElementById('actionButton').addEventListener('click', (e) => {
-      e.stopPropagation();
       navigateToRoute();
     });
 

@@ -18,7 +18,7 @@ export const NOTIFICATION_TYPES = {
   MEMO: {
     key: 'memo',
     icon: '📝',
-    title: '팀 메모 추가됨',
+    title: '메모',
     enabled: true,
     sound: 'memo.mp3',
     route: '/dashboard'
