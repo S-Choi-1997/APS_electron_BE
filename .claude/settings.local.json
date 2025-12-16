@@ -49,7 +49,10 @@
       "Bash(node -e:*)",
       "Bash(node create-admin.js:*)",
       "Bash(npm uninstall:*)",
-      "Bash(docker volume:*)"
+      "Bash(docker volume:*)",
+      "Bash(docker cp:*)",
+      "Bash(echo:*)",
+      "Bash(docker inspect:*)"
     ]
   }
 }

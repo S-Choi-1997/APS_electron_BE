@@ -1,0 +1,117 @@
+# APS 백엔드 다른 PC에 배포하기
+
+## 1. 개발 PC에서 할 일
+
+### 코드 푸시 (Docker Hub 자동 빌드)
+```
+git add .
+git commit -m "..."
+git push
+```
+→ GitHub Actions가 자동으로 Docker Hub에 이미지 빌드/푸시
+→ 이미지명: choho97/aps-admin-backend:latest
+
+
+### 데이터 백업 (선택)
+```
+docker exec aps-postgres pg_dump -U apsuser aps_admin > backup.sql
+```
+→ backup.sql 파일을 배포 PC로 전송
+
+
+## 2. 배포 PC에 필요한 파일
+
+backend-local/
+├── docker-compose.prod.yml   (Git에서 받음)
+├── init-db.sql               (Git에서 받음)
+├── .env                      (수동 작성 - 아래 참고)
+└── service-account.json      (개발 PC에서 복사)
+
+
+## 3. .env 파일 작성 (배포 PC에서)
+
+배포 PC에 맞게 수정 필요한 항목:
+```
+PORT=3001
+ALLOWED_ORIGINS=http://localhost:5173,app://aps-admin,http://192.168.0.{클라이언트PC_IP}:5173
+ALLOWED_EMAILS=email1@gmail.com,email2@gmail.com
+STORAGE_BUCKET=aps-list.appspot.com
+JWT_SECRET=aps-admin-jwt-secret-key-change-this-to-random-string-minimum-32-characters
+JWT_REFRESH_SECRET=aps-admin-refresh-secret-key-change-this-to-random-string-minimum-32-characters
+JWT_EXPIRES_IN=1h
+JWT_REFRESH_EXPIRES_IN=30d
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=aps_admin
+DB_USER=apsuser
+DB_PASSWORD=aps_secure_password_2025
+ALIGO_API_KEY=o92qdqo477rbv9jhmsddg755qg4uobwc
+ALIGO_USER_ID=apsconsulting
+ALIGO_SENDER_PHONE=0317011663
+RELAY_URL=http://136.113.67.193:3000
+```
+
+
+## 4. 배포 PC에서 실행
+
+### Docker 컨테이너 실행
+```
+cd backend-local
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### 로그 확인
+```
+docker logs aps-admin-backend
+docker logs aps-postgres
+```
+
+### 데이터 복원 (백업한 경우만)
+```
+docker exec -i aps-postgres psql -U apsuser aps_admin < backup.sql
+```
+
+
+## 5. 방화벽 설정 (배포 PC)
+
+### Windows
+```
+New-NetFirewallRule -DisplayName "APS Backend" -Direction Inbound -Protocol TCP -LocalPort 3001 -Action Allow
+```
+
+
+## 6. 클라이언트 PC 설정
+
+### .env.production 수정
+```
+VITE_API_URL=http://{배포PC_IP}:3001
+```
+
+
+## 7. 접속 테스트
+
+### 배포 PC에서
+```
+curl http://localhost:3001/
+```
+
+### 클라이언트 PC에서
+```
+curl http://{배포PC_IP}:3001/
+```
+
+
+## 트러블슈팅
+
+### 이미지 pull 안될 때
+- Docker Hub에 이미지 올라갔는지 확인: https://hub.docker.com/r/choho97/aps-admin-backend
+
+### 컨테이너 에러 날 때
+- docker logs aps-admin-backend
+- .env 파일 확인
+- service-account.json 파일 있는지 확인
+
+### 외부 접속 안될 때
+- 방화벽 3001 포트 확인
+- .env의 ALLOWED_ORIGINS에 클라이언트 IP 추가했는지 확인
