@@ -376,12 +376,16 @@ function createToastNotification(data) {
   const MARGIN = 20;
   const STACK_SPACING = 10;
 
+  // 파괴된 알림 정리 (메모리 누수 방지)
+  toastNotifications = toastNotifications.filter(win => !win.isDestroyed());
+
   // 최대 동시 표시 알림: 3개로 제한
   if (toastNotifications.length >= 3) {
-    const oldest = toastNotifications.shift();
+    const oldest = toastNotifications[0];
     if (oldest && !oldest.isDestroyed()) {
       oldest.close();
     }
+    toastNotifications.shift();
   }
 
   // 스택 인덱스 계산
@@ -499,6 +503,9 @@ function createToastNotification(data) {
 
 // 토스트 알림 재정렬
 function repositionToasts() {
+  // 파괴된 알림 정리 (메모리 누수 방지)
+  toastNotifications = toastNotifications.filter(win => !win.isDestroyed());
+
   const { screen } = require('electron');
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;

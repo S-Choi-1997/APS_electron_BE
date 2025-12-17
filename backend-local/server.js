@@ -31,6 +31,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
 const auth = require("./auth"); // JWT authentication module
@@ -215,8 +216,27 @@ app.get("/", (req, res) => {
 // Authentication Routes (JWT)
 // ============================================
 
+// Rate limiter for login endpoint - 5 attempts per 15 minutes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: {
+    error: 'too_many_requests',
+    message: '너무 많은 로그인 시도입니다. 15분 후 다시 시도하세요.',
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  handler: (req, res) => {
+    console.warn(`[Security] Rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      error: 'too_many_requests',
+      message: '너무 많은 로그인 시도입니다. 15분 후 다시 시도하세요.',
+    });
+  },
+});
+
 // POST /auth/login - Login with email/password
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -578,6 +598,13 @@ app.patch("/inquiries/:id", async (req, res) => {
     }
 
     await docRef.update(updates);
+
+    // Broadcast inquiry update event via WebSocket Relay
+    global.broadcastEvent('consultation:updated', {
+      id: id,
+      ...updates,
+      timestamp: new Date().toISOString(),
+    });
 
     res.json({
       status: "ok",

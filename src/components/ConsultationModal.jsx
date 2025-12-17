@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
+import DOMPurify from 'dompurify';
 import './ConsultationModal.css';
 
 const TYPE_COLORS = ['#2563eb', '#dc2626', '#f59e0b', '#16a34a']; // blue, red, yellow, green
@@ -156,9 +157,15 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
 
             <div className="detail-section">
               <h3 className="detail-title">문의 내용</h3>
-              <div className="detail-content">
-                {consultation.message || consultation.content || '문의 내용이 없습니다.'}
-              </div>
+              <div
+                className="detail-content"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(
+                    consultation.message || consultation.content || '문의 내용이 없습니다.',
+                    { ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'br', 'p'], ALLOWED_ATTR: ['href'] }
+                  )
+                }}
+              />
             </div>
 
             <div className="detail-section">

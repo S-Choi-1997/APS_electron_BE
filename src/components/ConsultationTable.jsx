@@ -1,5 +1,6 @@
 ﻿import './ConsultationTable.css';
 import { useEffect, useRef } from 'react';
+import DOMPurify from 'dompurify';
 
 const TYPE_COLORS = ['#2563eb', '#dc2626', '#f59e0b', '#16a34a']; // blue, red, yellow, green
 
@@ -39,7 +40,9 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
 
   const getPreview = (text) => {
     if (!text) return '';
-    const trimmed = String(text).trim();
+    // Strip HTML tags and sanitize
+    const cleanText = DOMPurify.sanitize(text, { ALLOWED_TAGS: [] });
+    const trimmed = String(cleanText).trim();
     return trimmed.length > 34 ? `${trimmed.slice(0, 34)}…` : trimmed;
   };
 
