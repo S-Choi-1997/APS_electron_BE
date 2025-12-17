@@ -5,13 +5,15 @@
  */
 
 import { io } from 'socket.io-client';
-import { API_URL } from '../config/api.js';
 import { getCurrentUser } from '../auth/authManager.js';
+
+// WebSocket Relay URL (from environment variable)
+const RELAY_WS_URL = import.meta.env.VITE_WS_RELAY_URL || 'ws://localhost:8080';
 
 let socket = null;
 
 /**
- * WebSocket 연결
+ * WebSocket 연결 (Relay Server에 연결)
  * @returns {Socket} socket.io 클라이언트 인스턴스
  */
 export function connectWebSocket() {
@@ -27,13 +29,10 @@ export function connectWebSocket() {
     return socket;
   }
 
-  console.log('[WebSocket] Connecting to', API_URL);
+  console.log('[WebSocket] Connecting to relay server:', RELAY_WS_URL);
 
-  socket = io(API_URL, {
-    auth: {
-      token: user.idToken,
-      provider: user.provider
-    },
+  socket = io(RELAY_WS_URL, {
+    transports: ['websocket', 'polling'],
     reconnectionDelay: 1000,
     reconnection: true,
     reconnectionAttempts: 10,
@@ -41,16 +40,40 @@ export function connectWebSocket() {
   });
 
   socket.on('connect', () => {
-    console.log('[WebSocket] Connected to server');
+    console.log('[WebSocket] Connected to relay server');
+
+    // Send handshake
+    socket.emit('handshake', {
+      type: 'client',
+      metadata: {
+        email: user.email,
+        provider: user.provider,
+        displayName: user.displayName,
+        connectedAt: new Date().toISOString()
+      }
+    });
+  });
+
+  socket.on('handshake:success', (data) => {
+    console.log('[WebSocket] Handshake successful:', data);
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('[WebSocket] Disconnected from server:', reason);
+    console.log('[WebSocket] Disconnected from relay server:', reason);
   });
 
   socket.on('connect_error', (error) => {
     console.error('[WebSocket] Connection error:', error.message);
   });
+
+  // Heartbeat
+  const heartbeatInterval = setInterval(() => {
+    if (socket && socket.connected) {
+      socket.emit('heartbeat');
+    } else {
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000);
 
   return socket;
 }
@@ -76,27 +99,11 @@ export function getSocket() {
 
 /**
  * 토큰 갱신 후 WebSocket 재연결
- * @param {string} newToken - 새로운 인증 토큰
- * @param {string} newProvider - 인증 제공자 ('local', 'google', 'naver')
+ * (Relay 서버는 클라이언트 인증을 하지 않으므로 재연결만 수행)
  */
-export function refreshSocketAuth(newToken, newProvider) {
+export function refreshSocketAuth() {
   if (socket && socket.connected) {
-    console.log('[WebSocket] Refreshing authentication...');
-
-    // 기존 연결 종료
-    socket.disconnect();
-
-    // 새 토큰으로 재연결
-    socket = io(API_URL, {
-      auth: {
-        token: newToken,
-        provider: newProvider
-      },
-      reconnectionDelay: 1000,
-      reconnection: true,
-      reconnectionAttempts: 10
-    });
-
-    console.log('[WebSocket] Reconnected with new token');
+    console.log('[WebSocket] Token refreshed, maintaining connection to relay');
+    // Relay 서버는 클라이언트 인증을 하지 않으므로 특별한 작업 불필요
   }
 }

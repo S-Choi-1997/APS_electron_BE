@@ -94,55 +94,98 @@ const corsOptions = {
 };
 
 // ============================================
-// WebSocket (Socket.IO) Setup
+// WebSocket Relay Client (Socket.IO Client to GCP4 Relay)
 // ============================================
-const io = new Server(server, {
-  cors: corsOptions
-});
+const { io: ioClient } = require('socket.io-client');
 
-// WebSocket 인증 미들웨어 (JWT only)
-io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth.token;
+const RELAY_WS_URL = process.env.RELAY_WS_URL || 'ws://localhost:8080';
+const BACKEND_VERSION = process.env.BACKEND_VERSION || '1.0.0';
+const BACKEND_INSTANCE_ID = process.env.BACKEND_INSTANCE_ID || 'backend-local-001';
 
-    if (!token) {
-      return next(new Error('Authentication token required'));
-    }
+let relaySocket = null;
+let isRelayConnected = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
-    // JWT 검증
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+function connectToRelay() {
+  console.log(`[WebSocket Relay] Connecting to ${RELAY_WS_URL}...`);
 
-    // 화이트리스트 검증
-    const allowedEmails = (process.env.ALLOWED_EMAILS || "").split(",").map(e => e.trim());
-    if (!allowedEmails.includes(decoded.email)) {
-      return next(new Error('Unauthorized email'));
-    }
-
-    socket.user = { email: decoded.email, provider: 'local' };
-    next();
-  } catch (error) {
-    console.error('[WebSocket] Authentication failed:', error.message);
-    next(new Error('Authentication failed'));
-  }
-});
-
-// 연결 이벤트
-io.on('connection', (socket) => {
-  console.log(`[WebSocket] User connected: ${socket.user.email}`);
-
-  socket.on('disconnect', () => {
-    console.log(`[WebSocket] User disconnected: ${socket.user.email}`);
+  relaySocket = ioClient(RELAY_WS_URL, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+    timeout: 10000
   });
-});
+
+  relaySocket.on('connect', () => {
+    console.log('[WebSocket Relay] Connected to relay server');
+    reconnectAttempts = 0;
+
+    // Send handshake
+    relaySocket.emit('handshake', {
+      type: 'backend',
+      version: BACKEND_VERSION,
+      instanceId: BACKEND_INSTANCE_ID,
+      metadata: {
+        hostname: require('os').hostname(),
+        pid: process.pid,
+        startTime: new Date().toISOString()
+      }
+    });
+  });
+
+  relaySocket.on('handshake:success', (data) => {
+    console.log('[WebSocket Relay] Handshake successful:', data);
+    isRelayConnected = true;
+  });
+
+  relaySocket.on('handshake:error', (error) => {
+    console.error('[WebSocket Relay] Handshake failed:', error);
+    isRelayConnected = false;
+  });
+
+  relaySocket.on('active:changed', (data) => {
+    console.log(`[WebSocket Relay] Active status: ${data.active ? 'ACTIVE' : 'INACTIVE'}`);
+  });
+
+  relaySocket.on('disconnect', (reason) => {
+    console.log(`[WebSocket Relay] Disconnected: ${reason}`);
+    isRelayConnected = false;
+  });
+
+  relaySocket.on('connect_error', (error) => {
+    reconnectAttempts++;
+    console.error(`[WebSocket Relay] Connection error (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}):`, error.message);
+
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.error('[WebSocket Relay] Max reconnection attempts reached. Giving up.');
+    }
+  });
+
+  // Heartbeat
+  setInterval(() => {
+    if (relaySocket && relaySocket.connected) {
+      relaySocket.emit('heartbeat');
+    }
+  }, 30000);
+}
 
 // 전역 broadcast 함수 (CRUD 작업에서 사용)
 global.broadcastEvent = (eventType, data) => {
-  io.emit(eventType, data);
-  console.log(`[WebSocket] Broadcasted event: ${eventType}`);
+  if (!relaySocket || !isRelayConnected) {
+    console.warn(`[WebSocket Relay] Not connected, cannot send event: ${eventType}`);
+    return;
+  }
+
+  relaySocket.emit(eventType, data);
+  console.log(`[WebSocket Relay] Sent event to relay: ${eventType}`);
 };
 
-console.log('✓ WebSocket (Socket.IO) server initialized');
+// Connect to relay on startup
+connectToRelay();
+
+console.log('✓ WebSocket Relay Client initialized');
 
 app.use(cors(corsOptions));
 app.use(express.json());
