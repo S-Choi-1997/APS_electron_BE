@@ -1,5 +1,5 @@
 ﻿import './ConsultationTable.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import DOMPurify from 'dompurify';
 
 const TYPE_COLORS = ['#2563eb', '#dc2626', '#f59e0b', '#16a34a']; // blue, red, yellow, green
@@ -178,4 +178,6 @@ function ConsultationTable({ consultations, onRowClick, onRespond, selectedIds, 
   );
 }
 
-export default ConsultationTable;
+// React.memo로 래핑하여 불필요한 리렌더링 방지
+// consultations 배열이나 handlers가 변경될 때만 리렌더링
+export default memo(ConsultationTable);

@@ -667,10 +667,13 @@ app.get("/inquiries/:id/attachments/urls", async (req, res) => {
         }
 
         // Generate signed URL (valid for 1 hour)
+        const expiresDate = new Date();
+        expiresDate.setHours(expiresDate.getHours() + 1);
+
         const [url] = await file.getSignedUrl({
           version: "v4",
           action: "read",
-          expires: Date.now() + 60 * 60 * 1000, // 1 hour
+          expires: expiresDate,
         });
 
         return {

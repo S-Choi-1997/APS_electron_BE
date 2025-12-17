@@ -1,4 +1,5 @@
-﻿import './SearchBar.css';
+﻿import { memo } from 'react';
+import './SearchBar.css';
 
 function SearchBar({ searchTerm, onSearchChange }) {
   return (
@@ -25,4 +26,5 @@ function SearchBar({ searchTerm, onSearchChange }) {
   );
 }
 
-export default SearchBar;
+// React.memo로 래핑 - searchTerm이나 onSearchChange가 변경될 때만 리렌더링
+export default memo(SearchBar);

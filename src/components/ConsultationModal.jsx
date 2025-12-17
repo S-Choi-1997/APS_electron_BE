@@ -56,12 +56,26 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
   const typeColor = getTypeColor(consultation.type);
   const isUnread = !consultation.check;
 
-  const imageAttachments = useMemo(
-    () => (attachments || []).filter((file) => isImageFile(file) && file.downloadUrl),
-    [attachments]
-  );
+  const imageAttachments = useMemo(() => {
+    const images = (attachments || []).filter((file) => {
+      const isImage = isImageFile(file);
+      const hasUrl = !!file.downloadUrl;
+      console.log('[ConsultationModal] File check:', {
+        name: file.name || file.filename,
+        isImage,
+        hasUrl,
+        downloadUrl: file.downloadUrl,
+        url: file.url
+      });
+      return isImage && hasUrl;
+    });
+    console.log('[ConsultationModal] imageAttachments:', images);
+    return images;
+  }, [attachments]);
+
   const [previewIndex, setPreviewIndex] = useState(0);
   const [preloadedImages, setPreloadedImages] = useState({});
+  const [showImageModal, setShowImageModal] = useState(false);
 
   useEffect(() => {
     setPreviewIndex(0);
@@ -186,8 +200,17 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                           {isImage && file.downloadUrl && imageIdx >= 0 && (
                             <button
                               type="button"
-                              className={`preview-btn ${previewIndex === imageIdx ? 'active' : ''}`}
-                              onClick={() => setPreviewIndex(imageIdx)}
+                              className={`preview-btn ${previewIndex === imageIdx && showImageModal ? 'active' : ''}`}
+                              onClick={() => {
+                                console.log('[ConsultationModal] Preview button clicked:', {
+                                  imageIdx,
+                                  file,
+                                  imageAttachments: imageAttachments.length,
+                                  downloadUrl: file.downloadUrl
+                                });
+                                setPreviewIndex(imageIdx);
+                                setShowImageModal(true);
+                              }}
                             >
                               미리보기
                             </button>
@@ -226,28 +249,54 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
           </div>
         </div>
 
-        {imageAttachments.length > 0 && currentPreview && (
-          <div className="side-preview" onClick={(e) => e.stopPropagation()}>
-            <div className="side-preview-frame">
-              <img src={currentPreview.downloadUrl} alt={currentPreview.name || 'attachment'} />
-              {imageAttachments.length > 1 && (
-                <>
-                  <button className="image-nav prev" onClick={goPrev} type="button" aria-label="이전">
-                    ‹
-                  </button>
-                  <button className="image-nav next" onClick={goNext} type="button" aria-label="다음">
-                    ›
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="side-preview-caption">
-              <div className="side-preview-name">{currentPreview.name || currentPreview.filename}</div>
-              {imageAttachments.length > 1 && (
-                <div className="image-counter">
-                  {previewIndex + 1} / {imageAttachments.length}
-                </div>
-              )}
+        {showImageModal && imageAttachments.length > 0 && currentPreview && (
+          <div
+            className="image-preview-modal"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowImageModal(false);
+              }
+            }}
+          >
+            <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="image-modal-close"
+                onClick={() => setShowImageModal(false)}
+                type="button"
+                aria-label="닫기"
+              >
+                ×
+              </button>
+              <div className="image-preview-frame">
+                <img
+                  src={currentPreview.downloadUrl}
+                  alt={currentPreview.name || 'attachment'}
+                  onLoad={() => console.log('[ConsultationModal] Image loaded:', currentPreview.downloadUrl)}
+                  onError={(e) => console.error('[ConsultationModal] Image load error:', {
+                    src: currentPreview.downloadUrl,
+                    error: e,
+                    file: currentPreview
+                  })}
+                />
+                {imageAttachments.length > 1 && (
+                  <>
+                    <button className="image-nav prev" onClick={goPrev} type="button" aria-label="이전">
+                      ‹
+                    </button>
+                    <button className="image-nav next" onClick={goNext} type="button" aria-label="다음">
+                      ›
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="image-preview-caption">
+                <div className="image-preview-name">{currentPreview.name || currentPreview.filename}</div>
+                {imageAttachments.length > 1 && (
+                  <div className="image-counter">
+                    {previewIndex + 1} / {imageAttachments.length}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

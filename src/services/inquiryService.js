@@ -120,5 +120,11 @@ export async function deleteInquiry(id, auth) {
  */
 export async function fetchAttachmentUrls(id, auth) {
   const response = await apiRequest(API_ENDPOINTS.ATTACHMENTS(id), {}, auth);
-  return response.data;
+  console.log('[fetchAttachmentUrls] Response for inquiry', id, ':', response.data);
+
+  // Normalize: backend may return 'url' or 'downloadUrl'
+  return response.data.map(file => ({
+    ...file,
+    downloadUrl: file.downloadUrl || file.url,
+  }));
 }

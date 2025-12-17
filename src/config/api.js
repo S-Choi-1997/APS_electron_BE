@@ -30,7 +30,7 @@ export const API_ENDPOINTS = {
   INQUIRY_DETAIL: (id) => `/inquiries/${id}`,
   INQUIRY_UPDATE: (id) => `/inquiries/${id}`,
   INQUIRY_DELETE: (id) => `/inquiries/${id}`,
-  ATTACHMENTS: (id) => `/inquiries/${id}/attachments`,
+  ATTACHMENTS: (id) => `/inquiries/${id}/attachments/urls`,
 
   // SMS
   SMS_SEND: '/sms/send',

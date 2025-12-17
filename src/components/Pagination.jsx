@@ -1,4 +1,5 @@
-﻿import './Pagination.css';
+﻿import { memo } from 'react';
+import './Pagination.css';
 
 function Pagination({ currentPage, totalPages, onPageChange }) {
   const getPageNumbers = () => {
@@ -64,4 +65,5 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
   );
 }
 
-export default Pagination;
+// React.memo로 래핑 - 페이지 정보가 변경될 때만 리렌더링
+export default memo(Pagination);
