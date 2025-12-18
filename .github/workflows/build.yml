@@ -34,6 +34,9 @@ jobs:
         run: npm run electron:build
         env:
           CI: true
+          ELECTRON_BUILDER_CACHE: ~/.cache/electron-builder
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 30
 
       - name: Upload artifacts (Windows)
         if: matrix.os == 'windows-latest'
