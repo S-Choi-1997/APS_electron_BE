@@ -14,6 +14,7 @@ RUN npm ci --only=production
 COPY server.js ./
 COPY db.js ./
 COPY auth.js ./
+COPY firestore-admin.js ./
 
 # GCP 서비스 계정 JSON 마운트 포인트 (docker-compose에서 volume으로 제공)
 # /app/service-account.json
