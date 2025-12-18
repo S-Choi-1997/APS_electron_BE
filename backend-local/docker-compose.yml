@@ -1,5 +1,8 @@
 version: '3.8'
 
+# Docker Hub 이미지 사용 (배포용)
+# 사용법: docker-compose up -d
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -23,10 +26,8 @@ services:
       retries: 5
 
   aps-backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: aps-admin-backend:local
+    # Docker Hub 이미지 사용
+    image: choho97/aps-admin-backend:latest
     container_name: aps-admin-backend
     restart: unless-stopped
     ports:
@@ -34,19 +35,15 @@ services:
     env_file:
       - .env
     volumes:
-      # GCP 서비스 계정 JSON 파일 마운트 (반드시 필요)
+      # GCP 서비스 계정 JSON 파일만 마운트 (필수)
       - ./service-account.json:/app/service-account.json:ro
-      # 개발 중 실시간 코드 반영 (소스 코드 마운트)
-      - ./server.js:/app/server.js
-      - ./db.js:/app/db.js
-      - ./auth.js:/app/auth.js
     environment:
       # 서비스 계정 JSON 경로 (컨테이너 내부 경로)
       GOOGLE_APPLICATION_CREDENTIALS: /app/service-account.json
       # PostgreSQL 연결 정보
       DATABASE_URL: postgresql://apsuser:aps_secure_password_2025@postgres:5432/aps_admin
-      # 개발 모드
-      NODE_ENV: development
+      # 프로덕션 모드
+      NODE_ENV: production
     networks:
       - aps-network
     depends_on:

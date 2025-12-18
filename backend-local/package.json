@@ -1,6 +1,6 @@
 {
   "name": "aps-admin-local-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "APS Admin Local Backend Server - Docker deployment",
   "main": "server.js",
   "engines": {
@@ -19,6 +19,7 @@
   "author": "APS Consulting",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.7.9",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

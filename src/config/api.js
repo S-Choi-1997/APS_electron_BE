@@ -4,8 +4,8 @@
  * 백엔드 API와 통신하는 공통 설정 및 함수
  */
 
-// API 기본 URL (로컬 Docker Compose 백엔드)
-const API_BASE_URL = 'http://localhost:3001';
+// API 기본 URL (환경 변수 또는 기본값)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Export for use in auth modules
 export const API_URL = API_BASE_URL;

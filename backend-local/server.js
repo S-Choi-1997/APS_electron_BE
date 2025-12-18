@@ -165,6 +165,53 @@ function connectToRelay() {
     }
   });
 
+  // ============================================
+  // HTTP-over-WebSocket Tunnel Handler
+  // ============================================
+  relaySocket.on('http:request', async (request) => {
+    const { requestId, method, path, headers, body } = request;
+
+    console.log(`[Backend] Tunnel HTTP ${method} ${path} (requestId: ${requestId})`);
+
+    try {
+      const axios = require('axios');
+      const BASE_URL = `http://localhost:${PORT}`;
+
+      const response = await axios({
+        method: method.toLowerCase(),
+        url: `${BASE_URL}${path}`,
+        headers: {
+          ...headers,
+          host: undefined,
+        },
+        data: body,
+        validateStatus: () => true,
+        maxRedirects: 0,
+      });
+
+      relaySocket.emit('http:response', {
+        requestId,
+        statusCode: response.status,
+        headers: response.headers,
+        body: response.data,
+      });
+
+      console.log(`[Backend] Tunnel response ${response.status} (requestId: ${requestId})`);
+    } catch (error) {
+      console.error(`[Backend] Tunnel error (requestId: ${requestId}):`, error.message);
+
+      relaySocket.emit('http:response', {
+        requestId,
+        statusCode: 500,
+        headers: { 'content-type': 'application/json' },
+        body: {
+          error: 'tunnel_error',
+          message: error.message,
+        },
+      });
+    }
+  });
+
   // Heartbeat
   setInterval(() => {
     if (relaySocket && relaySocket.connected) {

@@ -64,7 +64,8 @@
       "Bash(gcloud compute ssh aligo-proxy --zone=us-central1-a --command=\"docker pull choho97/aps-websocket-relay:latest && docker stop ws-relay && docker rm ws-relay && docker run -d -p 8080:8080 --name ws-relay --restart unless-stopped choho97/aps-websocket-relay:latest && sleep 3 && docker ps | grep ws-relay && docker logs ws-relay --tail 20\")",
       "Bash(gcloud compute ssh aligo-proxy --zone=us-central1-a --command=\"docker pull choho97/aps-websocket-relay:latest && docker stop ws-relay && docker rm ws-relay && docker run -d -p 8080:8080 --name ws-relay --restart unless-stopped choho97/aps-websocket-relay:latest && sleep 3 && docker ps | grep ws-relay\")",
       "Bash(gcloud compute ssh:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(ls:*)"
     ]
   }
 }
