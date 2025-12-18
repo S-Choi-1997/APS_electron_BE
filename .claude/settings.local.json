@@ -66,7 +66,10 @@
       "Bash(gcloud compute ssh:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
-      "Bash(docker ps:*)"
+      "Bash(docker ps:*)",
+      "Bash(mv:*)",
+      "Bash(mkdir:*)",
+      "Bash(git tag:*)"
     ]
   }
 }

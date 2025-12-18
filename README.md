@@ -2,6 +2,13 @@
 
 APS 관리 시스템의 Electron 데스크톱 애플리케이션입니다.
 
+## 📖 문서
+
+자세한 문서는 [docs/](docs/) 폴더를 참고하세요:
+- **[릴리즈 가이드](docs/RELEASE_GUIDE.md)** - 새 버전 배포 방법
+- **[관리자 계정 가이드](docs/ADMIN_ACCOUNT_GUIDE.md)** - 계정 추가 방법
+- **[프로젝트 가이드](docs/CLAUDE.md)** - 전체 아키텍처 및 개발 가이드
+
 ## 프로젝트 구조
 
 ```
