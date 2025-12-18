@@ -35,6 +35,7 @@ const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
 const auth = require("./auth"); // JWT authentication module
+const firestoreAdmin = require("./firestore-admin"); // Firestore admin management
 
 // 환경변수 로드 확인
 console.log("=".repeat(60));
@@ -247,39 +248,37 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
       });
     }
 
-    // Check Firestore whitelist
-    const isWhitelisted = await auth.isWhitelisted(email);
-    if (!isWhitelisted) {
-      console.warn(`[Auth] Login denied for non-whitelisted email: ${email}`);
-      return res.status(403).json({
-        error: 'forbidden',
-        message: 'Access denied - email not in whitelist',
-      });
-    }
+    // Get admin from Firestore (avoid shadowing 'admin' module)
+    const adminUser = await firestoreAdmin.getAdminByEmail(email);
 
-    // Get user from PostgreSQL
-    const userQuery = 'SELECT * FROM users WHERE email = $1 AND active = true';
-    const userResult = await db_postgres.query(userQuery, [email]);
-
-    if (userResult.rows.length === 0) {
+    if (!adminUser) {
+      console.warn(`[Auth] Login attempt for non-existent email: ${email}`);
       return res.status(401).json({
         error: 'unauthorized',
         message: 'Invalid email or password',
       });
     }
 
-    const user = userResult.rows[0];
+    // Check if account is active
+    if (!adminUser.active) {
+      console.warn(`[Auth] Login denied for inactive account: ${email}`);
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Account is inactive',
+      });
+    }
 
     // Verify password
-    if (!user.password_hash) {
+    if (!adminUser.password_hash) {
       return res.status(401).json({
         error: 'unauthorized',
         message: 'Account not configured for local login',
       });
     }
 
-    const isValidPassword = await auth.verifyPassword(password, user.password_hash);
+    const isValidPassword = await auth.verifyPassword(password, adminUser.password_hash);
     if (!isValidPassword) {
+      console.warn(`[Auth] Invalid password for: ${email}`);
       return res.status(401).json({
         error: 'unauthorized',
         message: 'Invalid email or password',
@@ -287,15 +286,15 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     }
 
     // Generate JWT tokens
-    const { accessToken, refreshToken } = auth.generateTokens(user);
+    const { accessToken, refreshToken } = auth.generateTokens(adminUser);
 
-    console.log(`[Auth] Login successful for ${email}`);
+    console.log(`[Auth] Login successful for ${email} (role: ${adminUser.role})`);
 
     res.json({
       user: {
-        email: user.email,
-        displayName: user.display_name,
-        role: user.role,
+        email: adminUser.email,
+        displayName: adminUser.display_name,
+        role: adminUser.role,
         provider: 'local',
       },
       accessToken,
@@ -325,28 +324,25 @@ app.post('/auth/refresh', async (req, res) => {
     // Verify refresh token and generate new access token + new refresh token (rolling)
     const { accessToken, refreshToken: newRefreshToken, email } = await auth.refreshAccessToken(refreshToken);
 
-    // Get user info from database
-    const userQuery = 'SELECT email, display_name, role FROM users WHERE email = $1 AND active = true';
-    const userResult = await db_postgres.query(userQuery, [email]);
+    // Get admin info from Firestore (avoid shadowing 'admin' module)
+    const adminUser = await firestoreAdmin.getAdminByEmail(email);
 
-    if (userResult.rows.length === 0) {
+    if (!adminUser || !adminUser.active) {
       return res.status(401).json({
         error: 'unauthorized',
         message: 'User not found or inactive',
       });
     }
 
-    const user = userResult.rows[0];
-
     console.log(`[Auth] Token refreshed for ${email} (rolling refresh)`);
 
     res.json({
       accessToken,
-      refreshToken: newRefreshToken, // 🎯 New refresh token included!
+      refreshToken: newRefreshToken, // New refresh token included (rolling refresh)
       user: {
-        email: user.email,
-        displayName: user.display_name,
-        role: user.role,
+        email: adminUser.email,
+        displayName: adminUser.display_name,
+        role: adminUser.role,
         provider: 'local',
       },
     });
@@ -398,41 +394,42 @@ app.post('/auth/register', auth.authenticateJWT, async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const existingUser = await db_postgres.query(
-      'SELECT email FROM users WHERE email = $1',
-      [email]
-    );
+    // Validate role
+    if (!['admin', 'user'].includes(role)) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'Role must be "admin" or "user"',
+      });
+    }
 
-    if (existingUser.rows.length > 0) {
+    // Check if admin already exists in Firestore
+    const existingAdmin = await firestoreAdmin.getAdminByEmail(email);
+
+    if (existingAdmin) {
       return res.status(409).json({
         error: 'conflict',
         message: 'User already exists',
       });
     }
 
-    // Hash password
-    const passwordHash = await auth.hashPassword(password);
-
-    // Insert user
-    const insertQuery = `
-      INSERT INTO users (email, display_name, password_hash, provider, role, active)
-      VALUES ($1, $2, $3, 'local', $4, true)
-      RETURNING email, display_name, role, created_at
-    `;
-
-    const result = await db_postgres.query(insertQuery, [
+    // Create admin in Firestore
+    const newAdmin = await firestoreAdmin.createAdmin(
       email,
+      password,
       displayName || email,
-      passwordHash,
-      role,
-    ]);
+      role
+    );
 
-    console.log(`[Auth] New user registered: ${email}`);
+    console.log(`[Auth] New user registered: ${email} (role: ${role})`);
 
     res.status(201).json({
       success: true,
-      user: result.rows[0],
+      user: {
+        email: newAdmin.email,
+        displayName: newAdmin.display_name,
+        role: newAdmin.role,
+        active: newAdmin.active,
+      },
     });
   } catch (error) {
     console.error('[Auth] Registration error:', error);
@@ -587,7 +584,7 @@ app.patch("/inquiries/:id", async (req, res) => {
 
     // Add updated timestamp
     updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-    updates.updatedBy = req.user.sub || req.user.email; // Track who updated
+    updates.updatedBy = req.user.email; // Track who updated (email from JWT)
 
     const docRef = db.collection("inquiries").doc(id);
 
@@ -783,51 +780,60 @@ app.patch("/users/me", auth.authenticateJWT, async (req, res) => {
       });
     }
 
-    const query = `
-      UPDATE users
-      SET display_name = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE email = $2
-      RETURNING email, display_name, provider, role, active, created_at, updated_at
-    `;
+    // Update admin in Firestore
+    const updatedAdmin = await firestoreAdmin.updateAdmin(req.user.email, {
+      display_name: displayName
+    });
 
-    const result = await db_postgres.query(query, [displayName, req.user.email]);
-
-    if (result.rows.length === 0) {
+    if (!updatedAdmin) {
       return res.status(404).json({ error: "not_found", message: "User not found" });
     }
 
+    // Convert Firestore timestamps to ISO strings for JSON serialization
     res.json({
       status: "ok",
-      data: result.rows[0],
+      data: {
+        email: updatedAdmin.email,
+        displayName: updatedAdmin.display_name,  // Consistent camelCase
+        provider: updatedAdmin.provider,
+        role: updatedAdmin.role,
+        active: updatedAdmin.active,
+        createdAt: updatedAdmin.created_at?.toDate?.().toISOString() || null,
+        updatedAt: updatedAdmin.updated_at?.toDate?.().toISOString() || null,
+      },
     });
   } catch (error) {
     console.error("Error updating user:", error);
-    res.status(500).json({ error: "internal_error", message: error.message });
+    res.status(500).json({ error: "internal_error", message: "Internal server error" });
   }
 });
 
 // GET /users/me - Get current user info
 app.get("/users/me", auth.authenticateJWT, async (req, res) => {
   try {
-    const query = `
-      SELECT email, display_name, provider, role, active, created_at, updated_at
-      FROM users
-      WHERE email = $1
-    `;
+    // Get admin info from Firestore (avoid shadowing 'admin' module)
+    const adminUser = await firestoreAdmin.getAdminByEmail(req.user.email);
 
-    const result = await db_postgres.query(query, [req.user.email]);
-
-    if (result.rows.length === 0) {
+    if (!adminUser) {
       return res.status(404).json({ error: "not_found", message: "User not found" });
     }
 
+    // Convert Firestore timestamps to ISO strings for JSON serialization
     res.json({
       status: "ok",
-      data: result.rows[0],
+      data: {
+        email: adminUser.email,
+        displayName: adminUser.display_name,  // Consistent camelCase
+        provider: adminUser.provider,
+        role: adminUser.role,
+        active: adminUser.active,
+        createdAt: adminUser.created_at?.toDate?.().toISOString() || null,
+        updatedAt: adminUser.updated_at?.toDate?.().toISOString() || null,
+      },
     });
   } catch (error) {
     console.error("Error fetching user:", error);
-    res.status(500).json({ error: "internal_error", message: error.message });
+    res.status(500).json({ error: "internal_error", message: "Internal server error" });
   }
 });
 

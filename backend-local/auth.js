@@ -6,13 +6,14 @@
  * Features:
  * - JWT token generation (accessToken + refreshToken)
  * - Token verification middleware
- * - Firestore whitelist validation
+ * - Firestore admins collection for user management
  * - Password hashing with bcrypt
  */
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const admin = require('firebase-admin');
+const firestoreAdmin = require('./firestore-admin');
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-this-in-production';
@@ -25,24 +26,15 @@ const BCRYPT_ROUNDS = 12;
 const refreshTokens = new Map();
 
 /**
- * Check if email is whitelisted in Firestore
+ * Get admin user by email from Firestore
+ * Replaces whitelist + PostgreSQL users table
  */
-async function isWhitelisted(email) {
+async function getAdminByEmail(email) {
   try {
-    const doc = await admin.firestore()
-      .collection('whitelist')
-      .doc(email)
-      .get();
-
-    if (!doc.exists) {
-      return false;
-    }
-
-    const data = doc.data();
-    return data.active === true;
+    return await firestoreAdmin.getAdminByEmail(email);
   } catch (error) {
-    console.error('[Auth] Whitelist check failed:', error);
-    return false;
+    console.error('[Auth] Failed to fetch admin:', error);
+    return null;
   }
 }
 
@@ -60,7 +52,7 @@ function generateTokens(user) {
   });
 
   const refreshToken = jwt.sign(
-    { email: user.email },
+    { email: user.email, role: user.role || 'user' },
     JWT_REFRESH_SECRET,
     { expiresIn: JWT_REFRESH_EXPIRES_IN }
   );
@@ -194,7 +186,7 @@ const authenticateJWT = async (req, res, next) => {
 };
 
 module.exports = {
-  isWhitelisted,
+  getAdminByEmail,
   generateTokens,
   refreshAccessToken,
   revokeRefreshToken,

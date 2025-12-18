@@ -5,22 +5,26 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================
--- 1. Users Table (사용자 정보)
+-- 1. Users Table (사용자 정보) - DEPRECATED
 -- ============================================
-CREATE TABLE users (
-  email VARCHAR(255) PRIMARY KEY,
-  display_name VARCHAR(255),
-  provider VARCHAR(50) DEFAULT 'local',  -- 'local' | 'google' | 'naver'
-  password_hash VARCHAR(255),  -- bcrypt hash (local auth only)
-  role VARCHAR(50) DEFAULT 'user',  -- 'admin' | 'user'
-  active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- Firestore 동기화 시간
-);
-
-CREATE INDEX idx_users_active ON users(active);
-CREATE INDEX idx_users_role ON users(role);
+-- NOTE: User authentication has been moved to Firestore 'admins' collection.
+-- This table is no longer used for authentication.
+-- Foreign key references (checked_by, author) still use email VARCHAR.
+--
+-- CREATE TABLE users (
+--   email VARCHAR(255) PRIMARY KEY,
+--   display_name VARCHAR(255),
+--   provider VARCHAR(50) DEFAULT 'local',  -- 'local' | 'google' | 'naver'
+--   password_hash VARCHAR(255),  -- bcrypt hash (local auth only)
+--   role VARCHAR(50) DEFAULT 'user',  -- 'admin' | 'user'
+--   active BOOLEAN DEFAULT true,
+--   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--   synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- Firestore 동기화 시간
+-- );
+--
+-- CREATE INDEX idx_users_active ON users(active);
+-- CREATE INDEX idx_users_role ON users(role);
 
 -- ============================================
 -- 2. Email Inquiries Table (이메일 문의 - Gmail API)
