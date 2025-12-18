@@ -332,6 +332,32 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
       });
     }
 
+    // Upsert user into PostgreSQL users table (for memos/schedules foreign key)
+    try {
+      await db_postgres.query(
+        `INSERT INTO users (email, display_name, provider, role, active, created_at, updated_at, synced_at, password_hash)
+         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6)
+         ON CONFLICT (email)
+         DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           role = EXCLUDED.role,
+           active = EXCLUDED.active,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          adminUser.email,
+          adminUser.display_name,
+          adminUser.provider || 'local',
+          adminUser.role,
+          adminUser.active,
+          adminUser.password_hash
+        ]
+      );
+      console.log(`[Auth] User synced to PostgreSQL: ${email}`);
+    } catch (dbError) {
+      console.error('[Auth] Failed to sync user to PostgreSQL:', dbError);
+      // Continue even if sync fails - login should still work
+    }
+
     // Generate JWT tokens
     const { accessToken, refreshToken } = auth.generateTokens(adminUser);
 
