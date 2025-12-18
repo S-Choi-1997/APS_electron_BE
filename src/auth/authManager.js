@@ -53,6 +53,11 @@ export function signOut() {
   currentUser = null;
   notifyAuthListeners(null);
 
+  // Close all sticky windows on logout
+  if (window.electron && window.electron.closeAllStickyWindows) {
+    window.electron.closeAllStickyWindows();
+  }
+
   console.log('[AuthManager] Signed out');
 }
 

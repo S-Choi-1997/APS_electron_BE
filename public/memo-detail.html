@@ -407,8 +407,8 @@
       document.getElementById('content').innerHTML = `
         <form id="memoForm">
           <div class="form-group">
-            <label class="form-label">제목 *</label>
-            <input type="text" class="form-input" id="memoTitle" required placeholder="메모 제목을 입력하세요">
+            <label class="form-label">제목</label>
+            <input type="text" class="form-input" id="memoTitle" placeholder="메모 제목을 입력하세요">
           </div>
 
           <div class="form-group">
@@ -448,8 +448,8 @@
       const expireDate = document.getElementById('memoExpireDate').value;
       const important = document.getElementById('memoImportant').checked;
 
-      if (!title || !content) {
-        alert('제목과 내용을 입력해주세요.');
+      if (!content) {
+        alert('내용을 입력해주세요.');
         return;
       }
 

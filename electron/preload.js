@@ -9,11 +9,14 @@ contextBridge.exposeInMainWorld('electron', {
   clearSession: () => ipcRenderer.invoke('clear-session'),
 
   // 스티커 창 관리
-  openStickyWindow: (type, title, data) =>
-    ipcRenderer.invoke('open-sticky-window', { type, title, data }),
+  openStickyWindow: (type, title, data, reset = false) =>
+    ipcRenderer.invoke('open-sticky-window', { type, title, data, reset }),
 
   closeStickyWindow: (type) =>
     ipcRenderer.invoke('close-sticky-window', type),
+
+  closeAllStickyWindows: () =>
+    ipcRenderer.invoke('close-all-sticky-windows'),
 
   isStickyWindowOpen: (type) =>
     ipcRenderer.invoke('is-sticky-window-open', type),

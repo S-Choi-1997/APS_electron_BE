@@ -555,6 +555,40 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     }
   }, [showScheduleCreateModal]);
 
+  // 로그인 시 알림창 자동 열기
+  useEffect(() => {
+    if (!user || !window.electron) return;
+
+    // 메모와 일정 데이터가 모두 로드된 후 알림창 열기
+    if (!memosLoading && !schedulesLoading) {
+      const openStickyOnLogin = async () => {
+        try {
+          // 이미 열려있는지 확인
+          const isOpen = await window.electron.isStickyWindowOpen('dashboard');
+
+          // 이미 열려있으면 무시
+          if (isOpen) return;
+
+          // 캐시 데이터 준비
+          const uncheckedConsultations = consultations.filter(c => !c.check);
+          const cachedData = {
+            memos,
+            schedules,
+            consultations: uncheckedConsultations
+          };
+
+          // 알림창 열기 (리셋 모드 아님)
+          await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+          console.log('[Dashboard] Auto-opened sticky window on login');
+        } catch (error) {
+          console.error('[Dashboard] Failed to auto-open sticky window:', error);
+        }
+      };
+
+      openStickyOnLogin();
+    }
+  }, [user, memosLoading, schedulesLoading, memos, schedules, consultations]);
+
   // 메모 데이터 로드
   const loadMemos = async () => {
     try {
@@ -687,8 +721,20 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
           <h1 className="page-title">대시보드</h1>
           <button
             className="add-btn"
-            onClick={() => window.electron?.openStickyWindow('dashboard', '알림창', { memos, consultations: uncheckedConsultations })}
-            title="알림창 띄우기"
+            onClick={async () => {
+              if (!window.electron) return;
+              // 이미 열려있는지 확인
+              const isOpen = await window.electron.isStickyWindowOpen('dashboard');
+              // 캐시 데이터: 메모, 일정, 미확인 상담
+              const cachedData = {
+                memos,
+                schedules,
+                consultations: uncheckedConsultations
+              };
+              // 열려있으면 리셋 모드로, 아니면 일반 모드로
+              await window.electron.openStickyWindow('dashboard', '알림창', cachedData, isOpen);
+            }}
+            title="알림창 띄우기 (열려있으면 클릭 시 위치 리셋)"
           >
             알림창
           </button>
@@ -797,8 +843,8 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
                       <span className="schedule-type-badge">{schedule.type}</span>
                       <span className="schedule-time">{schedule.time}</span>
                       <span className="schedule-title">
+                        {schedule.type === '개인' && schedule.author && <span className="schedule-author">{schedule.author_name || schedule.author || '사용자'} - </span>}
                         {schedule.title}
-                        {schedule.type === '개인' && schedule.author && <span className="schedule-author"> - {schedule.author_name || schedule.author || '사용자'}</span>}
                       </span>
                       <div className="schedule-actions">
                         <button

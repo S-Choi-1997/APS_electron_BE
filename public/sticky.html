@@ -921,8 +921,9 @@
 
     console.log('[Sticky] Script started!');
 
-    // API 기본 URL
-    const API_BASE_URL = 'http://localhost:3001';
+    // API 기본 URL - 릴레이 서버 사용 (메인 앱과 동일)
+    const API_BASE_URL = 'http://136.113.67.193:8080/proxy';
+    console.log('[Sticky] API_BASE_URL:', API_BASE_URL);
 
     // 전역 데이터
     let memos = [];
@@ -1135,7 +1136,7 @@
           personalSchedules.forEach(schedule => {
             const time = schedule.time || '시간 미정';
             const authorName = schedule.author_name || schedule.author || '';
-            const displayTitle = authorName ? `${schedule.title} - ${authorName}` : schedule.title;
+            const displayTitle = authorName ? `${authorName} - ${schedule.title}` : schedule.title;
             scheduleHTML += `
               <div class="schedule-item">
                 <span class="schedule-time">${time}</span>
@@ -1149,9 +1150,6 @@
         scheduleBody.innerHTML = scheduleHTML;
       }
       console.log('[Sticky] Schedules rendered successfully');
-
-      // 일정 렌더링 후 윈도우 높이 재조정
-      adjustWindowHeight();
     }
 
     // 메모 렌더링 함수 (재사용 가능하도록 분리)
@@ -1195,9 +1193,6 @@
         `).join('');
       }
       console.log('[Sticky] Memos rendered successfully, valid memos:', validMemos.length);
-
-      // 메모 렌더링 후 윈도우 높이 재조정
-      adjustWindowHeight();
     }
 
     // 서브 윈도우 방식으로 변경
@@ -1417,6 +1412,38 @@
       }
     }
 
+    // 초기 데이터 수신 및 렌더링
+    function initializeWithCachedData(cachedData) {
+      console.log('[Sticky] Initializing with cached data:', cachedData);
+
+      // 메모 초기화
+      if (cachedData.memos && Array.isArray(cachedData.memos)) {
+        memos = cachedData.memos;
+        renderMemos();
+        console.log('[Sticky] Rendered cached memos:', memos.length);
+      }
+
+      // 일정 초기화
+      if (cachedData.schedules && Array.isArray(cachedData.schedules)) {
+        schedules = cachedData.schedules;
+        renderSchedules();
+        console.log('[Sticky] Rendered cached schedules:', schedules.length);
+      }
+
+      // 상담 통계 초기화
+      if (cachedData.consultations && Array.isArray(cachedData.consultations)) {
+        stats = {
+          website: cachedData.consultations.filter(c => c.type === 'website' && !c.check).length,
+          email: cachedData.consultations.filter(c => c.type === 'email' && !c.check).length
+        };
+        renderConsultationStats();
+        console.log('[Sticky] Rendered cached consultation stats:', stats);
+      }
+
+      // 캐시 데이터 렌더링 후 높이 조정
+      adjustWindowHeight();
+    }
+
     // 페이지 로드 시 데이터 초기화
     document.addEventListener('DOMContentLoaded', async () => {
       console.log('[Sticky] Initializing data...');
@@ -1432,21 +1459,37 @@
         return;
       }
 
+      // URL 파라미터에서 전달받은 캐시 데이터 확인
+      const urlParams = new URLSearchParams(window.location.search);
+      const cachedDataParam = urlParams.get('cachedData');
+
+      if (cachedDataParam) {
+        try {
+          const cachedData = JSON.parse(decodeURIComponent(cachedDataParam));
+          console.log('[Sticky] Found cached data in URL params');
+          initializeWithCachedData(cachedData);
+        } catch (error) {
+          console.error('[Sticky] Failed to parse cached data:', error);
+        }
+      }
+
+      // 백그라운드에서 API로 최신 데이터 가져오기
       try {
+        console.log('[Sticky] Fetching fresh data from API in background...');
         await Promise.all([
           loadMemos(),
           loadConsultationStats(),
           loadSchedules()
         ]);
-        console.log('[Sticky] Data loaded:', { memos: memos.length, schedules: schedules.length, stats });
+        console.log('[Sticky] Fresh data loaded:', { memos: memos.length, schedules: schedules.length, stats });
 
-        // 내용 로드 후 윈도우 높이 자동 조정
+        // 내용 업데이트 후 윈도우 높이 재조정
         adjustWindowHeight();
 
         // WebSocket 연결
         connectWebSocket();
       } catch (error) {
-        console.error('[Sticky] Failed to load data:', error);
+        console.error('[Sticky] Failed to load fresh data:', error);
       }
     });
 

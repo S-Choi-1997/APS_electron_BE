@@ -1,10 +1,44 @@
 const { app, BrowserWindow, ipcMain, session, Menu, screen, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow;
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리)
+
+// Sticky window settings file path
+const STICKY_SETTINGS_PATH = path.join(app.getPath('userData'), 'sticky-settings.json');
+
+// Load sticky window settings
+function loadStickySettings(type) {
+  try {
+    if (fs.existsSync(STICKY_SETTINGS_PATH)) {
+      const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+      const settings = JSON.parse(data);
+      return settings[type] || null;
+    }
+  } catch (error) {
+    console.error('[Sticky Settings] Failed to load settings:', error);
+  }
+  return null;
+}
+
+// Save sticky window settings
+function saveStickySettings(type, settings) {
+  try {
+    let allSettings = {};
+    if (fs.existsSync(STICKY_SETTINGS_PATH)) {
+      const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+      allSettings = JSON.parse(data);
+    }
+    allSettings[type] = settings;
+    fs.writeFileSync(STICKY_SETTINGS_PATH, JSON.stringify(allSettings, null, 2));
+    console.log(`[Sticky Settings] Saved settings for ${type}:`, settings);
+  } catch (error) {
+    console.error('[Sticky Settings] Failed to save settings:', error);
+  }
+}
 
 function createWindow() {
   // 메뉴바 완전히 제거
@@ -84,21 +118,51 @@ ipcMain.handle('window-close', () => {
 });
 
 // Sticky Window 관리
-ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
-  // 이미 열려있으면 focus
+ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = false }) => {
+  // 이미 열려있는 경우
   if (stickyWindows[type] && !stickyWindows[type].isDestroyed()) {
-    stickyWindows[type].focus();
-    return { success: true, alreadyOpen: true };
+    if (reset) {
+      // 리셋 모드: 기존 창 닫고 설정 삭제 후 재생성
+      console.log(`[Sticky] Resetting sticky window: ${type}`);
+      stickyWindows[type].close();
+      delete stickyWindows[type];
+
+      // 저장된 설정 삭제
+      try {
+        if (fs.existsSync(STICKY_SETTINGS_PATH)) {
+          const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+          const allSettings = JSON.parse(data);
+          delete allSettings[type];
+          fs.writeFileSync(STICKY_SETTINGS_PATH, JSON.stringify(allSettings, null, 2));
+          console.log(`[Sticky Settings] Deleted settings for ${type}`);
+        }
+      } catch (error) {
+        console.error('[Sticky Settings] Failed to delete settings:', error);
+      }
+      // 아래에서 새 창 생성
+    } else {
+      // 일반 모드: 포커스만
+      stickyWindows[type].focus();
+      return { success: true, alreadyOpen: true };
+    }
   }
+
+  // Load saved settings (position, opacity)
+  const savedSettings = loadStickySettings(type);
+  const defaultX = 100;
+  const defaultY = 100;
+  const defaultOpacity = 0.95;
 
   const stickyWindow = new BrowserWindow({
     width: 300,
     height: 200,
+    x: savedSettings?.x || defaultX,
+    y: savedSettings?.y || defaultY,
     frame: false,
     alwaysOnTop: true,
-    show: false,
+    show: false, // 크기 조정 후 표시
     resizable: false,
-    opacity: 0.95, // 95% 불투명도 (5% 투명)
+    opacity: savedSettings?.opacity || defaultOpacity,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -106,13 +170,26 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
     },
   });
 
+  // Save position when window is moved
+  stickyWindow.on('moved', () => {
+    const [x, y] = stickyWindow.getPosition();
+    const opacity = stickyWindow.getOpacity();
+    saveStickySettings(type, { x, y, opacity });
+  });
+
+  // 캐시 데이터를 URL 파라미터로 인코딩
+  const cachedDataParam = data ? `?cachedData=${encodeURIComponent(JSON.stringify(data))}` : '';
+
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    stickyWindow.loadURL('http://localhost:5173/sticky.html');
+    stickyWindow.loadURL(`http://localhost:5173/sticky.html${cachedDataParam}`);
     // 개발 모드에서 DevTools 자동 열기 (크기 표시 때문에 주석 처리)
     // stickyWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'));
+    // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
+    stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'), {
+      search: cachedDataParam.replace('?', '') // '?' 제거하고 전달
+    });
   }
 
   stickyWindows[type] = stickyWindow;
@@ -121,7 +198,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data }) => {
     delete stickyWindows[type];
   });
 
-  return { success: true, alreadyOpen: false };
+  console.log(`[Sticky] Opened sticky window: ${type}, reset: ${reset}`);
+  return { success: true, alreadyOpen: false, wasReset: reset };
 });
 
 ipcMain.handle('close-sticky-window', async (event, type) => {
@@ -159,9 +237,36 @@ ipcMain.handle('set-window-opacity', async (event, opacity) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (senderWindow) {
     senderWindow.setOpacity(opacity);
+
+    // Save opacity setting
+    for (const [type, window] of Object.entries(stickyWindows)) {
+      if (window === senderWindow) {
+        const [x, y] = senderWindow.getPosition();
+        saveStickySettings(type, { x, y, opacity });
+        break;
+      }
+    }
+
     return { success: true };
   }
   return { success: false };
+});
+
+// Close all sticky windows (called on logout)
+ipcMain.handle('close-all-sticky-windows', async () => {
+  try {
+    const types = Object.keys(stickyWindows);
+    for (const type of types) {
+      if (stickyWindows[type] && !stickyWindows[type].isDestroyed()) {
+        stickyWindows[type].close();
+      }
+    }
+    stickyWindows = {};
+    return { success: true, count: types.length };
+  } catch (error) {
+    console.error('[Sticky Windows] Failed to close all windows:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // 메모 생성 브로드캐스트
