@@ -174,6 +174,32 @@ function AppRouter() {
       setConsultations(prev => prev.filter(c => c.id !== data.id));
     }, []),
 
+    // 메모 생성 (Dashboard에서 자동 새로고침을 위해 필요)
+    onMemoCreated: useCallback((newMemo) => {
+      console.log('[AppRouter] Memo created:', newMemo.id);
+      // Dashboard 컴포넌트가 자체적으로 메모를 관리하므로 여기서는 로그만 출력
+    }, []),
+
+    // 메모 삭제
+    onMemoDeleted: useCallback((data) => {
+      console.log('[AppRouter] Memo deleted:', data.id);
+    }, []),
+
+    // 일정 생성
+    onScheduleCreated: useCallback((newSchedule) => {
+      console.log('[AppRouter] Schedule created:', newSchedule.id);
+    }, []),
+
+    // 일정 수정
+    onScheduleUpdated: useCallback((data) => {
+      console.log('[AppRouter] Schedule updated:', data.id);
+    }, []),
+
+    // 일정 삭제
+    onScheduleDeleted: useCallback((data) => {
+      console.log('[AppRouter] Schedule deleted:', data.id);
+    }, []),
+
     // 통계 새로고침
     loadStats: loadStats,
 

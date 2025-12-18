@@ -471,68 +471,41 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   }, []);
 
   // WebSocket 이벤트 리스너 - 메모/일정 실시간 동기화
+  // NOTE: AppRouter에서 useWebSocketSync로 중앙 관리됨
+  // Dashboard는 데이터 새로고침만 수행
   useEffect(() => {
     if (!user) return;
 
     const socket = getSocket();
     if (!socket) return;
 
-    // 메모 생성 이벤트
+    // 메모 생성 이벤트 - 데이터 새로고침
     socket.on('memo:created', (newMemo) => {
-      console.log('[WebSocket] Memo created:', newMemo);
-      loadMemos(); // 전체 리로드
-
-      // 알림 메시지: 제목 + 내용(50자) + 작성자
-      const memoContent = newMemo.content.length > 50
-        ? newMemo.content.substring(0, 50) + '...'
-        : newMemo.content;
-
-      showToastNotification('memo',
-        `${newMemo.title}\n${memoContent}\n\n${newMemo.author_name || '사용자'}`
-      );
-    });
-
-    // 메모 삭제 이벤트
-    socket.on('memo:deleted', (data) => {
-      console.log('[WebSocket] Memo deleted:', data.id);
+      console.log('[Dashboard] Memo created event received:', newMemo.id);
       loadMemos();
     });
 
-    // 일정 생성 이벤트
+    // 메모 삭제 이벤트 - 데이터 새로고침
+    socket.on('memo:deleted', (data) => {
+      console.log('[Dashboard] Memo deleted event received:', data.id);
+      loadMemos();
+    });
+
+    // 일정 생성 이벤트 - 데이터 새로고침
     socket.on('schedule:created', (newSchedule) => {
-      console.log('[WebSocket] Schedule created:', newSchedule);
+      console.log('[Dashboard] Schedule created event received:', newSchedule.id);
       loadSchedules();
-
-      const isPersonal = newSchedule.type === 'personal';
-
-      // 알림 메시지: 제목 + 날짜+시간 + 작성자(개인 일정만)
-      const timeInfo = newSchedule.time || '시간 미정';
-      const dateInfo = new Date(newSchedule.start_date).toLocaleDateString('ko-KR', {
-        month: 'long',
-        day: 'numeric'
-      });
-
-      const authorInfo = isPersonal
-        ? newSchedule.author_name || '사용자'
-        : '';
-
-      showToastNotification(
-        isPersonal ? 'personalSchedule' : 'teamSchedule',
-        authorInfo
-          ? `${newSchedule.title}\n${dateInfo} ${timeInfo}\n\n${authorInfo}`
-          : `${newSchedule.title}\n${dateInfo} ${timeInfo}`
-      );
     });
 
-    // 일정 수정 이벤트
+    // 일정 수정 이벤트 - 데이터 새로고침
     socket.on('schedule:updated', (data) => {
-      console.log('[WebSocket] Schedule updated:', data);
+      console.log('[Dashboard] Schedule updated event received:', data.id);
       loadSchedules();
     });
 
-    // 일정 삭제 이벤트
+    // 일정 삭제 이벤트 - 데이터 새로고침
     socket.on('schedule:deleted', (data) => {
-      console.log('[WebSocket] Schedule deleted:', data.id);
+      console.log('[Dashboard] Schedule deleted event received:', data.id);
       loadSchedules();
     });
 
