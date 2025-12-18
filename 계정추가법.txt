@@ -1,0 +1,61 @@
+관리자 계정 추가 방법
+1. create-admin.js 스크립트 사용 (추천)
+
+cd e:/Projects/APS/APS_APP/backend-local
+node create-admin.js <이메일> <비밀번호> [이름] [role]
+예시:
+
+# 관리자 계정 생성
+node create-admin.js admin@test.com TestPass123 "관리자" admin
+
+# 일반 사용자 생성
+node create-admin.js user@test.com UserPass123 "사용자" user
+
+# 이름 생략 (이메일이 이름으로)
+node create-admin.js test@test.com Pass12345678
+파라미터 설명:
+이메일: 로그인 이메일 (필수)
+비밀번호: 8자 이상 (필수)
+이름: 표시 이름 (선택, 기본값: 이메일)
+role: admin 또는 user (선택, 기본값: admin)
+2. 스크립트 실행 결과 예시
+
+$ node create-admin.js admin@test.com TestPass123 "테스트 관리자" admin
+
+✓ Firebase Admin initialized
+
+[Create Admin] Creating admin user: admin@test.com
+[Create Admin] Creating Firestore document...
+[FirestoreAdmin] Created admin: admin@test.com (role: admin)
+
+✅ Admin user created successfully in Firestore!
+---------------------------------------------------
+Email:        admin@test.com
+Display Name: 테스트 관리자
+Role:         admin
+Active:       true
+Provider:     local
+---------------------------------------------------
+
+You can now login with these credentials.
+3. 환경변수 설정 확인
+스크립트 실행 전에 GCP 인증 설정이 되어 있어야 해:
+
+# .env 파일에 있어야 함
+GOOGLE_APPLICATION_CREDENTIALS=경로/to/service-account.json
+4. 오류 발생 시
+"User already exists" 에러:
+
+❌ Error: User admin@test.com already exists in Firestore
+
+Existing user details:
+  Email:        admin@test.com
+  Display Name: 관리자
+  Role:         admin
+  Active:       true
+→ 이미 계정이 있어. 다른 이메일 사용하거나 Firestore에서 삭제 후 재생성 "Firebase Admin initialization failed" 에러: → GOOGLE_APPLICATION_CREDENTIALS 환경변수 확인 "Password must be at least 8 characters" 에러: → 비밀번호 8자 이상으로 설정
+5. 생성된 계정으로 로그인
+Electron 앱 실행 후:
+로그인 페이지에서 생성한 이메일/비밀번호 입력
+로그인 버튼 클릭
+성공! 🎉
