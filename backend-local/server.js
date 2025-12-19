@@ -1699,6 +1699,152 @@ db.collection('inquiries').onSnapshot(snapshot => {
 console.log('✓ Firestore real-time listener registered for inquiries collection');
 
 // ============================================
+// Email Inquiries API (Gmail + ZOHO)
+// ============================================
+
+// Get all email inquiries
+app.get('/email-inquiries', verifyAuth, async (req, res) => {
+  try {
+    const { source, check, limit = 50, offset = 0 } = req.query;
+
+    let sql = 'SELECT * FROM email_inquiries WHERE 1=1';
+    const values = [];
+    let paramIndex = 1;
+
+    // Filter by source
+    if (source) {
+      sql += ` AND source = $${paramIndex++}`;
+      values.push(source);
+    }
+
+    // Filter by check status
+    if (check !== undefined) {
+      sql += ` AND "check" = $${paramIndex++}`;
+      values.push(check === 'true');
+    }
+
+    // Order and pagination
+    sql += ` ORDER BY received_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    values.push(parseInt(limit), parseInt(offset));
+
+    const result = await query(sql, values);
+    res.json({ data: result.rows });
+  } catch (error) {
+    console.error('[Email Inquiries] Error fetching inquiries:', error);
+    res.status(500).json({ error: 'Failed to fetch email inquiries' });
+  }
+});
+
+// Get email inquiry statistics
+app.get('/email-inquiries/stats', verifyAuth, async (req, res) => {
+  try {
+    const sql = `
+      SELECT
+        COUNT(*) FILTER (WHERE source = 'zoho') as zoho_count,
+        COUNT(*) FILTER (WHERE source = 'gmail') as gmail_count,
+        COUNT(*) FILTER (WHERE "check" = false) as unread_count,
+        COUNT(*) as total_count
+      FROM email_inquiries;
+    `;
+
+    const result = await query(sql);
+    const stats = result.rows[0];
+
+    res.json({
+      data: {
+        total: parseInt(stats.total_count) || 0,
+        unread: parseInt(stats.unread_count) || 0,
+        gmail: parseInt(stats.gmail_count) || 0,
+        zoho: parseInt(stats.zoho_count) || 0
+      }
+    });
+  } catch (error) {
+    console.error('[Email Inquiries] Error fetching stats:', error);
+    res.status(500).json({ error: 'Failed to fetch email stats' });
+  }
+});
+
+// Update email inquiry (mark as checked/unchecked)
+app.patch('/email-inquiries/:id', verifyAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { check } = req.body;
+
+    const sql = `
+      UPDATE email_inquiries
+      SET "check" = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *;
+    `;
+
+    const result = await query(sql, [check, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Email inquiry not found' });
+    }
+
+    res.json({ data: result.rows[0] });
+  } catch (error) {
+    console.error('[Email Inquiries] Error updating inquiry:', error);
+    res.status(500).json({ error: 'Failed to update email inquiry' });
+  }
+});
+
+// Delete email inquiry
+app.delete('/email-inquiries/:id', verifyAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const sql = `DELETE FROM email_inquiries WHERE id = $1 RETURNING *;`;
+    const result = await query(sql, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Email inquiry not found' });
+    }
+
+    res.json({ data: result.rows[0] });
+  } catch (error) {
+    console.error('[Email Inquiries] Error deleting inquiry:', error);
+    res.status(500).json({ error: 'Failed to delete email inquiry' });
+  }
+});
+
+console.log('✓ Email Inquiries API endpoints registered');
+
+// ============================================
+// ZOHO Mail Integration (Optional Module)
+// ============================================
+if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
+  try {
+    const zoho = require('./zoho');
+
+    // OAuth endpoints
+    app.get('/auth/zoho', zoho.handleAuthStart);
+    app.get('/auth/zoho/callback', zoho.handleAuthCallback);
+
+    // Webhook endpoint
+    app.post('/api/zoho/webhook', zoho.handleWebhook);
+
+    // API endpoints for manual sync (optional)
+    app.post('/api/zoho/sync', verifyAuth, async (req, res) => {
+      try {
+        await zoho.performIncrementalSync();
+        res.json({ success: true, message: 'Sync completed' });
+      } catch (error) {
+        res.status(500).json({ error: 'Sync failed', message: error.message });
+      }
+    });
+
+    console.log('✓ ZOHO Mail integration enabled');
+  } catch (error) {
+    console.warn('[ZOHO] Failed to load ZOHO module:', error.message);
+    console.log('[ZOHO] Continuing without ZOHO integration');
+  }
+} else {
+  console.log('[ZOHO] Integration disabled (set ZOHO_ENABLED=true and configure credentials to enable)');
+}
+
+// ============================================
 // Start Server
 // ============================================
 const PORT = process.env.PORT || 3001;

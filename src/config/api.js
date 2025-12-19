@@ -32,6 +32,17 @@ export const API_ENDPOINTS = {
   INQUIRY_DELETE: (id) => `/inquiries/${id}`,
   ATTACHMENTS: (id) => `/inquiries/${id}/attachments/urls`,
 
+  // Email Inquiries (Gmail + ZOHO Mail)
+  EMAIL_INQUIRIES: '/email-inquiries',
+  EMAIL_INQUIRY_BY_ID: (id) => `/email-inquiries/${id}`,
+  EMAIL_INQUIRIES_STATS: '/email-inquiries/stats',
+
+  // ZOHO Mail Integration
+  ZOHO_AUTH_START: '/auth/zoho',
+  ZOHO_AUTH_CALLBACK: '/auth/zoho/callback',
+  ZOHO_WEBHOOK: '/api/zoho/webhook',
+  ZOHO_SYNC: '/api/zoho/sync',
+
   // SMS
   SMS_SEND: '/sms/send',
 
