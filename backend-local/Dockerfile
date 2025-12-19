@@ -15,6 +15,13 @@ COPY server.js ./
 COPY db.js ./
 COPY auth.js ./
 COPY firestore-admin.js ./
+COPY setup-db.js ./
+
+# 데이터베이스 마이그레이션 파일 복사
+COPY migrations/ ./migrations/
+
+# ZOHO Mail 모듈 복사
+COPY zoho/ ./zoho/
 
 # GCP 서비스 계정 JSON 마운트 포인트 (docker-compose에서 volume으로 제공)
 # /app/service-account.json
