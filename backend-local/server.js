@@ -101,9 +101,20 @@ async function runMigrations() {
       await db_postgres.query(sql);
       console.log(`[DB] ✓ ${migration}`);
     } catch (error) {
-      // If table already exists, that's okay
-      if (error.message && error.message.includes('already exists')) {
-        console.log(`[DB] ⚠️  ${migration} (already exists, skipping)`);
+      // Ignore common migration errors (already exists, duplicate column, etc.)
+      const ignorableErrors = [
+        'already exists',
+        'duplicate key',
+        'duplicate column',
+        'column "source" does not exist'  // Temporary: for transition from old schema
+      ];
+
+      const shouldIgnore = ignorableErrors.some(msg =>
+        error.message && error.message.includes(msg)
+      );
+
+      if (shouldIgnore) {
+        console.log(`[DB] ⚠️  ${migration} (skipping, already applied or schema mismatch)`);
       } else {
         console.error(`[DB] ✗ Error running ${migration}:`, error.message);
       }
