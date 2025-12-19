@@ -86,13 +86,18 @@ async function fetchMessages(options = {}) {
 
 /**
  * Fetch single message details
+ * Note: ZOHO API requires folderId in the path
  */
-async function fetchMessageDetails(messageId) {
+async function fetchMessageDetails(messageId, folderId) {
   try {
     const accessToken = await getValidAccessToken();
     const accountId = await getAccountId();
 
-    const response = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/messages/${messageId}`, {
+    if (!folderId) {
+      throw new Error('folderId is required to fetch message details');
+    }
+
+    const response = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/details`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
       }
@@ -101,7 +106,7 @@ async function fetchMessageDetails(messageId) {
     console.log(`[ZOHO Mail API] Fetched message details: ${messageId}`);
     return response.data.data;
   } catch (error) {
-    console.error('[ZOHO Mail API] Error fetching message details:', error);
+    console.error('[ZOHO Mail API] Error fetching message details:', error.response?.data || error.message);
     throw error;
   }
 }
@@ -123,7 +128,7 @@ async function fetchFolders() {
     console.log(`[ZOHO Mail API] Fetched ${response.data.data.length} folders`);
     return response.data.data;
   } catch (error) {
-    console.error('[ZOHO Mail API] Error fetching folders:', error);
+    console.error('[ZOHO Mail API] Error fetching folders:', error.response?.data || error.message);
     throw error;
   }
 }
@@ -152,7 +157,8 @@ async function searchMessages(searchQuery, options = {}) {
     console.log(`[ZOHO Mail API] Search found ${response.data.data.length} messages`);
     return response.data.data;
   } catch (error) {
-    console.error('[ZOHO Mail API] Error searching messages:', error);
+    console.error('[ZOHO Mail API] Error searching messages:', error.response?.data || error.message);
+    console.error('[ZOHO Mail API] Full error:', error);
     throw error;
   }
 }
@@ -163,15 +169,18 @@ async function searchMessages(searchQuery, options = {}) {
 function parseMessageToInquiry(message) {
   return {
     messageId: message.messageId,
+    folderId: message.folderId, // Required for fetchMessageDetails
     from: message.fromAddress,
     fromName: message.sender,
     subject: message.subject,
     body: message.content || message.summary,
     bodyHtml: message.content,
-    receivedAt: new Date(message.receivedTime),
+    receivedAt: new Date(parseInt(message.receivedTime)),
     toEmail: message.toAddress,
-    ccEmails: message.ccAddress ? message.ccAddress.split(',').map(e => e.trim()) : [],
-    hasAttachments: message.hasAttachment || false
+    ccEmails: message.ccAddress && message.ccAddress !== 'Not Provided'
+      ? message.ccAddress.split(',').map(e => e.trim())
+      : [],
+    hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true
   };
 }
 
