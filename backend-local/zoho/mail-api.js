@@ -10,23 +10,30 @@ const { getValidAccessToken } = require('./oauth');
 
 /**
  * Get account ID from configured email
+ * Uses stored zoho_user_id from database instead of querying ZOHO API
  */
 async function getAccountId() {
   try {
-    const accessToken = await getValidAccessToken();
+    const { getOAuthTokens } = require('./db-helper');
+    const zohoEmail = config.accountEmail;
 
-    const response = await axios.get(`${config.apiBaseUrl}/accounts`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
-
-    const account = response.data.data.find(acc => acc.accountName === config.accountEmail);
-    if (!account) {
-      throw new Error(`Account not found for email: ${config.accountEmail}`);
+    if (!zohoEmail) {
+      throw new Error('ZOHO_ACCOUNT_EMAIL not configured');
     }
 
-    return account.accountId;
+    // Get account ID from database (saved during OAuth)
+    const tokenRecord = await getOAuthTokens(zohoEmail);
+
+    if (!tokenRecord) {
+      throw new Error('No OAuth tokens found. Please authorize the application first.');
+    }
+
+    if (!tokenRecord.zoho_user_id) {
+      throw new Error('ZOHO user ID not found in database. Please re-authorize the application.');
+    }
+
+    console.log(`[ZOHO Mail API] Using account ID from database: ${tokenRecord.zoho_user_id}`);
+    return tokenRecord.zoho_user_id;
   } catch (error) {
     console.error('[ZOHO Mail API] Error getting account ID:', error);
     throw error;
