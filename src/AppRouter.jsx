@@ -13,6 +13,7 @@ import UnauthorizedPage from './components/UnauthorizedPage';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ConsultationsPage from './pages/ConsultationsPage';
+import EmailConsultationsPage from './pages/EmailConsultationsPage';
 import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
 import { fetchInquiries } from './services/inquiryService';
@@ -280,13 +281,7 @@ function AppRouter() {
                   />
                   <Route
                     path="/consultations/email"
-                    element={
-                      <ConsultationsPage
-                        consultations={consultations}
-                        setConsultations={setConsultations}
-                        type="email"
-                      />
-                    }
+                    element={<EmailConsultationsPage />}
                   />
                   <Route
                     path="/memo"
