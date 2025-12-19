@@ -2,12 +2,11 @@
  * EmailConsultationsPage.jsx - 이메일 상담 전용 페이지
  *
  * 이메일로 접수된 상담 내역을 관리하는 페이지
- * Phase 1: Mock 데이터로 UI 구현
- * Phase 2: 실제 ZOHO Mail API 연동 예정
  */
 
 import { useState, useEffect } from 'react';
-import { fetchEmailInquiries, fetchEmailStats, updateEmailInquiry } from '../services/emailInquiryService';
+import { fetchEmailInquiries, fetchEmailStats, updateEmailInquiry, triggerZohoSync } from '../services/emailInquiryService';
+import { getCurrentUser } from '../auth/authManager';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
 
@@ -15,8 +14,8 @@ function EmailConsultationsPage() {
   const [inquiries, setInquiries] = useState([]);
   const [stats, setStats] = useState({ total: 0, unread: 0, gmail: 0, zoho: 0 });
   const [loading, setLoading] = useState(true);
-  const [selectedSource, setSelectedSource] = useState('all'); // 'all', 'gmail', 'zoho'
-  const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread', 'read'
+  const [syncing, setSyncing] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread'
 
   // Load data on mount
   useEffect(() => {
@@ -52,11 +51,36 @@ function EmailConsultationsPage() {
     }
   };
 
+  // Handle manual sync (admin only)
+  const handleManualSync = async () => {
+    // Check if user is admin
+    const user = getCurrentUser();
+    if (!user || user.role !== 'admin') {
+      alert('관리자만 동기화를 실행할 수 있습니다.');
+      return;
+    }
+
+    try {
+      setSyncing(true);
+      console.log('[Email Sync] Starting manual sync...');
+      const result = await triggerZohoSync();
+      console.log('[Email Sync] Sync completed:', result);
+
+      // Reload data after sync
+      await loadData();
+
+      alert(`동기화 완료!\n새로운 이메일: ${result.new || 0}개\n스킵: ${result.skipped || 0}개`);
+    } catch (error) {
+      console.error('[Email Sync] Failed:', error);
+      alert('동기화 실패: ' + error.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Filter inquiries
   const filteredInquiries = inquiries.filter(item => {
-    if (selectedSource !== 'all' && item.source !== selectedSource) return false;
     if (selectedStatus === 'unread' && item.check) return false;
-    if (selectedStatus === 'read' && !item.check) return false;
     return true;
   });
 
@@ -91,13 +115,19 @@ function EmailConsultationsPage() {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">이메일 상담</h1>
-        <p className="page-subtitle">이메일로 접수된 상담 내역</p>
-      </div>
-
-      {/* Phase 1 Notice */}
-      <div className="phase-notice">
-        📌 Phase 1: Mock 데이터로 UI 테스트 중 (ZOHO API 연동 예정)
+        <div className="header-left">
+          <h1 className="page-title">이메일 상담</h1>
+          <p className="page-subtitle">이메일로 접수된 상담 내역</p>
+        </div>
+        <div className="header-right">
+          <button
+            className="sync-button"
+            onClick={handleManualSync}
+            disabled={syncing}
+          >
+            {syncing ? '동기화 중...' : '🔄 수동 동기화'}
+          </button>
+        </div>
       </div>
 
       {/* Statistics */}
@@ -110,32 +140,15 @@ function EmailConsultationsPage() {
           <div className="stat-label">미확인</div>
           <div className="stat-value highlight">{stats.unread}</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Gmail</div>
-          <div className="stat-value">{stats.gmail}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">ZOHO</div>
-          <div className="stat-value">{stats.zoho}</div>
-        </div>
       </div>
 
       {/* Filters */}
       <div className="filters-container">
         <div className="filter-group">
-          <label>소스:</label>
-          <select value={selectedSource} onChange={(e) => setSelectedSource(e.target.value)}>
-            <option value="all">전체</option>
-            <option value="gmail">Gmail</option>
-            <option value="zoho">ZOHO</option>
-          </select>
-        </div>
-        <div className="filter-group">
           <label>상태:</label>
           <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}>
             <option value="all">전체</option>
             <option value="unread">미확인</option>
-            <option value="read">확인됨</option>
           </select>
         </div>
       </div>

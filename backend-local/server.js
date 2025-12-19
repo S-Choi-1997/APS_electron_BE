@@ -1888,14 +1888,27 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     // API endpoints for manual sync (optional)
     app.post('/api/zoho/sync', auth.authenticateJWT, async (req, res) => {
       try {
-        await zoho.performIncrementalSync();
-        res.json({ success: true, message: 'Sync completed' });
+        const result = await zoho.performFullSync();
+        res.json({ success: true, message: 'Sync completed', ...result });
       } catch (error) {
         res.status(500).json({ error: 'Sync failed', message: error.message });
       }
     });
 
-    console.log('✓ ZOHO Mail integration enabled');
+    // Perform initial full sync on server start (only once)
+    setTimeout(async () => {
+      try {
+        console.log('[ZOHO] Performing initial full sync...');
+        const result = await zoho.performFullSync();
+        console.log(`[ZOHO] Initial sync completed: ${result.new} new, ${result.skipped} skipped`);
+        console.log('[ZOHO] Webhook mode: Will receive new emails via webhook in real-time');
+      } catch (error) {
+        console.error('[ZOHO] Initial sync failed:', error.message);
+        console.log('[ZOHO] You can manually trigger sync via POST /api/zoho/sync');
+      }
+    }, 5000); // Wait 5 seconds after server start
+
+    console.log('✓ ZOHO Mail integration enabled (Webhook mode)');
   } catch (error) {
     console.warn('[ZOHO] Failed to load ZOHO module:', error.message);
     console.log('[ZOHO] Continuing without ZOHO integration');

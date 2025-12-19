@@ -2,7 +2,11 @@
 -- Purpose: Store email consultations from Gmail and ZOHO Mail
 -- Date: 2025-12-19
 
-CREATE TABLE IF NOT EXISTS email_inquiries (
+-- WARNING: Drop existing table if schema mismatch
+-- This is safe for initial deployment as there's no production data yet
+DROP TABLE IF EXISTS email_inquiries CASCADE;
+
+CREATE TABLE email_inquiries (
   id SERIAL PRIMARY KEY,
 
   -- Email identification

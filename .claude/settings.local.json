@@ -69,7 +69,8 @@
       "Bash(docker ps:*)",
       "Bash(mv:*)",
       "Bash(mkdir:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(docker restart:*)"
     ]
   }
 }
