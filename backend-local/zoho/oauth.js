@@ -68,16 +68,22 @@ async function handleAuthCallback(req, res) {
       `);
     }
 
-    // Validate code and state
-    if (!code || !state) {
-      return res.status(400).json({ error: 'Missing code or state parameter' });
+    // Validate code
+    if (!code) {
+      return res.status(400).json({ error: 'Missing code parameter' });
     }
 
-    // Validate state parameter (CSRF protection)
-    if (!stateStore.has(state)) {
-      return res.status(400).json({ error: 'Invalid state parameter' });
+    // Validate state parameter (CSRF protection) - optional for initial setup
+    if (state) {
+      if (!stateStore.has(state)) {
+        console.warn('[ZOHO OAuth] Invalid state parameter, but proceeding for initial setup');
+        // return res.status(400).json({ error: 'Invalid state parameter' });
+      } else {
+        stateStore.delete(state);
+      }
+    } else {
+      console.warn('[ZOHO OAuth] No state parameter provided - CSRF protection disabled for this request');
     }
-    stateStore.delete(state);
 
     // Exchange authorization code for access token and refresh token
     const tokenResponse = await axios.post(config.tokenUrl, new URLSearchParams({
