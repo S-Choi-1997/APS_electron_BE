@@ -45,7 +45,7 @@ async function getAccountId() {
  */
 async function fetchMessages(options = {}) {
   try {
-    const { folder = 'Inbox', limit = 50, start = 0, sortBy = 'receivedTime', sortOrder = 'desc' } = options;
+    const { folder = 'Inbox', limit = 50, start = 0 } = options;
 
     const accessToken = await getValidAccessToken();
     const accountId = await getAccountId();
@@ -63,6 +63,7 @@ async function fetchMessages(options = {}) {
     }
 
     // Fetch messages from folder
+    // Note: ZOHO API does NOT support sortBy/sortOrder parameters on /messages/view
     const messagesResponse = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/messages/view`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
@@ -70,16 +71,15 @@ async function fetchMessages(options = {}) {
       params: {
         folderId: targetFolder.folderId,
         limit,
-        start,
-        sortBy,
-        sortOrder
+        start
       }
     });
 
     console.log(`[ZOHO Mail API] Fetched ${messagesResponse.data.data.length} messages from ${folder}`);
     return messagesResponse.data.data;
   } catch (error) {
-    console.error('[ZOHO Mail API] Error fetching messages:', error);
+    console.error('[ZOHO Mail API] Error fetching messages:', error.response?.data || error.message);
+    console.error('[ZOHO Mail API] Full error:', error);
     throw error;
   }
 }
