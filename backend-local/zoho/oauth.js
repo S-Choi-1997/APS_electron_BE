@@ -112,7 +112,8 @@ async function handleAuthCallback(req, res) {
       }
     });
 
-    const userEmail = userInfoResponse.data.data[0]?.accountName || config.accountEmail;
+    // Use config email as primary, ZOHO accountName might not be full email
+    const userEmail = config.accountEmail || userInfoResponse.data.data[0]?.accountName;
     const userId = userInfoResponse.data.data[0]?.accountId;
 
     // Save tokens to database
