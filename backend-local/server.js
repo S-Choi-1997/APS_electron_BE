@@ -229,9 +229,16 @@ function connectToRelay() {
   // HTTP-over-WebSocket Tunnel Handler
   // ============================================
   relaySocket.on('http:request', async (request) => {
-    const { requestId, method, path, headers, body } = request;
+    const { requestId, method, path, query, headers, body } = request;
 
-    console.log(`[Backend] Tunnel HTTP ${method} ${path} (requestId: ${requestId})`);
+    // Build full URL with query parameters
+    let fullPath = path;
+    if (query && Object.keys(query).length > 0) {
+      const queryString = new URLSearchParams(query).toString();
+      fullPath = `${path}?${queryString}`;
+    }
+
+    console.log(`[Backend] Tunnel HTTP ${method} ${fullPath} (requestId: ${requestId})`);
 
     try {
       const axios = require('axios');
@@ -239,7 +246,7 @@ function connectToRelay() {
 
       const response = await axios({
         method: method.toLowerCase(),
-        url: `${BASE_URL}${path}`,
+        url: `${BASE_URL}${fullPath}`,
         headers: {
           ...headers,
           host: undefined,
