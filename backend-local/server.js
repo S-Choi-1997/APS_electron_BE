@@ -67,10 +67,59 @@ try {
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
-// Test PostgreSQL connection on startup
-db_postgres.testConnection().then(success => {
+// Run database migrations on startup
+const fs = require('fs');
+const path = require('path');
+
+async function runMigrations() {
+  const migrationsDir = path.join(__dirname, 'migrations');
+
+  // Check if migrations directory exists
+  if (!fs.existsSync(migrationsDir)) {
+    console.log('[DB] No migrations directory found, skipping...');
+    return;
+  }
+
+  const migrations = [
+    '000_create_email_inquiries_table.sql',
+    '001_add_source_column.sql',
+    '002_create_zoho_tokens_table.sql'
+  ];
+
+  console.log('[DB] Running migrations...');
+
+  for (const migration of migrations) {
+    const filePath = path.join(migrationsDir, migration);
+
+    if (!fs.existsSync(filePath)) {
+      console.log(`[DB] ⚠️  Migration not found: ${migration}, skipping...`);
+      continue;
+    }
+
+    try {
+      const sql = fs.readFileSync(filePath, 'utf8');
+      await db_postgres.query(sql);
+      console.log(`[DB] ✓ ${migration}`);
+    } catch (error) {
+      // If table already exists, that's okay
+      if (error.message && error.message.includes('already exists')) {
+        console.log(`[DB] ⚠️  ${migration} (already exists, skipping)`);
+      } else {
+        console.error(`[DB] ✗ Error running ${migration}:`, error.message);
+      }
+    }
+  }
+
+  console.log('[DB] Migrations completed');
+}
+
+// Test PostgreSQL connection and run migrations on startup
+db_postgres.testConnection().then(async (success) => {
   if (!success) {
     console.error("⚠️  Warning: PostgreSQL connection failed. Memos and schedules will not work.");
+  } else {
+    // Run migrations after successful connection
+    await runMigrations();
   }
 });
 
@@ -1703,7 +1752,7 @@ console.log('✓ Firestore real-time listener registered for inquiries collectio
 // ============================================
 
 // Get all email inquiries
-app.get('/email-inquiries', verifyAuth, async (req, res) => {
+app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
   try {
     const { source, check, limit = 50, offset = 0 } = req.query;
 
@@ -1727,7 +1776,7 @@ app.get('/email-inquiries', verifyAuth, async (req, res) => {
     sql += ` ORDER BY received_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
     values.push(parseInt(limit), parseInt(offset));
 
-    const result = await query(sql, values);
+    const result = await db_postgres.query(sql, values);
     res.json({ data: result.rows });
   } catch (error) {
     console.error('[Email Inquiries] Error fetching inquiries:', error);
@@ -1736,7 +1785,7 @@ app.get('/email-inquiries', verifyAuth, async (req, res) => {
 });
 
 // Get email inquiry statistics
-app.get('/email-inquiries/stats', verifyAuth, async (req, res) => {
+app.get('/email-inquiries/stats', auth.authenticateJWT, async (req, res) => {
   try {
     const sql = `
       SELECT
@@ -1747,7 +1796,7 @@ app.get('/email-inquiries/stats', verifyAuth, async (req, res) => {
       FROM email_inquiries;
     `;
 
-    const result = await query(sql);
+    const result = await db_postgres.query(sql);
     const stats = result.rows[0];
 
     res.json({
@@ -1765,7 +1814,7 @@ app.get('/email-inquiries/stats', verifyAuth, async (req, res) => {
 });
 
 // Update email inquiry (mark as checked/unchecked)
-app.patch('/email-inquiries/:id', verifyAuth, async (req, res) => {
+app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { check } = req.body;
@@ -1777,7 +1826,7 @@ app.patch('/email-inquiries/:id', verifyAuth, async (req, res) => {
       RETURNING *;
     `;
 
-    const result = await query(sql, [check, id]);
+    const result = await db_postgres.query(sql, [check, id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Email inquiry not found' });
@@ -1791,12 +1840,12 @@ app.patch('/email-inquiries/:id', verifyAuth, async (req, res) => {
 });
 
 // Delete email inquiry
-app.delete('/email-inquiries/:id', verifyAuth, async (req, res) => {
+app.delete('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
 
     const sql = `DELETE FROM email_inquiries WHERE id = $1 RETURNING *;`;
-    const result = await query(sql, [id]);
+    const result = await db_postgres.query(sql, [id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Email inquiry not found' });
@@ -1826,7 +1875,7 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     app.post('/api/zoho/webhook', zoho.handleWebhook);
 
     // API endpoints for manual sync (optional)
-    app.post('/api/zoho/sync', verifyAuth, async (req, res) => {
+    app.post('/api/zoho/sync', auth.authenticateJWT, async (req, res) => {
       try {
         await zoho.performIncrementalSync();
         res.json({ success: true, message: 'Sync completed' });
