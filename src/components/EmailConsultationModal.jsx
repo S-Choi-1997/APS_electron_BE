@@ -8,12 +8,31 @@ import { useState } from 'react';
 import DOMPurify from 'dompurify';
 import './ConsultationModal.css';
 
-function EmailConsultationModal({ email, onClose, onRespond }) {
+function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   if (!email) return null;
 
   const [responseMode, setResponseMode] = useState(false);
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
+
+  // 제목 정규화: Re:, Fwd:, 답장: 등 제거
+  const normalizeSubject = (subject) => {
+    if (!subject) return '';
+    return subject
+      .replace(/^(Re|RE|Fwd|FW|답장|답변|전달)\s*:\s*/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  };
+
+  // 같은 스레드의 이메일 찾기 (제목 기준)
+  const threadEmails = allEmails.length > 0
+    ? allEmails
+        .filter(e => normalizeSubject(e.subject) === normalizeSubject(email.subject))
+        .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
+    : [email];
+
+  const isThreadView = threadEmails.length > 1;
 
   const formatFullDate = (date) => {
     if (!date) return '';
@@ -103,22 +122,8 @@ function EmailConsultationModal({ email, onClose, onRespond }) {
         </div>
 
         {/* Body */}
-        <div className="modal-body">
-          <div className="info-section">
-            <div className="info-row">
-              <span className="info-label">받는사람:</span>
-              <span className="info-value">{email.to}</span>
-            </div>
-            {email.cc && email.cc.length > 0 && (
-              <div className="info-row">
-                <span className="info-label">참조:</span>
-                <span className="info-value">{email.cc.join(', ')}</span>
-              </div>
-            )}
-          </div>
-
+        <div className="modal-body email-modal-body">
           <div className="message-section">
-            <h3>메시지 내용</h3>
             {email.bodyHtml ? (
               <div
                 className="message-html"
@@ -135,6 +140,35 @@ function EmailConsultationModal({ email, onClose, onRespond }) {
               </div>
             )}
           </div>
+
+          {/* Thread View Section */}
+          {isThreadView && (
+            <div className="thread-section">
+              <h3>이메일 대화 ({threadEmails.length}개)</h3>
+              <div className="thread-list">
+                {threadEmails.map((threadEmail, index) => (
+                  <div
+                    key={threadEmail.id}
+                    className={`thread-item ${threadEmail.id === email.id ? 'active' : ''}`}
+                  >
+                    <div className="thread-header">
+                      <span className="thread-index">#{index + 1}</span>
+                      <span className="thread-from">
+                        {threadEmail.fromName || threadEmail.from}
+                      </span>
+                      <span className="thread-date">
+                        {formatFullDate(threadEmail.receivedAt)}
+                      </span>
+                    </div>
+                    <div className="thread-body">
+                      {threadEmail.body?.substring(0, 200) || '내용 없음'}
+                      {threadEmail.body && threadEmail.body.length > 200 && '...'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Response Section */}
           {!responseMode ? (

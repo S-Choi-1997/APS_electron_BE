@@ -8,7 +8,8 @@
 
 const zoho = require('./sync');
 const { replyToEmail } = require('./send');
-const { getOAuthTokens } = require('./db-helper');
+const { getOAuthTokens, saveOutgoingEmail, updateEmailStatus } = require('./db-helper');
+const config = require('./config');
 
 /**
  * Handle ZOHO sync request
@@ -100,6 +101,33 @@ async function handleEmailResponse(user, body) {
     });
 
     console.log('[ZOHO Routes] Email response sent successfully');
+
+    // Save the outgoing email to database
+    if (result.success && result.messageId) {
+      try {
+        await saveOutgoingEmail({
+          messageId: result.messageId,
+          inReplyTo: originalEmail.messageId,
+          to: originalEmail.from,
+          subject: result.subject || `Re: ${originalEmail.subject}`,
+          body: responseText,
+          bodyHtml: responseText, // Could be enhanced with HTML formatting
+          fromEmail: config.accountEmail || 'admin@apsconsulting.kr',
+          fromName: 'APS Admin',
+          sentAt: new Date()
+        });
+
+        console.log('[ZOHO Routes] Outgoing email saved to database');
+
+        // Update original email status to 'responded'
+        await updateEmailStatus(emailId, 'responded');
+
+        console.log('[ZOHO Routes] Original email status updated to responded');
+      } catch (dbError) {
+        console.error('[ZOHO Routes] Failed to save outgoing email to DB:', dbError);
+        // Don't fail the request if DB save fails - email was sent successfully
+      }
+    }
 
     return {
       status: 200,

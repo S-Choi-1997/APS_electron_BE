@@ -59,23 +59,23 @@ body {
   overflow-y: auto;
 }
 
-/* 커스텀 스크롤바 */
-.main-wrapper::-webkit-scrollbar {
+/* 전역 커스텀 스크롤바 - 모든 스크롤바에 적용 */
+*::-webkit-scrollbar {
   width: 12px;
 }
 
-.main-wrapper::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 10px;
 }
 
-.main-wrapper::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
   border-radius: 10px;
   border: 2px solid #f1f1f1;
 }
 
-.main-wrapper::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
 }
 

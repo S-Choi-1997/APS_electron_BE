@@ -227,6 +227,7 @@ function EmailConsultationsPage() {
       {selectedEmail && (
         <EmailConsultationModal
           email={selectedEmail}
+          allEmails={inquiries}
           onClose={() => setSelectedEmail(null)}
           onRespond={handleRespond}
         />

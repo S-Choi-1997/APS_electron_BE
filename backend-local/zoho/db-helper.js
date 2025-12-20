@@ -238,11 +238,151 @@ async function getEmailStats() {
   }
 }
 
+/**
+ * Save outgoing email (response) to database
+ * @param {Object} emailData - Outgoing email data
+ * @param {string} emailData.messageId - ZOHO message ID of the sent email
+ * @param {string} emailData.inReplyTo - Original message ID this email is replying to
+ * @param {string} emailData.to - Recipient email address
+ * @param {string} emailData.subject - Email subject
+ * @param {string} emailData.body - Email body (plain text)
+ * @param {string} [emailData.bodyHtml] - Email body (HTML)
+ * @param {string} emailData.fromEmail - Sender email (our email)
+ * @param {string} [emailData.fromName] - Sender name
+ * @param {Date} emailData.sentAt - Sent timestamp
+ * @returns {Promise<Object>} Saved email record
+ */
+async function saveOutgoingEmail(emailData) {
+  try {
+    const {
+      messageId,
+      inReplyTo,
+      to,
+      subject,
+      body,
+      bodyHtml,
+      fromEmail,
+      fromName,
+      sentAt
+    } = emailData;
+
+    console.log('[ZOHO DB] Saving outgoing email:', messageId);
+
+    // Get thread_id and references from the original email
+    let threadId = inReplyTo; // Default: use inReplyTo as thread_id
+    let references = [inReplyTo];
+
+    if (inReplyTo) {
+      // Query original email to get its thread_id and references
+      const originalSql = `
+        SELECT thread_id, references, message_id
+        FROM email_inquiries
+        WHERE message_id = $1;
+      `;
+      const originalResult = await db_postgres.query(originalSql, [inReplyTo]);
+
+      if (originalResult.rows.length > 0) {
+        const original = originalResult.rows[0];
+        // Use original's thread_id if it exists, otherwise use original's message_id
+        threadId = original.thread_id || original.message_id;
+
+        // Build references chain
+        if (original.references && original.references.length > 0) {
+          references = [...original.references, inReplyTo];
+        }
+      }
+    }
+
+    const sql = `
+      INSERT INTO email_inquiries (
+        message_id,
+        source,
+        from_email,
+        from_name,
+        to_email,
+        subject,
+        body_text,
+        body_html,
+        in_reply_to,
+        references,
+        thread_id,
+        is_outgoing,
+        status,
+        "check",
+        received_at,
+        created_at,
+        updated_at
+      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, true, 'responded', true, $11, NOW(), NOW())
+      RETURNING *;
+    `;
+
+    const values = [
+      messageId,
+      fromEmail,
+      fromName || 'APS Admin',
+      to,
+      subject,
+      body,
+      bodyHtml || body,
+      inReplyTo,
+      references,
+      threadId,
+      sentAt || new Date()
+    ];
+
+    const result = await db_postgres.query(sql, values);
+
+    console.log('[ZOHO DB] Outgoing email saved successfully:', messageId);
+    return result.rows[0];
+  } catch (error) {
+    console.error('[ZOHO DB] Error saving outgoing email:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update email inquiry status
+ * @param {number} emailId - Email inquiry ID
+ * @param {string} status - New status ('unread', 'read', 'responded')
+ * @returns {Promise<Object>} Updated email record
+ */
+async function updateEmailStatus(emailId, status) {
+  try {
+    console.log(`[ZOHO DB] Updating email ${emailId} status to: ${status}`);
+
+    const sql = `
+      UPDATE email_inquiries
+      SET status = $1,
+          "check" = $2,
+          updated_at = NOW()
+      WHERE id = $3
+      RETURNING *;
+    `;
+
+    // Sync check field with status for backward compatibility
+    const checkValue = (status === 'read' || status === 'responded');
+
+    const result = await db_postgres.query(sql, [status, checkValue, emailId]);
+
+    if (result.rows.length === 0) {
+      throw new Error(`Email inquiry ${emailId} not found`);
+    }
+
+    console.log(`[ZOHO DB] Email status updated successfully`);
+    return result.rows[0];
+  } catch (error) {
+    console.error('[ZOHO DB] Error updating email status:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   saveOAuthTokens,
   getOAuthTokens,
   updateOAuthTokens,
   saveEmailInquiry,
   getEmailInquiriesBySource,
-  getEmailStats
+  getEmailStats,
+  saveOutgoingEmail,
+  updateEmailStatus
 };
