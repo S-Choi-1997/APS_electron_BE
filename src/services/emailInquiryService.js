@@ -93,7 +93,8 @@ export async function triggerZohoSync() {
       method: 'POST'
     }, auth);
 
-    return response.data;
+    // apiRequest already returns parsed JSON, no need for .data
+    return response;
   } catch (error) {
     console.error('[Email Service] Failed to trigger ZOHO sync:', error);
     throw error;
