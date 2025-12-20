@@ -33,59 +33,29 @@ async function handleWebhook(req, res) {
       }
     }
 
-    // Determine event type
-    const eventType = webhookData.event || webhookData.eventType;
-    const messageData = webhookData.data || webhookData;
+    // ZOHO webhook structure: data comes directly in body (no nested 'data' or 'event' field)
+    const messageData = webhookData;
 
-    // Check if this is a verification/test request
-    // ZOHO sends test webhooks during registration that may not have complete data
-    // We should accept these with 200 OK without trying to save to DB
-    const isTestOrVerification =
-      !eventType || // No event type = verification ping
-      !messageData.messageId || // No messageId = test payload
-      !messageData.subject; // No subject = incomplete data
+    // Check if this has messageId - the most critical field for a real email
+    const hasMessageId = messageData.messageId || messageData.messageIdString;
 
-    if (isTestOrVerification) {
-      console.log('[ZOHO Webhook] Detected verification/test request - returning 200 OK without processing');
+    // If no messageId, it's a verification/test ping
+    if (!hasMessageId) {
+      console.log('[ZOHO Webhook] No messageId found - treating as verification ping');
       return res.status(200).json({
         success: true,
-        message: 'Webhook verification successful',
-        note: 'Test/verification request - no data saved'
+        message: 'Webhook verification successful'
       });
     }
 
-    // Process actual email events
-    if (eventType === 'mail.received' || eventType === 'NEW_MAIL') {
-      // Validate that we have minimum required fields before attempting to save
-      if (!messageData.toAddress && !messageData.to) {
-        console.log('[ZOHO Webhook] Missing required field: toAddress - treating as test request');
-        return res.status(200).json({
-          success: true,
-          message: 'Webhook accepted',
-          note: 'Incomplete data - no toAddress field'
-        });
-      }
-
-      if (!messageData.fromAddress && !messageData.from) {
-        console.log('[ZOHO Webhook] Missing required field: fromAddress - treating as test request');
-        return res.status(200).json({
-          success: true,
-          message: 'Webhook accepted',
-          note: 'Incomplete data - no fromAddress field'
-        });
-      }
-
-      // Only process if we have complete data
-      try {
-        await processNewMessage(messageData);
-        console.log('[ZOHO Webhook] Email processed and saved successfully');
-      } catch (dbError) {
-        // Log DB error but still return 200 to ZOHO
-        // This prevents webhook registration failure due to DB issues
-        console.error('[ZOHO Webhook] DB save failed but returning 200 to ZOHO:', dbError.message);
-      }
-    } else {
-      console.log('[ZOHO Webhook] Unhandled event type:', eventType);
+    // Process the email message
+    try {
+      await processNewMessage(messageData);
+      console.log('[ZOHO Webhook] Email processed and saved successfully');
+    } catch (dbError) {
+      // Log DB error but still return 200 to ZOHO
+      // This prevents webhook registration failure due to DB issues
+      console.error('[ZOHO Webhook] DB save failed but returning 200 to ZOHO:', dbError.message);
     }
 
     res.status(200).json({ success: true, message: 'Webhook processed' });
