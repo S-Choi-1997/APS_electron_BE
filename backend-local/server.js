@@ -289,6 +289,53 @@ function connectToRelay() {
         return;
       }
 
+      // Handle ZOHO webhook route directly (no auth required)
+      if (method === 'POST' && path === '/api/zoho/webhook') {
+        const zoho = require('./zoho');
+
+        try {
+          // Call webhook handler directly
+          const mockReq = {
+            body: body,
+            headers: headers
+          };
+          const mockRes = {
+            status: function(code) {
+              this.statusCode = code;
+              return this;
+            },
+            json: function(data) {
+              this.body = data;
+              return this;
+            },
+            statusCode: 200,
+            body: {}
+          };
+
+          await zoho.handleWebhook(mockReq, mockRes);
+
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: mockRes.statusCode,
+            headers: { 'content-type': 'application/json' },
+            body: mockRes.body
+          });
+
+          console.log(`[Backend] Tunnel response ${mockRes.statusCode} (requestId: ${requestId})`);
+          return;
+        } catch (error) {
+          console.error('[Backend] ZOHO webhook handler error:', error);
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 500,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'webhook_error', message: error.message }
+          });
+          console.log(`[Backend] Tunnel response 500 (requestId: ${requestId})`);
+          return;
+        }
+      }
+
       // Handle email response route directly
       if (method === 'POST' && path === '/api/email-response') {
         const jwt = require('jsonwebtoken');
@@ -1930,7 +1977,14 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     app.get('/auth/zoho/callback', zoho.handleAuthCallback);
 
     // Webhook endpoint
-    app.post('/api/zoho/webhook', zoho.handleWebhook);
+    app.post('/api/zoho/webhook', (req, res, next) => {
+      console.log('[ZOHO Webhook] ========================================');
+      console.log('[ZOHO Webhook] Received request');
+      console.log('[ZOHO Webhook] Headers:', JSON.stringify(req.headers, null, 2));
+      console.log('[ZOHO Webhook] Body:', JSON.stringify(req.body, null, 2));
+      console.log('[ZOHO Webhook] ========================================');
+      next();
+    }, zoho.handleWebhook);
 
     // API endpoints for manual sync (optional)
     const zohoRoutes = require('./zoho/routes');
