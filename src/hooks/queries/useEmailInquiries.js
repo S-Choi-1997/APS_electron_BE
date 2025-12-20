@@ -47,22 +47,22 @@ export function useUpdateEmailInquiry() {
       await queryClient.cancelQueries({ queryKey: emailQueryKeys.all });
 
       // 2. 이전 데이터 백업 (롤백용)
-      const previousInquiries = queryClient.getQueryData(emailQueryKeys.lists());
+      const listQueryKey = emailQueryKeys.list({});
+      const previousInquiries = queryClient.getQueryData(listQueryKey);
       const previousStats = queryClient.getQueryData(emailQueryKeys.stats());
 
       // 3. Optimistic 업데이트: 목록에서 해당 항목 수정
-      queryClient.setQueriesData(
-        { queryKey: emailQueryKeys.lists() },
-        (oldData) => {
+      if (previousInquiries) {
+        queryClient.setQueryData(listQueryKey, (oldData) => {
           if (!oldData) return oldData;
           return oldData.map(item =>
             item.id === id ? { ...item, ...updates } : item
           );
-        }
-      );
+        });
+      }
 
       // 4. Optimistic 업데이트: 통계 수정 (check 변경 시)
-      if (updates.check !== undefined) {
+      if (updates.check !== undefined && previousStats) {
         queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
           if (!oldStats) return oldStats;
           const delta = updates.check ? -1 : 1;
@@ -71,16 +71,13 @@ export function useUpdateEmailInquiry() {
       }
 
       // 5. 롤백용 데이터 반환
-      return { previousInquiries, previousStats };
+      return { previousInquiries, previousStats, listQueryKey };
     },
 
     onError: (err, variables, context) => {
       // 에러 시 롤백
-      if (context?.previousInquiries) {
-        queryClient.setQueriesData(
-          { queryKey: emailQueryKeys.lists() },
-          context.previousInquiries
-        );
+      if (context?.previousInquiries && context?.listQueryKey) {
+        queryClient.setQueryData(context.listQueryKey, context.previousInquiries);
       }
       if (context?.previousStats) {
         queryClient.setQueryData(emailQueryKeys.stats(), context.previousStats);
@@ -108,44 +105,38 @@ export function useDeleteEmailInquiry() {
       // Optimistic Update
       await queryClient.cancelQueries({ queryKey: emailQueryKeys.all });
 
-      const previousInquiries = queryClient.getQueryData(emailQueryKeys.lists());
+      const listQueryKey = emailQueryKeys.list({});
+      const previousInquiries = queryClient.getQueryData(listQueryKey);
       const previousStats = queryClient.getQueryData(emailQueryKeys.stats());
 
       // 목록에서 제거
-      queryClient.setQueriesData(
-        { queryKey: emailQueryKeys.lists() },
-        (oldData) => {
-          if (!oldData) return oldData;
-          const deleted = oldData.find(item => item.id === id);
-          const newData = oldData.filter(item => item.id !== id);
+      if (previousInquiries) {
+        const deleted = previousInquiries.find(item => item.id === id);
+        const newData = previousInquiries.filter(item => item.id !== id);
 
-          // 통계 업데이트
-          if (deleted && !deleted.check) {
-            queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
-              if (!oldStats) return oldStats;
-              return {
-                ...oldStats,
-                total: oldStats.total - 1,
-                unread: oldStats.unread - 1,
-                [deleted.source]: (oldStats[deleted.source] || 0) - 1
-              };
-            });
-          }
+        queryClient.setQueryData(listQueryKey, newData);
 
-          return newData;
+        // 통계 업데이트
+        if (deleted && previousStats) {
+          queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
+            if (!oldStats) return oldStats;
+            return {
+              ...oldStats,
+              total: oldStats.total - 1,
+              unread: deleted.check ? oldStats.unread : oldStats.unread - 1,
+              [deleted.source]: (oldStats[deleted.source] || 1) - 1
+            };
+          });
         }
-      );
+      }
 
-      return { previousInquiries, previousStats };
+      return { previousInquiries, previousStats, listQueryKey };
     },
 
     onError: (err, id, context) => {
       // 롤백
-      if (context?.previousInquiries) {
-        queryClient.setQueriesData(
-          { queryKey: emailQueryKeys.lists() },
-          context.previousInquiries
-        );
+      if (context?.previousInquiries && context?.listQueryKey) {
+        queryClient.setQueryData(context.listQueryKey, context.previousInquiries);
       }
       if (context?.previousStats) {
         queryClient.setQueryData(emailQueryKeys.stats(), context.previousStats);

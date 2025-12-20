@@ -67,16 +67,8 @@ function NavigationListener() {
   return null;
 }
 
-function AppRouter() {
-  // Electron 환경 체크
-  useEffect(() => {
-    const isElectron = window.electron && window.electron.isElectron;
-    if (!isElectron) {
-      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h1>이 애플리케이션은 Electron 앱에서만 실행됩니다.</h1></div>';
-      throw new Error('This app can only run in Electron');
-    }
-  }, []);
-
+// Main App Content (inside QueryClientProvider)
+function AppContent() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showUnauthorized, setShowUnauthorized] = useState(false);
@@ -260,61 +252,77 @@ function AppRouter() {
 
   // 로그인 됨 - 메인 앱
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router>
-        <NavigationListener />
-        <div className="app-container">
-          <TitleBar />
-          <div className="app-content-wrapper">
-            <Sidebar user={user} stats={stats} />
+    <Router>
+      <NavigationListener />
+      <div className="app-container">
+        <TitleBar />
+        <div className="app-content-wrapper">
+          <Sidebar user={user} stats={stats} />
 
-            <div className="main-wrapper">
-              <main className="main-content">
-                {loading ? (
-                  <div className="loading-state">
-                    <div className="loading-spinner"></div>
-                    <p>문의 목록을 불러오는 중입니다.</p>
-                  </div>
-                ) : (
-                  <Routes>
-                    <Route
-                      path="/"
-                      element={<Dashboard user={user} consultations={consultations} stats={stats} />}
-                    />
-                    <Route
-                      path="/consultations"
-                      element={<Navigate to="/consultations/website" replace />}
-                    />
-                    <Route
-                      path="/consultations/website"
-                      element={
-                        <ConsultationsPage
-                          consultations={consultations}
-                          setConsultations={setConsultations}
-                          type="website"
-                        />
-                      }
-                    />
-                    <Route
-                      path="/consultations/email"
-                      element={<EmailConsultationsPage />}
-                    />
-                    <Route
-                      path="/memo"
-                      element={<MemoPage user={user} />}
-                    />
-                    <Route
-                      path="/settings"
-                      element={<SettingsPage />}
-                    />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                )}
-              </main>
-            </div>
+          <div className="main-wrapper">
+            <main className="main-content">
+              {loading ? (
+                <div className="loading-state">
+                  <div className="loading-spinner"></div>
+                  <p>문의 목록을 불러오는 중입니다.</p>
+                </div>
+              ) : (
+                <Routes>
+                  <Route
+                    path="/"
+                    element={<Dashboard user={user} consultations={consultations} stats={stats} />}
+                  />
+                  <Route
+                    path="/consultations"
+                    element={<Navigate to="/consultations/website" replace />}
+                  />
+                  <Route
+                    path="/consultations/website"
+                    element={
+                      <ConsultationsPage
+                        consultations={consultations}
+                        setConsultations={setConsultations}
+                        type="website"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/consultations/email"
+                    element={<EmailConsultationsPage />}
+                  />
+                  <Route
+                    path="/memo"
+                    element={<MemoPage user={user} />}
+                  />
+                  <Route
+                    path="/settings"
+                    element={<SettingsPage />}
+                  />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              )}
+            </main>
           </div>
         </div>
-      </Router>
+      </div>
+    </Router>
+  );
+}
+
+// AppRouter - QueryClientProvider wrapper
+function AppRouter() {
+  // Electron 환경 체크
+  useEffect(() => {
+    const isElectron = window.electron && window.electron.isElectron;
+    if (!isElectron) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h1>이 애플리케이션은 Electron 앱에서만 실행됩니다.</h1></div>';
+      throw new Error('This app can only run in Electron');
+    }
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
