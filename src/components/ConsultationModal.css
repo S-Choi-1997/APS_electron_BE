@@ -936,3 +936,164 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ===== 3-Layer Thread UI Styles ===== */
+
+/* Previous Threads Section (Layer 1) */
+.previous-threads-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.previous-threads-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b7280;
+  margin: 0 0 12px 0;
+}
+
+/* Collapsible Thread Item */
+.thread-item-collapsible {
+  margin-bottom: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  overflow: hidden;
+}
+
+.thread-item-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.thread-item-header:hover {
+  background: #f3f4f6;
+}
+
+.thread-item-collapsible .thread-index {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  min-width: auto;
+}
+
+.thread-direction {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  white-space: nowrap;
+}
+
+.thread-direction.outgoing {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.thread-direction.incoming {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.thread-item-collapsible .thread-from {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-item-collapsible .thread-date {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.expand-icon {
+  font-size: 10px;
+  color: #9ca3af;
+}
+
+/* Thread Item Body (Expanded) */
+.thread-item-body {
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.thread-subject {
+  font-size: 13px;
+  color: #4b5563;
+  margin-bottom: 12px;
+}
+
+.thread-content {
+  padding: 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.thread-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Current Email Section (Layer 2) */
+.current-email-section {
+  margin-bottom: 24px;
+}
+
+/* Response Section (Layer 3) */
+.response-section {
+  min-height: 200px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.response-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.response-textarea {
+  flex: 1;
+  min-height: 150px;
+  max-height: 300px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+.response-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.response-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}

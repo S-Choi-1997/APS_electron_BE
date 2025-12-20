@@ -15,6 +15,7 @@ import {
   useTriggerZohoSync,
   useSendEmailResponse
 } from '../hooks/queries/useEmailInquiries';
+import { EMAIL_STATUS } from '../services/emailInquiryService';
 import useWebSocketSync from '../hooks/useWebSocketSync';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
@@ -27,7 +28,7 @@ function EmailConsultationsPage() {
 
   // React Query Hooks
   const { data: inquiries = [], isLoading, isError, error } = useEmailInquiries();
-  const { data: stats = { total: 0, unread: 0, gmail: 0, zoho: 0 } } = useEmailStats();
+  const { data: stats = { total: 0, unread: 0, read: 0, responded: 0, gmail: 0, zoho: 0 } } = useEmailStats();
   const updateMutation = useUpdateEmailInquiry();
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
@@ -43,8 +44,8 @@ function EmailConsultationsPage() {
     setSelectedEmail(email);
 
     // Mark as read if unread (Optimistic Update)
-    if (!email.check) {
-      updateMutation.mutate({ id: email.id, updates: { check: true } });
+    if (email.status === EMAIL_STATUS.UNREAD) {
+      updateMutation.mutate({ id: email.id, updates: { status: EMAIL_STATUS.READ } });
     }
   };
 
@@ -75,9 +76,16 @@ function EmailConsultationsPage() {
     syncMutation.mutate();
   };
 
-  // Filter inquiries
+  // Filter inquiries (only show incoming emails, not outgoing)
   const filteredInquiries = inquiries.filter(item => {
-    if (selectedStatus === 'unread' && item.check) return false;
+    // Don't show outgoing emails in the list
+    if (item.isOutgoing) return false;
+
+    // Status filtering
+    if (selectedStatus === EMAIL_STATUS.UNREAD && item.status !== EMAIL_STATUS.UNREAD) return false;
+    if (selectedStatus === EMAIL_STATUS.READ && item.status !== EMAIL_STATUS.READ) return false;
+    if (selectedStatus === EMAIL_STATUS.RESPONDED && item.status !== EMAIL_STATUS.RESPONDED) return false;
+
     return true;
   });
 
@@ -129,24 +137,45 @@ function EmailConsultationsPage() {
       {/* Statistics */}
       <div className="stats-container">
         <div className="stat-card">
-          <div className="stat-label">전체</div>
-          <div className="stat-value">{isLoading ? '-' : stats.total}</div>
-        </div>
-        <div className="stat-card">
           <div className="stat-label">미확인</div>
           <div className="stat-value highlight">{isLoading ? '-' : stats.unread}</div>
         </div>
+        <div className="stat-card">
+          <div className="stat-label">확인</div>
+          <div className="stat-value">{isLoading ? '-' : stats.read}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">응신</div>
+          <div className="stat-value responded">{isLoading ? '-' : stats.responded}</div>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="filters-container">
-        <div className="filter-group">
-          <label>상태:</label>
-          <select value={selectedStatus} onChange={(e) => handleStatusChange(e.target.value)}>
-            <option value="all">전체</option>
-            <option value="unread">미확인</option>
-          </select>
-        </div>
+      {/* Status Filter Tabs */}
+      <div className="status-tabs">
+        <button
+          className={`tab-btn ${selectedStatus === 'all' ? 'active' : ''}`}
+          onClick={() => handleStatusChange('all')}
+        >
+          전체
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === EMAIL_STATUS.UNREAD ? 'active' : ''}`}
+          onClick={() => handleStatusChange(EMAIL_STATUS.UNREAD)}
+        >
+          미확인
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === EMAIL_STATUS.READ ? 'active' : ''}`}
+          onClick={() => handleStatusChange(EMAIL_STATUS.READ)}
+        >
+          확인
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === EMAIL_STATUS.RESPONDED ? 'active' : ''}`}
+          onClick={() => handleStatusChange(EMAIL_STATUS.RESPONDED)}
+        >
+          응신
+        </button>
       </div>
 
       {/* Email List */}
@@ -184,13 +213,15 @@ function EmailConsultationsPage() {
                 {currentInquiries.map((item) => (
                   <tr
                     key={item.id}
-                    className={item.check ? 'read' : 'unread'}
+                    className={`status-${item.status}`}
                     onClick={() => handleRowClick(item)}
                     style={{ cursor: 'pointer' }}
                   >
                     <td className="col-status">
-                      <span className={`status-indicator ${item.check ? 'read' : 'unread'}`}>
-                        {item.check ? '✓' : '●'}
+                      <span className={`status-badge status-${item.status}`}>
+                        {item.status === EMAIL_STATUS.UNREAD && '미확인'}
+                        {item.status === EMAIL_STATUS.READ && '확인'}
+                        {item.status === EMAIL_STATUS.RESPONDED && '응신'}
                       </span>
                     </td>
                     <td className="col-source">

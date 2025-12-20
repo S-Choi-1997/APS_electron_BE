@@ -8,16 +8,26 @@ import { apiRequest } from '../config/api';
 import { auth } from '../auth/authManager';
 
 /**
+ * Email status constants
+ */
+export const EMAIL_STATUS = {
+  UNREAD: 'unread',
+  READ: 'read',
+  RESPONDED: 'responded'
+};
+
+/**
  * Fetch all email inquiries
  */
 export async function fetchEmailInquiries(options = {}) {
   try {
-    const { source, check, limit, offset } = options;
+    const { source, check, status, limit, offset } = options;
 
     // Build query string
     const params = new URLSearchParams();
     if (source) params.append('source', source);
     if (check !== undefined) params.append('check', check);
+    if (status) params.append('status', status);
     if (limit) params.append('limit', limit);
     if (offset) params.append('offset', offset);
 
@@ -28,7 +38,17 @@ export async function fetchEmailInquiries(options = {}) {
       method: 'GET'
     }, auth);
 
-    return response.data;
+    // Transform response to include status field
+    const data = response.data;
+    if (Array.isArray(data)) {
+      return data.map(inquiry => ({
+        ...inquiry,
+        status: inquiry.status || (inquiry.check ? EMAIL_STATUS.READ : EMAIL_STATUS.UNREAD),
+        isOutgoing: inquiry.is_outgoing || false
+      }));
+    }
+
+    return data;
   } catch (error) {
     console.error('[Email Service] Failed to fetch email inquiries:', error);
     throw error;
@@ -52,7 +72,7 @@ export async function fetchEmailStats() {
 }
 
 /**
- * Update email inquiry (mark as checked/unchecked)
+ * Update email inquiry (mark as checked/unchecked or update status)
  */
 export async function updateEmailInquiry(id, updates) {
   try {
@@ -61,7 +81,17 @@ export async function updateEmailInquiry(id, updates) {
       body: JSON.stringify(updates)
     }, auth);
 
-    return response.data;
+    // Transform response
+    const data = response.data;
+    if (data) {
+      return {
+        ...data,
+        status: data.status || (data.check ? EMAIL_STATUS.READ : EMAIL_STATUS.UNREAD),
+        isOutgoing: data.is_outgoing || false
+      };
+    }
+
+    return data;
   } catch (error) {
     console.error('[Email Service] Failed to update email inquiry:', error);
     throw error;

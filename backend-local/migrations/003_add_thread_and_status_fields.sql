@@ -5,7 +5,7 @@
 -- Add thread-related fields
 ALTER TABLE email_inquiries
   ADD COLUMN IF NOT EXISTS in_reply_to VARCHAR(255),
-  ADD COLUMN IF NOT EXISTS references TEXT[],
+  ADD COLUMN IF NOT EXISTS "references" TEXT[],
   ADD COLUMN IF NOT EXISTS thread_id VARCHAR(255);
 
 -- Add outgoing email flag

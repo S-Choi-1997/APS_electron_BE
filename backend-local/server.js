@@ -1820,7 +1820,7 @@ console.log('✓ Firestore real-time listener registered for inquiries collectio
 // Get all email inquiries
 app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
   try {
-    const { source, check, limit = 50, offset = 0 } = req.query;
+    const { source, check, status, limit = 50, offset = 0 } = req.query;
 
     let sql = 'SELECT * FROM email_inquiries WHERE 1=1';
     const values = [];
@@ -1832,8 +1832,13 @@ app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
       values.push(source);
     }
 
-    // Filter by check status
-    if (check !== undefined) {
+    // Filter by status (takes priority over check)
+    if (status !== undefined) {
+      sql += ` AND status = $${paramIndex++}`;
+      values.push(status);
+    }
+    // Filter by check status (legacy support)
+    else if (check !== undefined) {
       sql += ` AND "check" = $${paramIndex++}`;
       values.push(check === 'true');
     }
@@ -1859,6 +1864,12 @@ app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
       hasAttachments: row.has_attachments,
       receivedAt: row.received_at,
       check: row.check,
+      // New fields for thread management and status
+      status: row.status || (row.check ? 'read' : 'unread'),
+      inReplyTo: row.in_reply_to,
+      references: row.references,
+      threadId: row.thread_id,
+      isOutgoing: row.is_outgoing || false,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));
@@ -1956,15 +1967,38 @@ app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Email inquiry not found' });
     }
 
+    // Map response to camelCase
+    const row = result.rows[0];
+    const mappedData = {
+      id: row.id,
+      messageId: row.message_id,
+      from: row.from,
+      fromName: row.from_name,
+      toEmail: row.to_email,
+      subject: row.subject,
+      body: row.body,
+      bodyHtml: row.body_html,
+      receivedAt: row.received_at,
+      source: row.source,
+      check: row.check,
+      status: row.status || (row.check ? 'read' : 'unread'),
+      inReplyTo: row.in_reply_to,
+      references: row.references,
+      threadId: row.thread_id,
+      isOutgoing: row.is_outgoing || false,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+
     // Broadcast WebSocket event for real-time updates
     if (global.broadcastEvent) {
       global.broadcastEvent('email:updated', {
         id: parseInt(id),
-        updates
+        updates: mappedData
       });
     }
 
-    res.json({ data: result.rows[0] });
+    res.json({ data: mappedData });
   } catch (error) {
     console.error('[Email Inquiries] Error updating inquiry:', error);
     res.status(500).json({ error: 'Failed to update email inquiry' });

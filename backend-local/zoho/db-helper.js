@@ -270,7 +270,7 @@ async function saveOutgoingEmail(emailData) {
 
     // Get thread_id and references from the original email
     let threadId = inReplyTo; // Default: use inReplyTo as thread_id
-    let references = [inReplyTo];
+    let references = inReplyTo ? [inReplyTo] : [];
 
     if (inReplyTo) {
       // Query original email to get its thread_id and references
@@ -286,9 +286,12 @@ async function saveOutgoingEmail(emailData) {
         // Use original's thread_id if it exists, otherwise use original's message_id
         threadId = original.thread_id || original.message_id;
 
-        // Build references chain
-        if (original.references && original.references.length > 0) {
+        // Build references chain (safe NULL handling)
+        if (Array.isArray(original.references) && original.references.length > 0) {
           references = [...original.references, inReplyTo];
+        } else {
+          // If no previous references, start chain with inReplyTo
+          references = [inReplyTo];
         }
       }
     }

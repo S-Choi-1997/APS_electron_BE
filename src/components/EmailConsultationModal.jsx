@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import DOMPurify from 'dompurify';
+import { EMAIL_STATUS } from '../services/emailInquiryService';
 import './ConsultationModal.css';
 
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
@@ -15,24 +16,28 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // 제목 정규화: Re:, Fwd:, 답장: 등 제거
-  const normalizeSubject = (subject) => {
-    if (!subject) return '';
-    return subject
-      .replace(/^(Re|RE|Fwd|FW|답장|답변|전달)\s*:\s*/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+  // 스레드 관련 이메일 찾기 (thread_id, in_reply_to 기준)
+  const getThreadEmails = () => {
+    if (!allEmails || allEmails.length === 0) return [];
+
+    // 현재 이메일을 제외한 스레드 메일들
+    return allEmails.filter(e => {
+      if (e.id === email.id) return false; // 현재 메일 제외
+
+      // 같은 스레드 ID
+      if (email.threadId && e.threadId === email.threadId) return true;
+
+      // 현재 메일에 대한 응답
+      if (e.inReplyTo === email.messageId) return true;
+
+      // 현재 메일이 응답한 원본
+      if (email.inReplyTo === e.messageId) return true;
+
+      return false;
+    }).sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
   };
 
-  // 같은 스레드의 이메일 찾기 (제목 기준)
-  const threadEmails = allEmails.length > 0
-    ? allEmails
-        .filter(e => normalizeSubject(e.subject) === normalizeSubject(email.subject))
-        .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
-    : [email];
-
-  const isThreadView = threadEmails.length > 1;
+  const previousThreads = getThreadEmails();
 
   const formatFullDate = (date) => {
     if (!date) return '';
@@ -68,6 +73,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
     try {
       setSending(true);
       await onRespond(email.id, responseText);
+
+      // Optimistic update: 현재 이메일 상태를 응신으로 변경
+      email.status = EMAIL_STATUS.RESPONDED;
+
       setResponseMode(false);
       setResponseText('');
       alert('답변이 전송되었습니다.');
@@ -79,8 +88,61 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
     }
   };
 
-  const isUnread = !email.check;
   const sourceColor = email.source === 'zoho' ? '#6366f1' : '#dc2626'; // indigo : red
+
+  // CollapsibleThreadItem Component
+  const CollapsibleThreadItem = ({ thread, index }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+      <div className="thread-item-collapsible">
+        {/* 접힌 상태 헤더 */}
+        <div
+          className="thread-item-header"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <span className="thread-index">#{index + 1}</span>
+          <span className={`thread-direction ${thread.isOutgoing ? 'outgoing' : 'incoming'}`}>
+            {thread.isOutgoing ? '→ 보낸 메일' : '← 받은 메일'}
+          </span>
+          <span className="thread-from">
+            {thread.isOutgoing
+              ? `To: ${thread.toEmail || thread.from}`
+              : (thread.fromName || thread.from)}
+          </span>
+          <span className="thread-date">
+            {formatFullDate(thread.receivedAt)}
+          </span>
+          <span className="expand-icon">
+            {isExpanded ? '▼' : '▶'}
+          </span>
+        </div>
+
+        {/* 펼친 상태 내용 */}
+        {isExpanded && (
+          <div className="thread-item-body">
+            <div className="thread-subject">
+              <strong>제목:</strong> {thread.subject}
+            </div>
+            <div className="thread-content">
+              {thread.bodyHtml ? (
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(thread.bodyHtml, {
+                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
+                      ALLOWED_ATTR: ['href', 'target', 'style', 'class']
+                    })
+                  }}
+                />
+              ) : (
+                <div className="thread-text">{thread.body || '내용 없음'}</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={handleBackdropClick}>
@@ -100,7 +162,11 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                 >
                   {email.source === 'zoho' ? 'ZOHO' : 'Gmail'}
                 </span>
-                {isUnread && <span className="unread-badge">미확인</span>}
+                <span className={`status-badge status-${email.status}`}>
+                  {email.status === EMAIL_STATUS.UNREAD && '미확인'}
+                  {email.status === EMAIL_STATUS.READ && '확인'}
+                  {email.status === EMAIL_STATUS.RESPONDED && '응신'}
+                </span>
                 {email.hasAttachments && <span className="attachment-badge">📎</span>}
               </div>
             </div>
@@ -121,56 +187,44 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
           </button>
         </div>
 
-        {/* Body */}
+        {/* Body - 3층 구조 */}
         <div className="modal-body email-modal-body">
-          <div className="message-section">
-            {email.bodyHtml ? (
-              <div
-                className="message-html"
-                dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(email.bodyHtml, {
-                    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
-                    ALLOWED_ATTR: ['href', 'target', 'style', 'class']
-                  })
-                }}
-              />
-            ) : (
-              <div className="message-text">
-                {email.body || '(내용 없음)'}
-              </div>
-            )}
-          </div>
-
-          {/* Thread View Section */}
-          {isThreadView && (
-            <div className="thread-section">
-              <h3>이메일 대화 ({threadEmails.length}개)</h3>
-              <div className="thread-list">
-                {threadEmails.map((threadEmail, index) => (
-                  <div
-                    key={threadEmail.id}
-                    className={`thread-item ${threadEmail.id === email.id ? 'active' : ''}`}
-                  >
-                    <div className="thread-header">
-                      <span className="thread-index">#{index + 1}</span>
-                      <span className="thread-from">
-                        {threadEmail.fromName || threadEmail.from}
-                      </span>
-                      <span className="thread-date">
-                        {formatFullDate(threadEmail.receivedAt)}
-                      </span>
-                    </div>
-                    <div className="thread-body">
-                      {threadEmail.body?.substring(0, 200) || '내용 없음'}
-                      {threadEmail.body && threadEmail.body.length > 200 && '...'}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* 1층: 이전 대화들 (접힌 상태) */}
+          {previousThreads.length > 0 && (
+            <div className="previous-threads-section">
+              <h3>이전 대화 ({previousThreads.length}개)</h3>
+              {previousThreads.map((thread, index) => (
+                <CollapsibleThreadItem
+                  key={thread.id}
+                  thread={thread}
+                  index={index}
+                />
+              ))}
             </div>
           )}
 
-          {/* Response Section */}
+          {/* 2층: 현재 선택한 메일 (펼친 상태) */}
+          <div className="current-email-section">
+            <div className="message-section">
+              {email.bodyHtml ? (
+                <div
+                  className="message-html"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(email.bodyHtml, {
+                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
+                      ALLOWED_ATTR: ['href', 'target', 'style', 'class']
+                    })
+                  }}
+                />
+              ) : (
+                <div className="message-text">
+                  {email.body || '(내용 없음)'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3층: 응신 입력 영역 (고정 높이) */}
           {!responseMode ? (
             <div className="action-buttons">
               <button
@@ -188,7 +242,6 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                 value={responseText}
                 onChange={(e) => setResponseText(e.target.value)}
                 placeholder="답변 내용을 입력하세요..."
-                rows={8}
                 disabled={sending}
               />
               <div className="response-actions">

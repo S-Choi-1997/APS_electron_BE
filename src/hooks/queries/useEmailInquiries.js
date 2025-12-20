@@ -61,13 +61,28 @@ export function useUpdateEmailInquiry() {
         });
       }
 
-      // 4. Optimistic 업데이트: 통계 수정 (check 변경 시)
-      if (updates.check !== undefined && previousStats) {
-        queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
-          if (!oldStats) return oldStats;
-          const delta = updates.check ? -1 : 1;
-          return { ...oldStats, unread: oldStats.unread + delta };
-        });
+      // 4. Optimistic 업데이트: 통계 수정 (status 변경 시)
+      if (updates.status !== undefined && previousStats && previousInquiries) {
+        const oldItem = previousInquiries.find(item => item.id === id);
+        if (oldItem && oldItem.status !== updates.status) {
+          queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
+            if (!oldStats) return oldStats;
+
+            const newStats = { ...oldStats };
+
+            // 이전 상태 카운트 감소
+            if (oldItem.status === 'unread') newStats.unread = Math.max(0, newStats.unread - 1);
+            else if (oldItem.status === 'read') newStats.read = Math.max(0, newStats.read - 1);
+            else if (oldItem.status === 'responded') newStats.responded = Math.max(0, newStats.responded - 1);
+
+            // 새 상태 카운트 증가
+            if (updates.status === 'unread') newStats.unread = (newStats.unread || 0) + 1;
+            else if (updates.status === 'read') newStats.read = (newStats.read || 0) + 1;
+            else if (updates.status === 'responded') newStats.responded = (newStats.responded || 0) + 1;
+
+            return newStats;
+          });
+        }
       }
 
       // 5. 롤백용 데이터 반환
@@ -120,12 +135,18 @@ export function useDeleteEmailInquiry() {
         if (deleted && previousStats) {
           queryClient.setQueryData(emailQueryKeys.stats(), (oldStats) => {
             if (!oldStats) return oldStats;
-            return {
+            const newStats = {
               ...oldStats,
-              total: oldStats.total - 1,
-              unread: deleted.check ? oldStats.unread : oldStats.unread - 1,
-              [deleted.source]: (oldStats[deleted.source] || 1) - 1
+              total: Math.max(0, (oldStats.total || 0) - 1),
+              [deleted.source]: Math.max(0, (oldStats[deleted.source] || 1) - 1)
             };
+
+            // status 기반 카운트 감소
+            if (deleted.status === 'unread') newStats.unread = Math.max(0, (oldStats.unread || 0) - 1);
+            else if (deleted.status === 'read') newStats.read = Math.max(0, (oldStats.read || 0) - 1);
+            else if (deleted.status === 'responded') newStats.responded = Math.max(0, (oldStats.responded || 0) - 1);
+
+            return newStats;
           });
         }
       }
