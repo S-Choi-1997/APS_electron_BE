@@ -1,5 +1,5 @@
 /**
- * EmailConsultationsPage.css - 이메일 상담 페이지 스타일
+ * WebsiteConsultationsPage.css - 홈페이지 상담 페이지 스타일 (이메일 UI 스타일 기반)
  */
 
 /* Page Header Override */
@@ -17,44 +17,9 @@
 .page-container .header-right {
   display: flex;
   gap: 10px;
-  flex: 0 0 auto !important;  /* 늘어나지 않도록 */
+  flex: 0 0 auto !important;
   max-width: none !important;
   flex-direction: row !important;
-}
-
-/* Sync Button */
-.sync-button {
-  padding: 10px 20px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  white-space: nowrap;
-  min-width: fit-content;
-}
-
-.sync-button:hover:not(:disabled) {
-  background: #2563eb;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.sync-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.sync-button:disabled {
-  background: #9ca3af;
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 /* Statistics Container */
@@ -129,8 +94,8 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-/* Email Table Container */
-.email-table-container {
+/* Consultation Table Container */
+.consultation-table-container {
   padding: 0 24px 24px 24px;
   overflow-x: auto;
   display: flex;
@@ -138,7 +103,7 @@
   gap: 20px;
 }
 
-.email-table {
+.consultation-table {
   width: 100%;
   border-collapse: collapse;
   background: white;
@@ -147,12 +112,12 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.email-table thead {
+.consultation-table thead {
   background: #f9fafb;
   border-bottom: 2px solid #e5e7eb;
 }
 
-.email-table thead th {
+.consultation-table thead th {
   padding: 12px 16px;
   text-align: left;
   font-size: 13px;
@@ -162,29 +127,29 @@
   letter-spacing: 0.05em;
 }
 
-.email-table tbody tr {
+.consultation-table tbody tr {
   border-bottom: 1px solid #e5e7eb;
   transition: background-color 0.15s;
 }
 
-.email-table tbody tr:hover {
+.consultation-table tbody tr:hover {
   background: #f9fafb;
 }
 
-.email-table tbody tr.unread {
+.consultation-table tbody tr.unread {
   font-weight: 500;
   background: #fffbeb;
 }
 
-.email-table tbody tr.read {
+.consultation-table tbody tr.read {
   opacity: 0.8;
 }
 
-.email-table tbody tr.unread:hover {
+.consultation-table tbody tr.unread:hover {
   background: #fef3c7;
 }
 
-.email-table tbody td {
+.consultation-table tbody td {
   padding: 16px;
   font-size: 14px;
   color: #1f2937;
@@ -196,15 +161,19 @@
   text-align: center;
 }
 
-.col-source {
+.col-type {
   width: 100px;
 }
 
-.col-from {
-  width: 200px;
+.col-name {
+  width: 120px;
 }
 
-.col-subject {
+.col-phone {
+  width: 140px;
+}
+
+.col-content {
   width: auto;
   min-width: 300px;
 }
@@ -229,72 +198,29 @@
   color: #10b981;
 }
 
-/* Source Badge */
-.source-badge {
+/* Type Badge */
+.type-badge {
   display: inline-block;
   padding: 4px 10px;
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
+  background: #e0e7ff;
+  color: #3730a3;
 }
 
-.source-badge.gmail {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.source-badge.zoho {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
-/* Subject Cell */
-.subject-cell {
+/* Content Cell */
+.content-cell {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.subject-text {
-  font-weight: 500;
+.content-text {
+  font-weight: 400;
   color: #1f2937;
-}
-
-.body-preview {
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.4;
-}
-
-/* Loading State */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 80px 20px;
-  text-align: center;
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 16px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-state p {
-  font-size: 16px;
-  color: #6b7280;
-  margin: 0;
+  line-height: 1.5;
 }
 
 /* Empty State */
@@ -350,23 +276,27 @@
     width: 100%;
   }
 
-  .email-table-container {
+  .consultation-table-container {
     padding: 0 12px 12px 12px;
   }
 
-  .email-table {
+  .consultation-table {
     font-size: 13px;
   }
 
-  .email-table tbody td {
+  .consultation-table tbody td {
     padding: 12px 8px;
   }
 
-  .col-from {
-    width: 150px;
+  .col-name {
+    width: 100px;
   }
 
-  .col-subject {
+  .col-phone {
+    width: 120px;
+  }
+
+  .col-content {
     min-width: 200px;
   }
 }

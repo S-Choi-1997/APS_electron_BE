@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { getCurrentUser } from '../auth/authManager';
 import EmailConsultationModal from '../components/EmailConsultationModal';
+import Pagination from '../components/Pagination';
 import {
   useEmailInquiries,
   useEmailStats,
@@ -21,6 +22,8 @@ import './EmailConsultationsPage.css';
 function EmailConsultationsPage() {
   const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread'
   const [selectedEmail, setSelectedEmail] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   // React Query Hooks
   const { data: inquiries = [], isLoading, isError } = useEmailInquiries();
@@ -75,6 +78,18 @@ function EmailConsultationsPage() {
     return true;
   });
 
+  // Pagination
+  const totalPages = Math.ceil(filteredInquiries.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const currentInquiries = filteredInquiries.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  const handleStatusChange = (newStatus) => {
+    setSelectedStatus(newStatus);
+    setCurrentPage(1);
+  };
+
   // Format date
   const formatDate = (date) => {
     const d = new Date(date);
@@ -124,7 +139,7 @@ function EmailConsultationsPage() {
       <div className="filters-container">
         <div className="filter-group">
           <label>상태:</label>
-          <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}>
+          <select value={selectedStatus} onChange={(e) => handleStatusChange(e.target.value)}>
             <option value="all">전체</option>
             <option value="unread">미확인</option>
           </select>
@@ -161,7 +176,7 @@ function EmailConsultationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInquiries.map((item) => (
+                {currentInquiries.map((item) => (
                   <tr
                     key={item.id}
                     className={item.check ? 'read' : 'unread'}
@@ -190,6 +205,15 @@ function EmailConsultationsPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            )}
           </div>
         )}
       </div>
