@@ -5,7 +5,7 @@ const fs = require('fs');
 let mainWindow;
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
-let toastNotifications = []; // Toast 알림창 배열 (스택 관리)
+let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
 
 // Sticky window settings file path
 const STICKY_SETTINGS_PATH = path.join(app.getPath('userData'), 'sticky-settings.json');
@@ -124,8 +124,10 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     if (reset) {
       // 리셋 모드: 기존 창 닫고 설정 삭제 후 재생성
       console.log(`[Sticky] Resetting sticky window: ${type}`);
-      stickyWindows[type].close();
-      delete stickyWindows[type];
+      const oldWindow = stickyWindows[type];
+      delete stickyWindows[type];  // 먼저 stickyWindows에서 제거
+      oldWindow.removeAllListeners('closed');  // 이벤트 리스너 제거
+      oldWindow.close();  // 그 다음 창 닫기
 
       // 저장된 설정 삭제
       try {
@@ -178,24 +180,29 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   });
 
   // 캐시 데이터를 URL 파라미터로 인코딩
-  const cachedDataParam = data ? `?cachedData=${encodeURIComponent(JSON.stringify(data))}` : '';
+  const cachedDataParam = data ? `cachedData=${encodeURIComponent(JSON.stringify(data))}` : '';
+  const typeParam = `type=${type}`;
+  const queryParams = cachedDataParam ? `${typeParam}&${cachedDataParam}` : typeParam;
 
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    stickyWindow.loadURL(`http://localhost:5173/sticky.html${cachedDataParam}`);
+    stickyWindow.loadURL(`http://localhost:5173/sticky.html?${queryParams}`);
     // 개발 모드에서 DevTools 자동 열기
     stickyWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
     stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'), {
-      search: cachedDataParam.replace('?', '') // '?' 제거하고 전달
+      search: queryParams
     });
   }
 
   stickyWindows[type] = stickyWindow;
+  console.log(`[Sticky] Registered sticky window: ${type}, current keys:`, Object.keys(stickyWindows));
 
   stickyWindow.on('closed', () => {
+    console.log(`[Sticky] Closing sticky window: ${type}`);
     delete stickyWindows[type];
+    console.log(`[Sticky] After close, remaining keys:`, Object.keys(stickyWindows));
   });
 
   console.log(`[Sticky] Opened sticky window: ${type}, reset: ${reset}`);
@@ -374,16 +381,21 @@ ipcMain.handle('open-external-url', async (event, url) => {
 
 // 메모 서브 윈도우 열기 (알림창 옆에 배치)
 ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
+  console.log('[Main] open-memo-sub-window called:', { mode, memoId });
   const parentWindow = BrowserWindow.fromWebContents(event.sender);
   if (!parentWindow) {
+    console.error('[Main] Parent window not found');
     return { success: false, error: 'Parent window not found' };
   }
 
   // 부모 창 타입 찾기 (stickyWindows에서)
+  console.log('[Main] Looking for parent type in stickyWindows:', Object.keys(stickyWindows));
   const parentType = Object.keys(stickyWindows).find(
     type => stickyWindows[type] === parentWindow
   );
+  console.log('[Main] Found parentType:', parentType);
   if (!parentType) {
+    console.error('[Main] Parent is not a sticky window');
     return { success: false, error: 'Parent is not a sticky window' };
   }
 
@@ -446,6 +458,8 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
 
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     subWindow.loadURL(`http://localhost:5173/memo-detail.html?${queryParams}`);
+    // 개발 모드에서 DevTools 자동 열기
+    subWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     subWindow.loadFile(path.join(__dirname, '../dist/memo-detail.html'), {
       query: Object.fromEntries(new URLSearchParams(queryParams))

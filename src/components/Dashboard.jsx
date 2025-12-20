@@ -718,25 +718,44 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       <div className="page-header">
         <div className="header-row">
           <h1 className="page-title">대시보드</h1>
-          <button
-            className="add-btn"
-            onClick={async () => {
-              if (!window.electron) return;
-              // 이미 열려있는지 확인
-              const isOpen = await window.electron.isStickyWindowOpen('dashboard');
-              // 캐시 데이터: 메모, 일정, 미확인 상담
-              const cachedData = {
-                memos,
-                schedules,
-                consultations: uncheckedConsultations
-              };
-              // 열려있으면 리셋 모드로, 아니면 일반 모드로
-              await window.electron.openStickyWindow('dashboard', '알림창', cachedData, isOpen);
-            }}
-            title="알림창 띄우기 (열려있으면 클릭 시 위치 리셋)"
-          >
-            알림창
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="add-btn"
+              onClick={async () => {
+                if (!window.electron) return;
+                // 이미 열려있는지 확인
+                const isOpen = await window.electron.isStickyWindowOpen('dashboard');
+                // 캐시 데이터: 메모, 일정, 미확인 상담
+                const cachedData = {
+                  memos,
+                  schedules,
+                  consultations: uncheckedConsultations
+                };
+                // 열려있으면 포커스, 아니면 열기
+                await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+              }}
+              title="알림창 띄우기"
+            >
+              알림창
+            </button>
+            <button
+              className="add-btn"
+              onClick={async () => {
+                if (!window.electron) return;
+                // 캐시 데이터: 메모, 일정, 미확인 상담
+                const cachedData = {
+                  memos,
+                  schedules,
+                  consultations: uncheckedConsultations
+                };
+                // 리셋 모드로 열기
+                await window.electron.openStickyWindow('dashboard', '알림창', cachedData, true);
+              }}
+              title="알림창 위치 초기화"
+            >
+              ⟲
+            </button>
+          </div>
         </div>
       </div>
 

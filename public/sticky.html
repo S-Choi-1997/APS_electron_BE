@@ -1489,7 +1489,8 @@
 
       if (cachedDataParam) {
         try {
-          const cachedData = JSON.parse(decodeURIComponent(cachedDataParam));
+          // URLSearchParams.get()은 자동으로 디코딩하므로 decodeURIComponent 불필요
+          const cachedData = JSON.parse(cachedDataParam);
           console.log('[Sticky] Found cached data in URL params');
           initializeWithCachedData(cachedData);
         } catch (error) {

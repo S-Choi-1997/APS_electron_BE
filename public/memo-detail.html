@@ -274,8 +274,8 @@
     // body에 모드 클래스 추가 (CSS 스타일 분리용)
     document.body.classList.add(`mode-${mode}`);
 
-    // API 기본 URL
-    const API_BASE_URL = 'http://localhost:3001';
+    // API 기본 URL - HTTP 요청은 릴레이 서버 프록시 사용
+    const API_BASE_URL = 'http://136.113.67.193:8080/proxy';
 
     // 로컬 스토리지에서 인증 정보 가져오기
     function getAuthToken() {
@@ -519,7 +519,15 @@
     });
 
     // 초기화
-    if (mode === 'view' && memoId) {
+    console.log('[MemoDetail] Initializing... mode:', mode, 'memoId:', memoId);
+    console.log('[MemoDetail] Checking localStorage...');
+    const userStr = localStorage.getItem('currentUser');
+    console.log('[MemoDetail] currentUser exists:', !!userStr);
+
+    if (!userStr) {
+      console.error('[MemoDetail] No currentUser in localStorage!');
+      document.getElementById('content').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">인증 정보가 없습니다.<br>메인 창에서 로그인해주세요.</div>';
+    } else if (mode === 'view' && memoId) {
       renderViewMode();
     } else if (mode === 'create') {
       renderCreateMode();
