@@ -24,10 +24,13 @@
  */
 
 import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { connectWebSocket, disconnectWebSocket, getSocket } from '../services/websocketService';
 import { showToastNotification } from '../utils/notificationHelper';
 
 function useWebSocketSync(user, handlers = {}) {
+  const queryClient = useQueryClient();
+
   useEffect(() => {
     if (!user) {
       disconnectWebSocket();
@@ -159,6 +162,55 @@ function useWebSocketSync(user, handlers = {}) {
       });
     }
 
+    // ========== 이메일 관련 이벤트 ==========
+
+    // 신규 이메일 생성 (ZOHO Webhook 또는 수동 동기화)
+    socket.on('email:created', (newEmail) => {
+      console.log('[WebSocket] New email received:', newEmail);
+
+      // React Query 캐시 무효화 → 자동 refetch
+      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
+      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+
+      // Toast 알림
+      const fromName = newEmail.from_name || newEmail.from_email || '발신자';
+      const subject = newEmail.subject || '(제목 없음)';
+      showToastNotification('email', `새 이메일: ${fromName}\n${subject}`);
+
+      // 커스텀 핸들러 호출 (옵션)
+      if (handlers.onEmailCreated) {
+        handlers.onEmailCreated(newEmail);
+      }
+    });
+
+    // 이메일 업데이트 (읽음 처리 등)
+    socket.on('email:updated', (data) => {
+      console.log('[WebSocket] Email updated:', data);
+
+      // React Query 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
+      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+
+      // 커스텀 핸들러 호출 (옵션)
+      if (handlers.onEmailUpdated) {
+        handlers.onEmailUpdated(data);
+      }
+    });
+
+    // 이메일 삭제
+    socket.on('email:deleted', (data) => {
+      console.log('[WebSocket] Email deleted:', data.id);
+
+      // React Query 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
+      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+
+      // 커스텀 핸들러 호출 (옵션)
+      if (handlers.onEmailDeleted) {
+        handlers.onEmailDeleted(data);
+      }
+    });
+
     // ========== 재연결 처리 ==========
 
     socket.on('connect', async () => {
@@ -181,9 +233,12 @@ function useWebSocketSync(user, handlers = {}) {
       socket.off('schedule:created');
       socket.off('schedule:updated');
       socket.off('schedule:deleted');
+      socket.off('email:created');
+      socket.off('email:updated');
+      socket.off('email:deleted');
       socket.off('connect');
     };
-  }, [user, handlers]);
+  }, [user, handlers, queryClient]);
 }
 
 export default useWebSocketSync;

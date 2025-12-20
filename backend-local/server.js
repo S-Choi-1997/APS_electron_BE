@@ -1871,6 +1871,14 @@ app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Email inquiry not found' });
     }
 
+    // Broadcast WebSocket event for real-time updates
+    if (global.broadcastEvent) {
+      global.broadcastEvent('email:updated', {
+        id: parseInt(id),
+        updates: { check }
+      });
+    }
+
     res.json({ data: result.rows[0] });
   } catch (error) {
     console.error('[Email Inquiries] Error updating inquiry:', error);
@@ -1888,6 +1896,11 @@ app.delete('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Email inquiry not found' });
+    }
+
+    // Broadcast WebSocket event for real-time updates
+    if (global.broadcastEvent) {
+      global.broadcastEvent('email:deleted', { id: parseInt(id) });
     }
 
     res.json({ data: result.rows[0] });

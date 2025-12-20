@@ -6,6 +6,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { auth, onAuthStateChanged } from './auth/authManager';
 import TitleBar from './components/TitleBar';
 import LoginPage from './components/LoginPage';
@@ -20,6 +22,19 @@ import { fetchInquiries } from './services/inquiryService';
 import { apiRequest } from './config/api';
 import useWebSocketSync from './hooks/useWebSocketSync';
 import './App.css';
+
+// React Query Client 생성
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,      // 5분: 이 시간 동안은 fresh 상태 유지
+      gcTime: 10 * 60 * 1000,        // 10분: 캐시 보관 시간 (구 cacheTime)
+      refetchOnWindowFocus: false,   // 탭 전환 시 자동 refetch 비활성화
+      refetchOnReconnect: true,      // 재연결 시 refetch
+      retry: 1,                      // 실패 시 1번 재시도
+    },
+  },
+});
 
 // 라우팅 이벤트를 처리하는 컴포넌트
 function NavigationListener() {
@@ -245,60 +260,63 @@ function AppRouter() {
 
   // 로그인 됨 - 메인 앱
   return (
-    <Router>
-      <NavigationListener />
-      <div className="app-container">
-        <TitleBar />
-        <div className="app-content-wrapper">
-          <Sidebar user={user} stats={stats} />
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <NavigationListener />
+        <div className="app-container">
+          <TitleBar />
+          <div className="app-content-wrapper">
+            <Sidebar user={user} stats={stats} />
 
-          <div className="main-wrapper">
-            <main className="main-content">
-              {loading ? (
-                <div className="loading-state">
-                  <div className="loading-spinner"></div>
-                  <p>문의 목록을 불러오는 중입니다.</p>
-                </div>
-              ) : (
-                <Routes>
-                  <Route
-                    path="/"
-                    element={<Dashboard user={user} consultations={consultations} stats={stats} />}
-                  />
-                  <Route
-                    path="/consultations"
-                    element={<Navigate to="/consultations/website" replace />}
-                  />
-                  <Route
-                    path="/consultations/website"
-                    element={
-                      <ConsultationsPage
-                        consultations={consultations}
-                        setConsultations={setConsultations}
-                        type="website"
-                      />
-                    }
-                  />
-                  <Route
-                    path="/consultations/email"
-                    element={<EmailConsultationsPage />}
-                  />
-                  <Route
-                    path="/memo"
-                    element={<MemoPage user={user} />}
-                  />
-                  <Route
-                    path="/settings"
-                    element={<SettingsPage />}
-                  />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              )}
-            </main>
+            <div className="main-wrapper">
+              <main className="main-content">
+                {loading ? (
+                  <div className="loading-state">
+                    <div className="loading-spinner"></div>
+                    <p>문의 목록을 불러오는 중입니다.</p>
+                  </div>
+                ) : (
+                  <Routes>
+                    <Route
+                      path="/"
+                      element={<Dashboard user={user} consultations={consultations} stats={stats} />}
+                    />
+                    <Route
+                      path="/consultations"
+                      element={<Navigate to="/consultations/website" replace />}
+                    />
+                    <Route
+                      path="/consultations/website"
+                      element={
+                        <ConsultationsPage
+                          consultations={consultations}
+                          setConsultations={setConsultations}
+                          type="website"
+                        />
+                      }
+                    />
+                    <Route
+                      path="/consultations/email"
+                      element={<EmailConsultationsPage />}
+                    />
+                    <Route
+                      path="/memo"
+                      element={<MemoPage user={user} />}
+                    />
+                    <Route
+                      path="/settings"
+                      element={<SettingsPage />}
+                    />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                )}
+              </main>
+            </div>
           </div>
         </div>
-      </div>
-    </Router>
+      </Router>
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   );
 }
 

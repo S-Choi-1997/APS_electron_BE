@@ -4,110 +4,65 @@
  * 이메일로 접수된 상담 내역을 관리하는 페이지
  */
 
-import { useState, useEffect } from 'react';
-import { fetchEmailInquiries, fetchEmailStats, updateEmailInquiry, triggerZohoSync, sendEmailResponse } from '../services/emailInquiryService';
+import { useState } from 'react';
 import { getCurrentUser } from '../auth/authManager';
 import EmailConsultationModal from '../components/EmailConsultationModal';
+import {
+  useEmailInquiries,
+  useEmailStats,
+  useUpdateEmailInquiry,
+  useTriggerZohoSync,
+  useSendEmailResponse
+} from '../hooks/queries/useEmailInquiries';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
 
 function EmailConsultationsPage() {
-  const [inquiries, setInquiries] = useState([]);
-  const [stats, setStats] = useState({ total: 0, unread: 0, gmail: 0, zoho: 0 });
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread'
   const [selectedEmail, setSelectedEmail] = useState(null);
 
-  // Load data on mount
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [inquiriesData, statsData] = await Promise.all([
-        fetchEmailInquiries(),
-        fetchEmailStats()
-      ]);
-      setInquiries(inquiriesData);
-      setStats(statsData);
-    } catch (error) {
-      console.error('Failed to load email data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // React Query Hooks
+  const { data: inquiries = [], isLoading, isError } = useEmailInquiries();
+  const { data: stats = { total: 0, unread: 0, gmail: 0, zoho: 0 } } = useEmailStats();
+  const updateMutation = useUpdateEmailInquiry();
+  const syncMutation = useTriggerZohoSync();
+  const responseMutation = useSendEmailResponse();
 
   // Handle row click to open modal
   const handleRowClick = async (email) => {
     setSelectedEmail(email);
 
-    // Mark as read if unread
+    // Mark as read if unread (Optimistic Update)
     if (!email.check) {
-      try {
-        await updateEmailInquiry(email.id, { check: true });
-        setInquiries(prev => prev.map(item =>
-          item.id === email.id ? { ...item, check: true } : item
-        ));
-      } catch (error) {
-        console.error('Failed to mark as read:', error);
-      }
+      updateMutation.mutate({ id: email.id, updates: { check: true } });
     }
   };
 
   // Handle email response
   const handleRespond = async (emailId, responseText) => {
-    try {
-      console.log('[Email Response] Sending response to email:', emailId);
-
-      // Find the email in our local state
-      const email = inquiries.find(item => item.id === emailId);
-      if (!email) {
-        throw new Error('Email not found');
-      }
-
-      // Prepare original email data for threading
-      const originalEmail = {
-        messageId: email.messageId,
-        from: email.from,
-        subject: email.subject
-      };
-
-      // Send response via API
-      await sendEmailResponse(emailId, responseText, originalEmail);
-
-      console.log('[Email Response] Response sent successfully');
-    } catch (error) {
-      console.error('[Email Response] Failed to send response:', error);
-      throw error;
+    const email = inquiries.find(item => item.id === emailId);
+    if (!email) {
+      throw new Error('Email not found');
     }
+
+    const originalEmail = {
+      messageId: email.messageId,
+      from: email.from,
+      subject: email.subject
+    };
+
+    await responseMutation.mutateAsync({ emailId, responseText, originalEmail });
   };
 
   // Handle manual sync (admin only)
   const handleManualSync = async () => {
-    // Check if user is admin
     const user = getCurrentUser();
     if (!user || user.role !== 'admin') {
       alert('관리자만 동기화를 실행할 수 있습니다.');
       return;
     }
 
-    try {
-      setSyncing(true);
-      console.log('[Email Sync] Starting manual sync...');
-      const result = await triggerZohoSync();
-      console.log('[Email Sync] Sync completed:', result);
-      console.log(`[Email Sync] 새로운 이메일: ${result.new || 0}개, 스킵: ${result.skipped || 0}개`);
-
-      // Reload data after sync
-      await loadData();
-    } catch (error) {
-      console.error('[Email Sync] Failed:', error);
-    } finally {
-      setSyncing(false);
-    }
+    syncMutation.mutate();
   };
 
   // Filter inquiries
@@ -131,13 +86,25 @@ function EmailConsultationsPage() {
     return d.toLocaleDateString('ko-KR');
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="page-container">
         <div className="page-content">
           <div className="loading-state">
             <div className="loading-spinner"></div>
             <p>이메일 목록을 불러오는 중입니다.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="page-container">
+        <div className="page-content">
+          <div className="error-state">
+            <p>이메일 목록을 불러오는데 실패했습니다.</p>
           </div>
         </div>
       </div>
@@ -155,9 +122,9 @@ function EmailConsultationsPage() {
           <button
             className="sync-button"
             onClick={handleManualSync}
-            disabled={syncing}
+            disabled={syncMutation.isPending}
           >
-            {syncing ? '동기화 중...' : '🔄 수동 동기화'}
+            {syncMutation.isPending ? '동기화 중...' : '🔄 수동 동기화'}
           </button>
         </div>
       </div>
