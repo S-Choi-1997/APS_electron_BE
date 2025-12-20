@@ -16,24 +16,20 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // 스레드 관련 이메일 찾기 (thread_id, in_reply_to 기준)
+  // 스레드 관련 이메일 찾기 (같은 발신자 이메일 주소 기준)
   const getThreadEmails = () => {
     if (!allEmails || allEmails.length === 0) return [];
 
-    // 현재 이메일을 제외한 스레드 메일들
+    // 현재 이메일의 발신자 주소
+    const currentEmailAddress = email.from;
+    if (!currentEmailAddress) return [];
+
+    // 같은 발신자의 모든 이메일 (현재 이메일 제외)
     return allEmails.filter(e => {
       if (e.id === email.id) return false; // 현재 메일 제외
 
-      // 같은 스레드 ID
-      if (email.threadId && e.threadId === email.threadId) return true;
-
-      // 현재 메일에 대한 응답
-      if (e.inReplyTo === email.messageId) return true;
-
-      // 현재 메일이 응답한 원본
-      if (email.inReplyTo === e.messageId) return true;
-
-      return false;
+      // 같은 발신자 이메일 주소
+      return e.from === currentEmailAddress;
     }).sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
   };
 

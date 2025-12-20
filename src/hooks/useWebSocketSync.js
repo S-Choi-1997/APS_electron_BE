@@ -201,22 +201,19 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:updated', (data) => {
       console.log('[WebSocket] Email updated:', data);
 
-      // Optimistic Update: 캐시에서 해당 항목 수정 (순서 유지)
-      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
+      // NOTE: 목록만 업데이트하고 통계는 업데이트하지 않음
+      // 이유: useUpdateEmailInquiry의 Optimistic Update가 이미 통계를 업데이트했기 때문
+      // WebSocket은 다른 클라이언트에게 변경사항을 전파하기 위한 용도로만 사용
+
+      const listQueryKey = ['emailInquiries', 'list', {}];
+
+      // 캐시에서 해당 항목 수정 (순서 유지)
+      queryClient.setQueryData(listQueryKey, (oldData) => {
         if (!oldData) return oldData;
         return oldData.map(item =>
           item.id === data.id ? { ...item, ...data.updates } : item
         );
       });
-
-      // 통계 업데이트 (check 상태 변경 시)
-      if (data.updates.check !== undefined) {
-        queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
-          if (!oldStats) return oldStats;
-          const delta = data.updates.check ? -1 : 1;
-          return { ...oldStats, unread: oldStats.unread + delta };
-        });
-      }
 
       // 커스텀 핸들러 호출 (옵션)
       if (handlers.onEmailUpdated) {

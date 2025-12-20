@@ -127,10 +127,14 @@
 
 /* Status Badge */
 .status-badge {
+  display: inline-block;
   padding: 4px 12px;
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 50px;
 }
 
 .status-badge.status-unread {
@@ -220,7 +224,8 @@
 
 /* Column Widths */
 .col-status {
-  width: 60px;
+  width: 80px;
+  min-width: 80px;
   text-align: center;
 }
 
