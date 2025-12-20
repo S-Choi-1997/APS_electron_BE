@@ -4,7 +4,7 @@
  * 홈페이지로 접수된 상담 내역을 관리하는 페이지 (이메일 UI 스타일 적용)
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import ConsultationModal from '../components/ConsultationModal';
 import Pagination from '../components/Pagination';
 import '../components/css/PageLayout.css';
@@ -14,7 +14,11 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
   const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread'
   const [selectedConsultation, setSelectedConsultation] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [typeFilter, setTypeFilter] = useState('전체');
   const ITEMS_PER_PAGE = 10;
+
+  // 기본 5가지 타입 필터 (항상 표시)
+  const typeFilters = ['전체', '비자', '비영리단체', '기업 인허가', '민원 행정', '기타'];
 
   // Handle row click to open modal
   const handleRowClick = async (consultation) => {
@@ -32,7 +36,15 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
 
   // Filter consultations
   const filteredConsultations = consultations.filter(item => {
+    // 상태 필터
     if (selectedStatus === 'unread' && item.check) return false;
+
+    // 타입 필터
+    if (typeFilter !== '전체') {
+      const itemType = item.type || '';
+      if (itemType !== typeFilter) return false;
+    }
+
     return true;
   });
 
@@ -51,6 +63,11 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
   // Reset to page 1 when filters change
   const handleStatusChange = (newStatus) => {
     setSelectedStatus(newStatus);
+    setCurrentPage(1);
+  };
+
+  const handleTypeFilterChange = (newType) => {
+    setTypeFilter(newType);
     setCurrentPage(1);
   };
 
@@ -75,6 +92,27 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
         <div className="header-left">
           <h1 className="page-title">홈페이지 상담</h1>
           <p className="page-subtitle">홈페이지로 접수된 상담 내역</p>
+        </div>
+        <div className="header-right">
+          <div className="filter-buttons">
+            <button
+              className={`pill-button ${selectedStatus === 'unread' ? 'active' : ''}`}
+              onClick={() => handleStatusChange(selectedStatus === 'unread' ? 'all' : 'unread')}
+            >
+              미확인만 보기
+            </button>
+            <div className="type-filter-group">
+              {typeFilters.map((type) => (
+                <button
+                  key={type}
+                  className={`type-filter-btn ${typeFilter === type ? 'active' : ''}`}
+                  onClick={() => handleTypeFilterChange(type)}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -136,16 +174,18 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
                       </span>
                     </td>
                     <td className="col-type">
-                      <span className="type-badge">
-                        {item.category || '일반'}
+                      <span className={`type-badge type-${(item.type || '기타').replace(/\s+/g, '-')}`}>
+                        {item.type || '기타'}
                       </span>
                     </td>
-                    <td className="col-name">{item.name}</td>
-                    <td className="col-phone">{item.phone}</td>
+                    <td className="col-name">
+                      <div className="ellipsis-text">{item.name}</div>
+                    </td>
+                    <td className="col-phone">
+                      <div className="ellipsis-text">{item.phone}</div>
+                    </td>
                     <td className="col-content">
-                      <div className="content-cell">
-                        <div className="content-text">{item.content ? item.content.substring(0, 60) : ''}...</div>
-                      </div>
+                      <div className="content-text">{item.message || item.content || ''}</div>
                     </td>
                     <td className="col-date">{formatDate(item.createdAt || item.created_at)}</td>
                   </tr>

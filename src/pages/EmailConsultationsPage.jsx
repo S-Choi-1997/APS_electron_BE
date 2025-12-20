@@ -26,11 +26,14 @@ function EmailConsultationsPage() {
   const ITEMS_PER_PAGE = 10;
 
   // React Query Hooks
-  const { data: inquiries = [], isLoading, isError } = useEmailInquiries();
+  const { data: inquiries = [], isLoading, isError, error } = useEmailInquiries();
   const { data: stats = { total: 0, unread: 0, gmail: 0, zoho: 0 } } = useEmailStats();
   const updateMutation = useUpdateEmailInquiry();
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
+
+  // Debug logging
+  console.log('[EmailPage] Loading:', isLoading, 'Error:', isError, 'Inquiries:', inquiries?.length);
 
   // WebSocket 실시간 동기화는 AppRouter에서 전역으로 처리
   // EmailConsultationsPage에서는 별도 호출 불필요
@@ -150,7 +153,9 @@ function EmailConsultationsPage() {
       <div className="page-content">
         {isError ? (
           <div className="error-state">
-            <p>이메일 목록을 불러오는데 실패했습니다.</p>
+            <div className="empty-icon">❌</div>
+            <h2>이메일 목록을 불러오는데 실패했습니다</h2>
+            <p>{error?.message || '알 수 없는 오류가 발생했습니다.'}</p>
           </div>
         ) : isLoading ? (
           <div className="loading-state">

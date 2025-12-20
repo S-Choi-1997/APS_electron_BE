@@ -22,6 +22,76 @@
   flex-direction: row !important;
 }
 
+/* Filter Buttons */
+.filter-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Pill Button (미확인만 보기) */
+.pill-button {
+  padding: 8px 16px;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.pill-button:hover {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+}
+
+.pill-button.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.pill-button.active:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+/* Type Filter Group */
+.type-filter-group {
+  display: flex;
+  gap: 6px;
+  background: #f9fafb;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.type-filter-btn {
+  padding: 6px 14px;
+  background: transparent;
+  color: #6b7280;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.type-filter-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.type-filter-btn.active {
+  background: white;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
 /* Statistics Container */
 .stats-container {
   display: flex;
@@ -205,22 +275,56 @@
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  background: #e0e7ff;
-  color: #3730a3;
+  white-space: nowrap;
+}
+
+/* 상담 타입별 색상 (5종류) */
+.type-badge.type-비자 {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.type-badge.type-비영리단체 {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.type-badge.type-기업-인허가 {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.type-badge.type-민원-행정 {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.type-badge.type-기타 {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 /* Content Cell */
 .content-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  max-width: 100%;
 }
 
 .content-text {
   font-weight: 400;
   color: #1f2937;
-  line-height: 1.5;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* 긴 텍스트 말줄임표 처리 */
+.ellipsis-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 /* Empty State */
