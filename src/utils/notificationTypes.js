@@ -40,6 +40,15 @@ export const NOTIFICATION_TYPES = {
     enabled: true,
     sound: 'schedule.mp3',
     route: '/dashboard'
+  },
+
+  EMAIL: {
+    key: 'email',
+    icon: '📧',
+    title: '새 이메일',
+    enabled: true,
+    sound: 'notification.mp3',
+    route: '/email-consultations'
   }
 };
 

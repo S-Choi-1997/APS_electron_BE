@@ -29,9 +29,8 @@ function EmailConsultationsPage() {
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
 
-  // WebSocket 실시간 동기화
-  const user = getCurrentUser();
-  useWebSocketSync(user, {});
+  // WebSocket 실시간 동기화는 AppRouter에서 전역으로 처리
+  // EmailConsultationsPage에서는 별도 호출 불필요
 
   // Handle row click to open modal
   const handleRowClick = async (email) => {

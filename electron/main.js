@@ -183,8 +183,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     stickyWindow.loadURL(`http://localhost:5173/sticky.html${cachedDataParam}`);
-    // 개발 모드에서 DevTools 자동 열기 (크기 표시 때문에 주석 처리)
-    // stickyWindow.webContents.openDevTools({ mode: 'detach' });
+    // 개발 모드에서 DevTools 자동 열기
+    stickyWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
     stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'), {

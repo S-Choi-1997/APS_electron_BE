@@ -249,8 +249,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         const memoId = deleteTarget.id;
         await deleteMemo(memoId, auth);
 
-        // 메모 목록 새로고침
-        await loadMemos();
+        // WebSocket 이벤트가 자동으로 메모 목록을 새로고침하므로 loadMemos() 호출 불필요
 
         // 다른 창들에게 메모 삭제 알림 (알림창 등)
         if (window.electron && window.electron.broadcastMemoDeleted) {

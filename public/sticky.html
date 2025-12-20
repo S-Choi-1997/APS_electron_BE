@@ -921,9 +921,11 @@
 
     console.log('[Sticky] Script started!');
 
-    // API 기본 URL - 릴레이 서버 사용 (메인 앱과 동일)
-    const API_BASE_URL = 'http://136.113.67.193:8080/proxy';
+    // API 기본 URL - HTTP 요청은 릴레이 서버 프록시, WebSocket은 릴레이 서버
+    const API_BASE_URL = 'http://136.113.67.193:8080/proxy'; // HTTP API 요청용
+    const WEBSOCKET_URL = 'ws://136.113.67.193:8080'; // WebSocket 연결용 (메인 앱과 동일)
     console.log('[Sticky] API_BASE_URL:', API_BASE_URL);
+    console.log('[Sticky] WEBSOCKET_URL:', WEBSOCKET_URL);
 
     // 전역 데이터
     let memos = [];
@@ -1058,6 +1060,9 @@
       document.getElementById('emailCount').textContent = emailCount;
       document.getElementById('websiteCount').textContent = websiteCount;
       document.getElementById('pendingCount').textContent = totalPending;
+
+      // 높이 재조정
+      adjustWindowHeight();
     }
 
     // 요약 바 클릭 시 메인 창 열기 및 해당 상담 탭으로 이동
@@ -1150,6 +1155,9 @@
         scheduleBody.innerHTML = scheduleHTML;
       }
       console.log('[Sticky] Schedules rendered successfully');
+
+      // 높이 재조정
+      adjustWindowHeight();
     }
 
     // 메모 렌더링 함수 (재사용 가능하도록 분리)
@@ -1193,6 +1201,9 @@
         `).join('');
       }
       console.log('[Sticky] Memos rendered successfully, valid memos:', validMemos.length);
+
+      // 높이 재조정
+      adjustWindowHeight();
     }
 
     // 서브 윈도우 방식으로 변경
@@ -1224,18 +1235,17 @@
       }
     }
 
-    // 이전 모달 관련 함수들 제거 (더 이상 사용하지 않음)
+    // 이전 모달 관련 함수들 (서브 윈도우 방식으로 변경되어 사용하지 않지만, HTML에서 참조되므로 빈 함수로 유지)
     function closeAddMemoModal() {
-      // 서브 윈도우 방식으로 변경되어 더 이상 사용하지 않음
+      // 서브 윈도우 방식으로 변경됨 - 빈 함수
     }
 
     async function saveNewMemo() {
-      // 서브 윈도우 방식으로 변경되어 더 이상 사용하지 않음
-      document.getElementById('memoDetailModal').style.display = 'flex';
+      // 서브 윈도우 방식으로 변경됨 - 빈 함수
     }
 
     function closeMemoDetailModal() {
-      document.getElementById('memoDetailModal').style.display = 'none';
+      // 서브 윈도우 방식으로 변경됨 - 빈 함수
     }
 
     // ESC 키로 모달 닫기
@@ -1318,17 +1328,31 @@
           return null;
         }
 
-        console.log('[Sticky WebSocket] Connecting to', API_BASE_URL);
+        console.log('[Sticky WebSocket] Connecting to', WEBSOCKET_URL);
 
-        socket = io(API_BASE_URL, {
-          auth: {
-            token: token,
-            provider: provider
-          },
+        socket = io(WEBSOCKET_URL, {
+          transports: ['websocket', 'polling'],
           reconnectionDelay: 1000,
           reconnection: true,
           reconnectionAttempts: 10,
           timeout: 10000
+        });
+
+        // Send handshake (메인 앱과 동일)
+        socket.on('connect', () => {
+          socket.emit('handshake', {
+            type: 'client',
+            metadata: {
+              email: user.email,
+              provider: user.provider,
+              displayName: user.displayName,
+              connectedAt: new Date().toISOString()
+            }
+          });
+        });
+
+        socket.on('handshake:success', (data) => {
+          console.log('[Sticky WebSocket] Handshake successful:', data);
         });
 
         socket.on('connect', () => {
