@@ -86,7 +86,8 @@ async function runMigrations() {
     '002_create_zoho_tokens_table.sql'
   ];
 
-  console.log('[DB] Running migrations...');
+  console.log("[DB] Migrations disabled - using init-db.sql");
+  return;
 
   for (const migration of migrations) {
     const filePath = path.join(migrationsDir, migration);
