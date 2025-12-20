@@ -241,6 +241,55 @@ function connectToRelay() {
     console.log(`[Backend] Tunnel HTTP ${method} ${fullPath} (requestId: ${requestId})`);
 
     try {
+      // Handle ZOHO-specific routes directly without HTTP roundtrip
+      if (method === 'POST' && path === '/api/zoho/sync') {
+        const jwt = require('jsonwebtoken');
+        const zohoRoutes = require('./zoho/routes');
+
+        // Verify JWT token from headers
+        const authHeader = headers.authorization || headers.Authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Missing or invalid token' }
+          });
+          console.log(`[Backend] Tunnel response 401 (requestId: ${requestId})`);
+          return;
+        }
+
+        const token = authHeader.substring(7);
+        let user;
+
+        try {
+          user = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Invalid or expired token' }
+          });
+          console.log(`[Backend] Tunnel response 401 (requestId: ${requestId})`);
+          return;
+        }
+
+        // Call route handler directly
+        const result = await zohoRoutes.handleZohoSync(user);
+
+        relaySocket.emit('http:response', {
+          requestId,
+          statusCode: result.status,
+          headers: { 'content-type': 'application/json' },
+          body: result.body
+        });
+
+        console.log(`[Backend] Tunnel response ${result.status} (requestId: ${requestId})`);
+        return;
+      }
+
+      // For all other routes, use axios to localhost (fallback)
       const axios = require('axios');
       const BASE_URL = `http://localhost:${PORT}`;
 
@@ -1797,13 +1846,10 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     app.post('/api/zoho/webhook', zoho.handleWebhook);
 
     // API endpoints for manual sync (optional)
+    const zohoRoutes = require('./zoho/routes');
     app.post('/api/zoho/sync', auth.authenticateJWT, async (req, res) => {
-      try {
-        const result = await zoho.performFullSync();
-        res.json({ success: true, message: 'Sync completed', ...result });
-      } catch (error) {
-        res.status(500).json({ error: 'Sync failed', message: error.message });
-      }
+      const result = await zohoRoutes.handleZohoSync(req.user);
+      res.status(result.status).json(result.body);
     });
 
     // Perform initial full sync on server start (only once)
