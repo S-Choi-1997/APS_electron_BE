@@ -1748,7 +1748,27 @@ app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
     values.push(parseInt(limit), parseInt(offset));
 
     const result = await db_postgres.query(sql, values);
-    res.json({ data: result.rows });
+
+    // Map DB column names to frontend-friendly names
+    const mappedData = result.rows.map(row => ({
+      id: row.id,
+      messageId: row.message_id,
+      source: row.source,
+      from: row.from_email,
+      fromName: row.from_name,
+      to: row.to_email,
+      cc: row.cc_emails,
+      subject: row.subject,
+      body: row.body_text,
+      bodyHtml: row.body_html,
+      hasAttachments: row.has_attachments,
+      receivedAt: row.received_at,
+      check: row.check,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+
+    res.json({ data: mappedData });
   } catch (error) {
     console.error('[Email Inquiries] Error fetching inquiries:', error);
     res.status(500).json({ error: 'Failed to fetch email inquiries' });

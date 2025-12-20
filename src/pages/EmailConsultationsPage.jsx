@@ -192,7 +192,7 @@ function EmailConsultationsPage() {
                     <td className="col-subject">
                       <div className="subject-cell">
                         <div className="subject-text">{item.subject}</div>
-                        <div className="body-preview">{item.body.substring(0, 50)}...</div>
+                        <div className="body-preview">{item.body ? item.body.substring(0, 50) : ''}...</div>
                       </div>
                     </td>
                     <td className="col-date">{formatDate(item.receivedAt)}</td>
