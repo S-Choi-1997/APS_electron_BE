@@ -289,6 +289,54 @@ function connectToRelay() {
         return;
       }
 
+      // Handle email response route directly
+      if (method === 'POST' && path === '/api/email-response') {
+        const jwt = require('jsonwebtoken');
+        const zohoRoutes = require('./zoho/routes');
+
+        // Verify JWT token from headers
+        const authHeader = headers.authorization || headers.Authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Missing or invalid token' }
+          });
+          console.log(`[Backend] Tunnel response 401 (requestId: ${requestId})`);
+          return;
+        }
+
+        const token = authHeader.substring(7);
+        let user;
+
+        try {
+          user = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Invalid or expired token' }
+          });
+          console.log(`[Backend] Tunnel response 401 (requestId: ${requestId})`);
+          return;
+        }
+
+        // Call route handler directly
+        const result = await zohoRoutes.handleEmailResponse(user, body);
+
+        relaySocket.emit('http:response', {
+          requestId,
+          statusCode: result.status,
+          headers: { 'content-type': 'application/json' },
+          body: result.body
+        });
+
+        console.log(`[Backend] Tunnel response ${result.status} (requestId: ${requestId})`);
+        return;
+      }
+
       // For all other routes, use axios to localhost (fallback)
       const axios = require('axios');
       const BASE_URL = `http://localhost:${PORT}`;
@@ -1847,6 +1895,12 @@ app.delete('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
     console.error('[Email Inquiries] Error deleting inquiry:', error);
     res.status(500).json({ error: 'Failed to delete email inquiry' });
   }
+});
+
+// Send email response
+app.post('/api/email-response', auth.authenticateJWT, async (req, res) => {
+  const result = await zohoRoutes.handleEmailResponse(req.user, req.body);
+  res.status(result.status).json(result.body);
 });
 
 console.log('✓ Email Inquiries API endpoints registered');

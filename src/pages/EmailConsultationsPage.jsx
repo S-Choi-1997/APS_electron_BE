@@ -5,8 +5,9 @@
  */
 
 import { useState, useEffect } from 'react';
-import { fetchEmailInquiries, fetchEmailStats, updateEmailInquiry, triggerZohoSync } from '../services/emailInquiryService';
+import { fetchEmailInquiries, fetchEmailStats, updateEmailInquiry, triggerZohoSync, sendEmailResponse } from '../services/emailInquiryService';
 import { getCurrentUser } from '../auth/authManager';
+import EmailConsultationModal from '../components/EmailConsultationModal';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
 
@@ -16,6 +17,7 @@ function EmailConsultationsPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread'
+  const [selectedEmail, setSelectedEmail] = useState(null);
 
   // Load data on mount
   useEffect(() => {
@@ -38,16 +40,48 @@ function EmailConsultationsPage() {
     }
   };
 
-  // Handle check toggle
-  const handleCheckToggle = async (id, currentCheck) => {
+  // Handle row click to open modal
+  const handleRowClick = async (email) => {
+    setSelectedEmail(email);
+
+    // Mark as read if unread
+    if (!email.check) {
+      try {
+        await updateEmailInquiry(email.id, { check: true });
+        setInquiries(prev => prev.map(item =>
+          item.id === email.id ? { ...item, check: true } : item
+        ));
+      } catch (error) {
+        console.error('Failed to mark as read:', error);
+      }
+    }
+  };
+
+  // Handle email response
+  const handleRespond = async (emailId, responseText) => {
     try {
-      await updateEmailInquiry(id, { check: !currentCheck });
-      setInquiries(prev => prev.map(item =>
-        item.id === id ? { ...item, check: !currentCheck } : item
-      ));
+      console.log('[Email Response] Sending response to email:', emailId);
+
+      // Find the email in our local state
+      const email = inquiries.find(item => item.id === emailId);
+      if (!email) {
+        throw new Error('Email not found');
+      }
+
+      // Prepare original email data for threading
+      const originalEmail = {
+        messageId: email.messageId,
+        from: email.from,
+        subject: email.subject
+      };
+
+      // Send response via API
+      await sendEmailResponse(emailId, responseText, originalEmail);
+
+      console.log('[Email Response] Response sent successfully');
     } catch (error) {
-      console.error('Failed to update inquiry:', error);
-      alert('업데이트 실패: ' + error.message);
+      console.error('[Email Response] Failed to send response:', error);
+      throw error;
     }
   };
 
@@ -65,14 +99,12 @@ function EmailConsultationsPage() {
       console.log('[Email Sync] Starting manual sync...');
       const result = await triggerZohoSync();
       console.log('[Email Sync] Sync completed:', result);
+      console.log(`[Email Sync] 새로운 이메일: ${result.new || 0}개, 스킵: ${result.skipped || 0}개`);
 
       // Reload data after sync
       await loadData();
-
-      alert(`동기화 완료!\n새로운 이메일: ${result.new || 0}개\n스킵: ${result.skipped || 0}개`);
     } catch (error) {
       console.error('[Email Sync] Failed:', error);
-      alert('동기화 실패: ' + error.message);
     } finally {
       setSyncing(false);
     }
@@ -166,7 +198,7 @@ function EmailConsultationsPage() {
             <table className="email-table">
               <thead>
                 <tr>
-                  <th className="col-check">확인</th>
+                  <th className="col-status">상태</th>
                   <th className="col-source">소스</th>
                   <th className="col-from">발신자</th>
                   <th className="col-subject">제목</th>
@@ -175,20 +207,23 @@ function EmailConsultationsPage() {
               </thead>
               <tbody>
                 {filteredInquiries.map((item) => (
-                  <tr key={item.id} className={item.check ? 'checked' : 'unchecked'}>
-                    <td className="col-check">
-                      <input
-                        type="checkbox"
-                        checked={item.check}
-                        onChange={() => handleCheckToggle(item.id, item.check)}
-                      />
+                  <tr
+                    key={item.id}
+                    className={item.check ? 'read' : 'unread'}
+                    onClick={() => handleRowClick(item)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td className="col-status">
+                      <span className={`status-indicator ${item.check ? 'read' : 'unread'}`}>
+                        {item.check ? '✓' : '●'}
+                      </span>
                     </td>
                     <td className="col-source">
                       <span className={`source-badge ${item.source}`}>
                         {item.source === 'gmail' ? 'Gmail' : 'ZOHO'}
                       </span>
                     </td>
-                    <td className="col-from">{item.from}</td>
+                    <td className="col-from">{item.fromName || item.from}</td>
                     <td className="col-subject">
                       <div className="subject-cell">
                         <div className="subject-text">{item.subject}</div>
@@ -203,6 +238,15 @@ function EmailConsultationsPage() {
           </div>
         )}
       </div>
+
+      {/* Email Detail Modal */}
+      {selectedEmail && (
+        <EmailConsultationModal
+          email={selectedEmail}
+          onClose={() => setSelectedEmail(null)}
+          onRespond={handleRespond}
+        />
+      )}
     </div>
   );
 }

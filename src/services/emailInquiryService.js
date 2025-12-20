@@ -100,3 +100,29 @@ export async function triggerZohoSync() {
     throw error;
   }
 }
+
+/**
+ * Send email response to an inquiry
+ *
+ * @param {string} emailId - Email inquiry ID
+ * @param {string} responseText - Response text to send
+ * @param {Object} originalEmail - Original email data (from, subject, messageId)
+ * @returns {Promise<Object>} Response result
+ */
+export async function sendEmailResponse(emailId, responseText, originalEmail) {
+  try {
+    const response = await apiRequest('/api/email-response', {
+      method: 'POST',
+      body: JSON.stringify({
+        emailId,
+        responseText,
+        originalEmail
+      })
+    }, auth);
+
+    return response;
+  } catch (error) {
+    console.error('[Email Service] Failed to send email response:', error);
+    throw error;
+  }
+}
