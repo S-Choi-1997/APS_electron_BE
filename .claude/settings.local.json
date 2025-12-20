@@ -70,7 +70,8 @@
       "Bash(mv:*)",
       "Bash(mkdir:*)",
       "Bash(git tag:*)",
-      "Bash(docker restart:*)"
+      "Bash(docker restart:*)",
+      "Bash(grep -rn '\\\\bcheck\\\\b' backend-local/*.js backend-local/**/*.js)"
     ]
   }
 }
