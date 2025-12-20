@@ -1875,10 +1875,12 @@ app.get('/email-inquiries/stats', auth.authenticateJWT, async (req, res) => {
   try {
     const sql = `
       SELECT
-        COUNT(*) FILTER (WHERE source = 'zoho') as zoho_count,
-        COUNT(*) FILTER (WHERE source = 'gmail') as gmail_count,
-        COUNT(*) FILTER (WHERE "check" = false) as unread_count,
-        COUNT(*) as total_count
+        COUNT(*) FILTER (WHERE is_outgoing = false) as total_count,
+        COUNT(*) FILTER (WHERE is_outgoing = false AND status = 'unread') as unread_count,
+        COUNT(*) FILTER (WHERE is_outgoing = false AND status = 'read') as read_count,
+        COUNT(*) FILTER (WHERE is_outgoing = false AND status = 'responded') as responded_count,
+        COUNT(*) FILTER (WHERE source = 'zoho' AND is_outgoing = false) as zoho_count,
+        COUNT(*) FILTER (WHERE source = 'gmail' AND is_outgoing = false) as gmail_count
       FROM email_inquiries;
     `;
 
@@ -1889,6 +1891,8 @@ app.get('/email-inquiries/stats', auth.authenticateJWT, async (req, res) => {
       data: {
         total: parseInt(stats.total_count) || 0,
         unread: parseInt(stats.unread_count) || 0,
+        read: parseInt(stats.read_count) || 0,
+        responded: parseInt(stats.responded_count) || 0,
         gmail: parseInt(stats.gmail_count) || 0,
         zoho: parseInt(stats.zoho_count) || 0
       }
@@ -1899,20 +1903,54 @@ app.get('/email-inquiries/stats', auth.authenticateJWT, async (req, res) => {
   }
 });
 
-// Update email inquiry (mark as checked/unchecked)
+// Update email inquiry (mark as checked/unchecked or update status)
 app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
-    const { check } = req.body;
+    const { check, status } = req.body;
+
+    let updates = {};
+
+    // Handle new status field (takes priority)
+    if (status !== undefined) {
+      updates.status = status;
+      // Sync check field for backward compatibility
+      updates.check = (status === 'read' || status === 'responded');
+    }
+    // Handle legacy check field
+    else if (check !== undefined) {
+      updates.check = check;
+      updates.status = check ? 'read' : 'unread';
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    // Build dynamic UPDATE query
+    const setClause = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (updates.status !== undefined) {
+      setClause.push(`status = $${paramIndex++}`);
+      values.push(updates.status);
+    }
+    if (updates.check !== undefined) {
+      setClause.push(`"check" = $${paramIndex++}`);
+      values.push(updates.check);
+    }
+    setClause.push(`updated_at = NOW()`);
+    values.push(id);
 
     const sql = `
       UPDATE email_inquiries
-      SET "check" = $1, updated_at = NOW()
-      WHERE id = $2
+      SET ${setClause.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING *;
     `;
 
-    const result = await db_postgres.query(sql, [check, id]);
+    const result = await db_postgres.query(sql, values);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Email inquiry not found' });
@@ -1922,7 +1960,7 @@ app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
     if (global.broadcastEvent) {
       global.broadcastEvent('email:updated', {
         id: parseInt(id),
-        updates: { check }
+        updates
       });
     }
 
