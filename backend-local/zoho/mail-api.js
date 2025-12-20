@@ -167,20 +167,31 @@ async function searchMessages(searchQuery, options = {}) {
  * Parse ZOHO message to inquiry format
  */
 function parseMessageToInquiry(message) {
+  // Parse receivedAt with fallback to current time
+  let receivedAt;
+  if (message.receivedTime) {
+    const timestamp = parseInt(message.receivedTime);
+    receivedAt = isNaN(timestamp) ? new Date() : new Date(timestamp);
+  } else if (message.receivedAt) {
+    receivedAt = new Date(message.receivedAt);
+  } else {
+    receivedAt = new Date();
+  }
+
   return {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
-    from: message.fromAddress,
-    fromName: message.sender,
+    from: message.fromAddress || message.from,
+    fromName: message.sender || message.fromName,
     subject: message.subject,
-    body: message.content || message.summary,
-    bodyHtml: message.content,
-    receivedAt: new Date(parseInt(message.receivedTime)),
-    toEmail: message.toAddress,
+    body: message.content || message.summary || message.body,
+    bodyHtml: message.content || message.bodyHtml,
+    receivedAt: receivedAt,
+    toEmail: message.toAddress || message.to,
     ccEmails: message.ccAddress && message.ccAddress !== 'Not Provided'
       ? message.ccAddress.split(',').map(e => e.trim())
-      : [],
-    hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true
+      : (message.ccEmails || []),
+    hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments
   };
 }
 
