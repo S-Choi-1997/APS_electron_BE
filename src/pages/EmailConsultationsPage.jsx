@@ -86,31 +86,6 @@ function EmailConsultationsPage() {
     return d.toLocaleDateString('ko-KR');
   };
 
-  if (isLoading) {
-    return (
-      <div className="page-container">
-        <div className="page-content">
-          <div className="loading-state">
-            <div className="loading-spinner"></div>
-            <p>이메일 목록을 불러오는 중입니다.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="page-container">
-        <div className="page-content">
-          <div className="error-state">
-            <p>이메일 목록을 불러오는데 실패했습니다.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="page-container">
       <div className="page-header">
@@ -133,11 +108,11 @@ function EmailConsultationsPage() {
       <div className="stats-container">
         <div className="stat-card">
           <div className="stat-label">전체</div>
-          <div className="stat-value">{stats.total}</div>
+          <div className="stat-value">{isLoading ? '-' : stats.total}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">미확인</div>
-          <div className="stat-value highlight">{stats.unread}</div>
+          <div className="stat-value highlight">{isLoading ? '-' : stats.unread}</div>
         </div>
       </div>
 
@@ -154,7 +129,16 @@ function EmailConsultationsPage() {
 
       {/* Email List */}
       <div className="page-content">
-        {filteredInquiries.length === 0 ? (
+        {isError ? (
+          <div className="error-state">
+            <p>이메일 목록을 불러오는데 실패했습니다.</p>
+          </div>
+        ) : isLoading ? (
+          <div className="loading-state">
+            <div className="loading-spinner"></div>
+            <p>이메일 목록을 불러오는 중입니다.</p>
+          </div>
+        ) : filteredInquiries.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📭</div>
             <h2>이메일이 없습니다</h2>
