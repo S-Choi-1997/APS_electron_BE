@@ -14,6 +14,7 @@ import {
   useTriggerZohoSync,
   useSendEmailResponse
 } from '../hooks/queries/useEmailInquiries';
+import useWebSocketSync from '../hooks/useWebSocketSync';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
 
@@ -27,6 +28,10 @@ function EmailConsultationsPage() {
   const updateMutation = useUpdateEmailInquiry();
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
+
+  // WebSocket 실시간 동기화
+  const user = getCurrentUser();
+  useWebSocketSync(user, {});
 
   // Handle row click to open modal
   const handleRowClick = async (email) => {

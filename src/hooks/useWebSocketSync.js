@@ -168,12 +168,26 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:created', (newEmail) => {
       console.log('[WebSocket] New email received:', newEmail);
 
-      // React Query 캐시 무효화 → 자동 refetch
-      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
-      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+      // Optimistic Update: 캐시에 직접 추가 (순서 유지)
+      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
+        if (!oldData) return [newEmail];
+        // 최신 이메일을 맨 앞에 추가
+        return [newEmail, ...oldData];
+      });
+
+      // 통계 업데이트
+      queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
+        if (!oldStats) return oldStats;
+        return {
+          ...oldStats,
+          total: oldStats.total + 1,
+          unread: oldStats.unread + 1,
+          [newEmail.source]: (oldStats[newEmail.source] || 0) + 1
+        };
+      });
 
       // Toast 알림
-      const fromName = newEmail.from_name || newEmail.from_email || '발신자';
+      const fromName = newEmail.fromName || newEmail.from || '발신자';
       const subject = newEmail.subject || '(제목 없음)';
       showToastNotification('email', `새 이메일: ${fromName}\n${subject}`);
 
@@ -187,9 +201,22 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:updated', (data) => {
       console.log('[WebSocket] Email updated:', data);
 
-      // React Query 캐시 무효화
-      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
-      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+      // Optimistic Update: 캐시에서 해당 항목 수정 (순서 유지)
+      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
+        if (!oldData) return oldData;
+        return oldData.map(item =>
+          item.id === data.id ? { ...item, ...data.updates } : item
+        );
+      });
+
+      // 통계 업데이트 (check 상태 변경 시)
+      if (data.updates.check !== undefined) {
+        queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
+          if (!oldStats) return oldStats;
+          const delta = data.updates.check ? -1 : 1;
+          return { ...oldStats, unread: oldStats.unread + delta };
+        });
+      }
 
       // 커스텀 핸들러 호출 (옵션)
       if (handlers.onEmailUpdated) {
@@ -201,9 +228,27 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:deleted', (data) => {
       console.log('[WebSocket] Email deleted:', data.id);
 
-      // React Query 캐시 무효화
-      queryClient.invalidateQueries({ queryKey: ['emailInquiries'] });
-      queryClient.invalidateQueries({ queryKey: ['emailStats'] });
+      // Optimistic Update: 캐시에서 제거 (순서 유지)
+      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
+        if (!oldData) return oldData;
+        const deleted = oldData.find(item => item.id === data.id);
+        const newData = oldData.filter(item => item.id !== data.id);
+
+        // 통계 업데이트
+        if (deleted) {
+          queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
+            if (!oldStats) return oldStats;
+            return {
+              ...oldStats,
+              total: oldStats.total - 1,
+              unread: deleted.check ? oldStats.unread : oldStats.unread - 1,
+              [deleted.source]: (oldStats[deleted.source] || 1) - 1
+            };
+          });
+        }
+
+        return newData;
+      });
 
       // 커스텀 핸들러 호출 (옵션)
       if (handlers.onEmailDeleted) {

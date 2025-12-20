@@ -144,9 +144,28 @@ async function processNewMessage(messageData) {
     const saved = await saveEmailInquiry(inquiry);
 
     if (saved) {
+      // Map DB column names to frontend-friendly camelCase
+      const mappedEmail = {
+        id: saved.id,
+        messageId: saved.message_id,
+        source: saved.source,
+        from: saved.from_email,
+        fromName: saved.from_name,
+        to: saved.to_email,
+        cc: saved.cc_emails,
+        subject: saved.subject,
+        body: saved.body_text,
+        bodyHtml: saved.body_html,
+        hasAttachments: saved.has_attachments,
+        receivedAt: saved.received_at,
+        check: saved.check,
+        createdAt: saved.created_at,
+        updatedAt: saved.updated_at
+      };
+
       // Emit WebSocket event for real-time updates (if broadcastEvent is available)
       if (global.broadcastEvent) {
-        global.broadcastEvent('email:created', saved);
+        global.broadcastEvent('email:created', mappedEmail);
         console.log('[ZOHO Webhook] Real-time event emitted');
       }
 

@@ -86,8 +86,8 @@ export function useUpdateEmailInquiry() {
     },
 
     onSuccess: () => {
-      // 성공 시 최신 데이터로 refetch
-      queryClient.invalidateQueries({ queryKey: emailQueryKeys.all });
+      // Optimistic Update만 사용하므로 refetch 불필요
+      // 웹소켓으로 다른 클라이언트에게 전파됨
     }
   });
 }
