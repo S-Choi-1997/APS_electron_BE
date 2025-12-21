@@ -20,7 +20,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { updateInquiry, fetchAttachmentUrls, deleteInquiry } from '../services/inquiryService';
+import { updateInquiry, fetchAttachmentUrls, deleteInquiry, INQUIRY_STATUS } from '../services/inquiryService';
 import { sendSMS } from '../services/smsService';
 import { getCurrentUser } from '../auth/authManager';
 import useDebounce from './useDebounce';
@@ -29,7 +29,8 @@ import { ITEMS_PER_PAGE, BASE_CONSULTATION_TYPES } from '../constants';
 function useConsultations(consultations, setConsultations) {
   // ========== 검색 및 필터링 ==========
   const [searchTerm, setSearchTerm] = useState('');
-  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'unread', 'read', 'responded'
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false); // Backward compatibility
   const [typeFilter, setTypeFilter] = useState('전체');
 
   // 디바운싱된 검색어 (성능 최적화)
@@ -81,9 +82,20 @@ function useConsultations(consultations, setConsultations) {
       );
     }
 
-    // 미확인 필터링
+    // 상태 필터링 (status 기반)
+    if (selectedStatus !== 'all') {
+      filtered = filtered.filter((c) => {
+        const status = c.status || (c.check ? INQUIRY_STATUS.RESPONDED : INQUIRY_STATUS.UNREAD);
+        return status === selectedStatus;
+      });
+    }
+
+    // 미확인 필터링 (Backward compatibility)
     if (showUnreadOnly) {
-      filtered = filtered.filter((c) => !c.check);
+      filtered = filtered.filter((c) => {
+        const status = c.status || (c.check ? INQUIRY_STATUS.RESPONDED : INQUIRY_STATUS.UNREAD);
+        return status === INQUIRY_STATUS.UNREAD;
+      });
     }
 
     // 타입 필터링
@@ -92,12 +104,12 @@ function useConsultations(consultations, setConsultations) {
     }
 
     return filtered;
-  }, [consultations, debouncedSearchTerm, showUnreadOnly, typeFilter]);
+  }, [consultations, debouncedSearchTerm, selectedStatus, showUnreadOnly, typeFilter]);
 
   // ========== 필터 변경 시 페이지 초기화 ==========
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearchTerm, showUnreadOnly, typeFilter]);
+  }, [debouncedSearchTerm, selectedStatus, showUnreadOnly, typeFilter]);
 
   // ========== 페이지네이션 계산 ==========
   const totalPages = Math.ceil(filteredConsultations.length / ITEMS_PER_PAGE) || 1;
@@ -105,8 +117,31 @@ function useConsultations(consultations, setConsultations) {
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const currentConsultations = filteredConsultations.slice(startIndex, endIndex);
 
-  // ========== 미확인 개수 ==========
-  const uncheckedCount = consultations.filter((c) => !c.check).length;
+  // ========== 통계 계산 (status별) ==========
+  const stats = useMemo(() => {
+    let unread = 0;
+    let read = 0;
+    let responded = 0;
+
+    consultations.forEach((c) => {
+      const status = c.status || (c.check ? INQUIRY_STATUS.RESPONDED : INQUIRY_STATUS.UNREAD);
+      if (status === INQUIRY_STATUS.UNREAD) unread++;
+      else if (status === INQUIRY_STATUS.READ) read++;
+      else if (status === INQUIRY_STATUS.RESPONDED) responded++;
+    });
+
+    return {
+      total: consultations.length,
+      unread,
+      read,
+      responded,
+      // Backward compatibility
+      uncheckedCount: unread
+    };
+  }, [consultations]);
+
+  // Backward compatibility
+  const uncheckedCount = stats.unread;
 
   // ========== 핸들러: 확인 버튼 클릭 ==========
   const handleRespond = async (id, check) => {
@@ -145,9 +180,9 @@ function useConsultations(consultations, setConsultations) {
       setConsultationToConfirm(null);
       setSmsLoading(true);
 
-      // 1. 먼저 상태 업데이트
+      // 1. 먼저 상태 업데이트 (SMS 발송 = 응신)
       const auth = { currentUser: getCurrentUser() };
-      await updateInquiry(id, { check: true }, auth);
+      await updateInquiry(id, { status: INQUIRY_STATUS.RESPONDED }, auth);
 
       // 2. SMS 발송
       try {
@@ -163,11 +198,11 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
 
         // 3. 로컬 상태 업데이트
         setConsultations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, check: true } : c))
+          prev.map((c) => (c.id === id ? { ...c, status: INQUIRY_STATUS.RESPONDED, check: true } : c))
         );
 
         setSelectedConsultation((prev) =>
-          prev && prev.id === id ? { ...prev, check: true } : prev
+          prev && prev.id === id ? { ...prev, status: INQUIRY_STATUS.RESPONDED, check: true } : prev
         );
 
         setSmsLoading(false);
@@ -187,7 +222,7 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
         setSmsLoading(false);
 
         try {
-          await updateInquiry(id, { check: false }, { currentUser: getCurrentUser() });
+          await updateInquiry(id, { status: INQUIRY_STATUS.UNREAD }, { currentUser: getCurrentUser() });
           setAlertModal({
             isOpen: true,
             type: 'error',
@@ -365,6 +400,8 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
     // 검색 및 필터
     searchTerm,
     setSearchTerm,
+    selectedStatus,
+    setSelectedStatus,
     showUnreadOnly,
     setShowUnreadOnly,
     typeFilter,
@@ -374,7 +411,8 @@ ${consultationToConfirm.name}님의 문의가 확인되었습니다.
     // 필터링된 데이터
     filteredConsultations,
     currentConsultations,
-    uncheckedCount,
+    stats,
+    uncheckedCount, // Backward compatibility
 
     // 페이지네이션
     currentPage,

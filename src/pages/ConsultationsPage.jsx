@@ -12,6 +12,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import AlertModal from '../components/AlertModal';
 import Pagination from '../components/Pagination';
 import useConsultations from '../hooks/useConsultations';
+import { INQUIRY_STATUS } from '../services/inquiryService';
 import '../components/css/PageLayout.css';
 import './ConsultationsPage.css';
 
@@ -21,6 +22,8 @@ function ConsultationsPage({ consultations, setConsultations, type = 'website' }
     // 검색 및 필터
     searchTerm,
     setSearchTerm,
+    selectedStatus,
+    setSelectedStatus,
     showUnreadOnly,
     setShowUnreadOnly,
     typeFilter,
@@ -30,6 +33,7 @@ function ConsultationsPage({ consultations, setConsultations, type = 'website' }
     // 필터링된 데이터
     filteredConsultations,
     currentConsultations,
+    stats,
     uncheckedCount,
 
     // 페이지네이션
@@ -73,60 +77,90 @@ function ConsultationsPage({ consultations, setConsultations, type = 'website' }
   return (
     <div className="page-container">
       <div className="page-header">
-        {/* 좌측: 제목 + 통계 */}
+        {/* 좌측: 제목 */}
         <div className="header-left">
           <h1 className="page-title">{pageTitle}</h1>
-          <div className="stats">
-            <span className="stat-item">
-              <span className="stat-label">전체</span>
-              <span className="stat-value">{filteredConsultations.length}</span>
-            </span>
-            <span className="stat-divider">|</span>
-            <span className="stat-item">
-              <span className="stat-label">미확인</span>
-              <span className="stat-value unread">{uncheckedCount}</span>
-            </span>
-          </div>
+          <p className="page-subtitle">홈페이지로 접수된 상담 내역</p>
         </div>
 
-        {/* 우측: 컨트롤 */}
+        {/* 우측: 일괄 처리 버튼 */}
         <div className="header-right">
-          <div className="filter-row">
-            <div className="bulk-actions">
-              <button
-                className="bulk-button"
-                onClick={handleBulkConfirm}
-                disabled={selectedIds.size === 0}
-              >
-                선택 확인문자
-              </button>
-              <button
-                className="bulk-button danger"
-                onClick={handleBulkDelete}
-                disabled={selectedIds.size === 0}
-              >
-                선택 삭제
-              </button>
-            </div>
+          <div className="bulk-actions">
             <button
-              className={`pill-button ${showUnreadOnly ? 'active' : ''}`}
-              onClick={() => setShowUnreadOnly((prev) => !prev)}
+              className="bulk-button"
+              onClick={handleBulkConfirm}
+              disabled={selectedIds.size === 0}
             >
-              미확인만 보기
+              선택 확인문자
             </button>
-            <div className="type-filter-group">
-              {typeFilters.map((type) => (
-                <button
-                  key={type}
-                  className={`type-filter-btn ${typeFilter === type ? 'active' : ''}`}
-                  onClick={() => setTypeFilter(type)}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
+            <button
+              className="bulk-button danger"
+              onClick={handleBulkDelete}
+              disabled={selectedIds.size === 0}
+            >
+              선택 삭제
+            </button>
           </div>
-          <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+        </div>
+      </div>
+
+      {/* 통계 카드 */}
+      <div className="stats-container">
+        <div className="stat-card">
+          <div className="stat-label">미확인</div>
+          <div className="stat-value highlight">{stats.unread}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">확인</div>
+          <div className="stat-value">{stats.read}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">응신</div>
+          <div className="stat-value responded">{stats.responded}</div>
+        </div>
+      </div>
+
+      {/* 상태 필터 탭 */}
+      <div className="status-tabs">
+        <button
+          className={`tab-btn ${selectedStatus === 'all' ? 'active' : ''}`}
+          onClick={() => setSelectedStatus('all')}
+        >
+          전체
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === INQUIRY_STATUS.UNREAD ? 'active' : ''}`}
+          onClick={() => setSelectedStatus(INQUIRY_STATUS.UNREAD)}
+        >
+          미확인
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === INQUIRY_STATUS.READ ? 'active' : ''}`}
+          onClick={() => setSelectedStatus(INQUIRY_STATUS.READ)}
+        >
+          확인
+        </button>
+        <button
+          className={`tab-btn ${selectedStatus === INQUIRY_STATUS.RESPONDED ? 'active' : ''}`}
+          onClick={() => setSelectedStatus(INQUIRY_STATUS.RESPONDED)}
+        >
+          응신
+        </button>
+      </div>
+
+      {/* 검색 및 타입 필터 */}
+      <div className="filter-bar">
+        <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+        <div className="type-filter-group">
+          {typeFilters.map((type) => (
+            <button
+              key={type}
+              className={`type-filter-btn ${typeFilter === type ? 'active' : ''}`}
+              onClick={() => setTypeFilter(type)}
+            >
+              {type}
+            </button>
+          ))}
         </div>
       </div>
 

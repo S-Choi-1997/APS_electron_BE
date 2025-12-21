@@ -1,6 +1,15 @@
 ﻿import { apiRequest, API_ENDPOINTS } from '../config/api';
 
 /**
+ * Inquiry status constants
+ */
+export const INQUIRY_STATUS = {
+  UNREAD: 'unread',
+  READ: 'read',
+  RESPONDED: 'responded'
+};
+
+/**
  * Category mapping: Backend (English) -> Frontend (Korean)
  */
 const CATEGORY_MAP = {

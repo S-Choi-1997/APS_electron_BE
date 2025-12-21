@@ -796,22 +796,37 @@ app.get("/inquiries", async (req, res) => {
   }
 });
 
-// GET /inquiries/stats - Get unchecked inquiry statistics
+// GET /inquiries/stats - Get inquiry statistics by status
 app.get("/inquiries/stats", async (req, res) => {
   try {
-    const snapshot = await db.collection("inquiries")
-      .where("check", "==", false)
-      .get();
+    // Fetch all inquiries to count by status
+    const snapshot = await db.collection("inquiries").get();
 
-    const websiteCount = snapshot.docs.length;
-    const emailCount = 0; // 이메일 로직 없음, 일단 0
+    let unreadCount = 0;
+    let readCount = 0;
+    let respondedCount = 0;
+
+    snapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      const status = data.status || (data.check ? 'responded' : 'unread'); // Fallback for old data
+
+      if (status === 'unread') unreadCount++;
+      else if (status === 'read') readCount++;
+      else if (status === 'responded') respondedCount++;
+    });
+
+    const total = snapshot.size;
 
     res.json({
       status: "ok",
       data: {
-        website: websiteCount,
-        email: emailCount,
-        total: websiteCount + emailCount
+        total,
+        unread: unreadCount,
+        read: readCount,
+        responded: respondedCount,
+        // Backward compatibility
+        website: unreadCount,
+        email: 0
       }
     });
   } catch (error) {
@@ -865,6 +880,15 @@ app.patch("/inquiries/:id", async (req, res) => {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "bad_request", message: "No valid fields to update" });
+    }
+
+    // Sync status and check fields for backward compatibility
+    if (updates.status !== undefined && updates.check === undefined) {
+      // status 업데이트 시 check도 자동 동기화
+      updates.check = (updates.status !== 'unread');
+    } else if (updates.check !== undefined && updates.status === undefined) {
+      // check 업데이트 시 status도 자동 동기화
+      updates.status = updates.check ? 'responded' : 'unread';
     }
 
     // Add updated timestamp
