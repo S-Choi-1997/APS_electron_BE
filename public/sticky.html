@@ -1263,30 +1263,8 @@
       }
     });
 
-    // IPC 이벤트 리스너: 다른 창에서 메모 생성 시 자동 업데이트
-    if (window.electron && window.electron.onMemoCreated) {
-      window.electron.onMemoCreated((newMemo) => {
-        console.log('[Sticky] 메모 생성 이벤트 수신:', newMemo);
-
-        // 메모 목록에 추가 (electron/main.js에서 자기 자신은 이미 제외됨)
-        memos.unshift(newMemo);
-        renderMemos();
-      });
-    }
-
-    // IPC 이벤트 리스너: 다른 창에서 메모 삭제 시 자동 업데이트
-    if (window.electron && window.electron.onMemoDeleted) {
-      window.electron.onMemoDeleted((deletedMemoId) => {
-        console.log('[Sticky] 메모 삭제 이벤트 수신:', deletedMemoId);
-
-        // 메모 목록에서 해당 메모 제거
-        const index = memos.findIndex(m => m.id === deletedMemoId);
-        if (index !== -1) {
-          memos.splice(index, 1);
-          renderMemos();
-        }
-      });
-    }
+    // IPC 이벤트 리스너 제거 - WebSocket으로 통합
+    // 메모 생성/삭제 이벤트는 WebSocket을 통해서만 처리
 
     // 투명도 변경 함수
     function changeOpacity(value) {
