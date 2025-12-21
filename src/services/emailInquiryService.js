@@ -45,7 +45,7 @@ export async function fetchEmailInquiries(options = {}) {
       return data.map(inquiry => ({
         ...inquiry,
         status: inquiry.status || (inquiry.check ? EMAIL_STATUS.READ : EMAIL_STATUS.UNREAD),
-        isOutgoing: inquiry.is_outgoing || false
+        isOutgoing: inquiry.isOutgoing || false  // Backend already sends camelCase
       }));
     }
 
