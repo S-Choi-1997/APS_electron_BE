@@ -59,7 +59,7 @@ function createWindow() {
   // 개발 모드: Vite 개발 서버 로드
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools(); // DevTools 자동 열기 비활성화 (F12로 수동 열기 가능)
+    mainWindow.webContents.openDevTools(); // DevTools 자동 열기
   } else {
     // 프로덕션: 빌드된 파일 로드
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
