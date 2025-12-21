@@ -2069,7 +2069,20 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     // Perform initial full sync on server start (only once)
     setTimeout(async () => {
       try {
-        console.log('[ZOHO] Performing initial full sync...');
+        console.log('[ZOHO] Checking OAuth tokens before initial sync...');
+
+        // Check if tokens are available (try to get valid access token)
+        try {
+          await zoho.oauth.getValidAccessToken();
+          console.log('[ZOHO] OAuth tokens found, performing initial full sync...');
+        } catch (tokenError) {
+          console.warn('[ZOHO] OAuth tokens not found or invalid:', tokenError.message);
+          console.log('[ZOHO] Skipping initial sync. Please authorize ZOHO first:');
+          console.log(`[ZOHO]   1. Visit: http://localhost:${PORT}/api/zoho/auth/start`);
+          console.log('[ZOHO]   2. After authorization, trigger sync via POST /api/zoho/sync');
+          return;
+        }
+
         const result = await zoho.performFullSync();
         console.log(`[ZOHO] Initial sync completed: ${result.new} new, ${result.skipped} skipped`);
         console.log('[ZOHO] Webhook mode: Will receive new emails via webhook in real-time');
