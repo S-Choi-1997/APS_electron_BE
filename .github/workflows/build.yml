@@ -10,11 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest]
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
@@ -41,19 +37,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         timeout-minutes: 30
 
-      - name: Upload artifacts (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: dist/*.exe
-
-      - name: Upload artifacts (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-installer
-          path: dist/*.AppImage
 
   release:
     needs: build
@@ -67,18 +55,10 @@ jobs:
           name: windows-installer
           path: ./dist-windows
 
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-installer
-          path: ./dist-linux
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ./dist-windows/*.exe
-            ./dist-linux/*.AppImage
+          files: ./dist-windows/*.exe
           draft: false
           prerelease: false
         env:

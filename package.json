@@ -50,10 +50,6 @@
     "win": {
       "target": "nsis",
       "icon": "electron/icon.png"
-    },
-    "linux": {
-      "target": "AppImage",
-      "category": "Office"
     }
   }
 }
