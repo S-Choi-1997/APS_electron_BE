@@ -150,7 +150,7 @@ async function processNewMessage(messageData) {
           if (updatedOriginal && global.broadcastEvent) {
             global.broadcastEvent('email:updated', {
               id: updatedOriginal.id,
-              status: 'responded'
+              updates: { status: 'responded' }
             });
             console.log('[ZOHO Webhook] Original email status updated to responded and event broadcast');
           }

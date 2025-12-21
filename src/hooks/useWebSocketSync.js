@@ -217,15 +217,36 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:updated', (data) => {
       console.log('[WebSocket] Email updated:', data);
 
-      // NOTE: 목록만 업데이트하고 통계는 업데이트하지 않음
-      // 이유: useUpdateEmailInquiry의 Optimistic Update가 이미 통계를 업데이트했기 때문
-      // WebSocket은 다른 클라이언트에게 변경사항을 전파하기 위한 용도로만 사용
-
       const listQueryKey = ['emailInquiries', 'list', {}];
 
-      // 캐시에서 해당 항목 수정 (순서 유지)
+      // 캐시에서 해당 항목 수정 (순서 유지) 및 통계 업데이트
       queryClient.setQueryData(listQueryKey, (oldData) => {
         if (!oldData) return oldData;
+
+        const oldItem = oldData.find(item => item.id === data.id);
+
+        // 상태 변경이 있는 경우 통계도 업데이트
+        if (oldItem && data.updates?.status && oldItem.status !== data.updates.status) {
+          queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
+            if (!oldStats) return oldStats;
+
+            const newStats = { ...oldStats };
+
+            // 이전 상태 카운트 감소
+            if (oldItem.status === 'unread') newStats.unread = Math.max(0, newStats.unread - 1);
+            else if (oldItem.status === 'read') newStats.read = Math.max(0, newStats.read - 1);
+            else if (oldItem.status === 'responded') newStats.responded = Math.max(0, newStats.responded - 1);
+
+            // 새 상태 카운트 증가
+            if (data.updates.status === 'unread') newStats.unread = (newStats.unread || 0) + 1;
+            else if (data.updates.status === 'read') newStats.read = (newStats.read || 0) + 1;
+            else if (data.updates.status === 'responded') newStats.responded = (newStats.responded || 0) + 1;
+
+            console.log('[WebSocket] Stats updated:', { old: oldStats, new: newStats });
+            return newStats;
+          });
+        }
+
         return oldData.map(item =>
           item.id === data.id ? { ...item, ...data.updates } : item
         );

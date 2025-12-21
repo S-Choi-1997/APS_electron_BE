@@ -132,7 +132,10 @@ async function handleEmailResponse(user, body) {
 
         // Broadcast WebSocket event for original email status update
         if (global.broadcastEvent) {
-          global.broadcastEvent('email:updated', { id: emailId, status: 'responded' });
+          global.broadcastEvent('email:updated', {
+            id: emailId,
+            updates: { status: 'responded' }
+          });
           console.log('[ZOHO Routes] WebSocket event broadcast for email status update');
         }
       } catch (dbError) {
