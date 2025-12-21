@@ -168,6 +168,7 @@
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  table-layout: fixed;
 }
 
 .email-table thead {
@@ -225,25 +226,29 @@
 /* Column Widths */
 .col-status {
   width: 80px;
-  min-width: 80px;
+  max-width: 80px;
   text-align: center;
 }
 
 .col-source {
   width: 100px;
+  max-width: 100px;
 }
 
 .col-from {
   width: 200px;
+  max-width: 200px;
 }
 
 .col-subject {
   width: auto;
   min-width: 300px;
+  max-width: 500px;
 }
 
 .col-date {
   width: 120px;
+  max-width: 120px;
   text-align: right;
 }
 
@@ -292,12 +297,18 @@
 .from-name {
   font-weight: 500;
   color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .from-email {
   font-size: 12px;
   color: #9ca3af;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Subject Cell */
@@ -310,12 +321,18 @@
 .subject-text {
   font-weight: 500;
   color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .body-preview {
   font-size: 13px;
   color: #6b7280;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Loading State */

@@ -13,7 +13,6 @@ import LoginPage from './components/LoginPage';
 import UnauthorizedPage from './components/UnauthorizedPage';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
-import ConsultationsPage from './pages/ConsultationsPage';
 import WebsiteConsultationsPage from './pages/WebsiteConsultationsPage';
 import EmailConsultationsPage from './pages/EmailConsultationsPage';
 import MemoPage from './pages/MemoPage';

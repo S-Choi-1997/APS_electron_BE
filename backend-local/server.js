@@ -913,7 +913,7 @@ app.patch("/inquiries/:id", async (req, res) => {
     // Broadcast inquiry update event via WebSocket Relay
     global.broadcastEvent('consultation:updated', {
       id: id,
-      ...updates,
+      updates: updates,
       timestamp: new Date().toISOString(),
     });
 
