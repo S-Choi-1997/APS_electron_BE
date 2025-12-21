@@ -15,6 +15,7 @@ COPY server.js ./
 COPY db.js ./
 COPY auth.js ./
 COPY firestore-admin.js ./
+COPY crypto-helper.js ./
 COPY setup-db.js ./
 
 # 데이터베이스 마이그레이션 파일 복사

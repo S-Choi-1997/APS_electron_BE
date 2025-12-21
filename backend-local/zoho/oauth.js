@@ -8,6 +8,11 @@ const crypto = require('crypto');
 const axios = require('axios');
 const config = require('./config');
 const { saveOAuthTokens, getOAuthTokens, updateOAuthTokens } = require('./db-helper');
+const {
+  saveTokensToFirestore,
+  getTokensFromFirestore,
+  updateAccessTokenInFirestore
+} = require('./firestore-token-storage');
 
 // Store state parameters temporarily (in production, use Redis or database)
 const stateStore = new Map();
@@ -116,15 +121,24 @@ async function handleAuthCallback(req, res) {
     const userEmail = config.accountEmail || userInfoResponse.data.data[0]?.accountName;
     const userId = userInfoResponse.data.data[0]?.accountId;
 
-    // Save tokens to database
-    await saveOAuthTokens({
+    const tokenData = {
       accessToken: access_token,
       refreshToken: refresh_token,
       expiresIn: expires_in,
       tokenType: token_type,
       zohoEmail: userEmail,
       zohoUserId: userId
-    });
+    };
+
+    // Save tokens to Firestore (primary storage)
+    await saveTokensToFirestore(tokenData);
+
+    // Also save to PostgreSQL for backward compatibility (optional)
+    try {
+      await saveOAuthTokens(tokenData);
+    } catch (dbError) {
+      console.warn('[ZOHO OAuth] Failed to save to PostgreSQL (non-critical):', dbError.message);
+    }
 
     console.log('[ZOHO OAuth] Authorization successful for:', userEmail);
 
@@ -177,11 +191,18 @@ async function refreshAccessToken(refreshToken, zohoEmail) {
       expires_in
     } = tokenResponse.data;
 
-    // Update tokens in database
-    await updateOAuthTokens(zohoEmail, {
-      accessToken: access_token,
-      expiresIn: expires_in
-    });
+    // Update tokens in Firestore (primary storage)
+    await updateAccessTokenInFirestore(zohoEmail, access_token, expires_in);
+
+    // Also update PostgreSQL for backward compatibility (optional)
+    try {
+      await updateOAuthTokens(zohoEmail, {
+        accessToken: access_token,
+        expiresIn: expires_in
+      });
+    } catch (dbError) {
+      console.warn('[ZOHO OAuth] Failed to update PostgreSQL (non-critical):', dbError.message);
+    }
 
     console.log('[ZOHO OAuth] Access token refreshed for:', zohoEmail);
     return access_token;
@@ -202,8 +223,31 @@ async function getValidAccessToken() {
       throw new Error('ZOHO_ACCOUNT_EMAIL not configured');
     }
 
-    // Fetch token from database
-    const tokenRecord = await getOAuthTokens(zohoEmail);
+    // Fetch token from Firestore (primary storage)
+    let tokenRecord = await getTokensFromFirestore(zohoEmail);
+
+    // Fallback to PostgreSQL if not found in Firestore
+    if (!tokenRecord) {
+      console.log('[ZOHO OAuth] Token not found in Firestore, checking PostgreSQL...');
+      try {
+        const pgTokenRecord = await getOAuthTokens(zohoEmail);
+        if (pgTokenRecord) {
+          console.log('[ZOHO OAuth] Found token in PostgreSQL, migrating to Firestore...');
+          // Migrate to Firestore
+          await saveTokensToFirestore({
+            accessToken: pgTokenRecord.access_token,
+            refreshToken: pgTokenRecord.refresh_token,
+            expiresIn: Math.floor((new Date(pgTokenRecord.expires_at) - Date.now()) / 1000),
+            tokenType: pgTokenRecord.token_type || 'Bearer',
+            zohoEmail: pgTokenRecord.zoho_email,
+            zohoUserId: pgTokenRecord.zoho_user_id
+          });
+          tokenRecord = pgTokenRecord;
+        }
+      } catch (pgError) {
+        console.warn('[ZOHO OAuth] PostgreSQL lookup failed (non-critical):', pgError.message);
+      }
+    }
 
     if (!tokenRecord) {
       throw new Error('No OAuth tokens found. Please authorize the application first.');
