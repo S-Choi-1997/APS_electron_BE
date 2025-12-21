@@ -64,20 +64,29 @@ async function saveTokensToFirestore(tokenData) {
  */
 async function getTokensFromFirestore(zohoEmail) {
   try {
+    console.log('[Firestore Token Storage] Getting tokens for:', zohoEmail);
     const db = getFirestore();
     const doc = await db.collection(TOKENS_COLLECTION).doc(zohoEmail).get();
 
+    console.log('[Firestore Token Storage] Document exists:', doc.exists);
     if (!doc.exists) {
+      console.log('[Firestore Token Storage] No token document found for:', zohoEmail);
       return null;
     }
 
     const data = doc.data();
+    console.log('[Firestore Token Storage] Document data fields:', Object.keys(data));
 
     // Decrypt tokens
+    console.log('[Firestore Token Storage] Decrypting access token...');
     const accessToken = decrypt(data.access_token_encrypted);
-    const refreshToken = decrypt(data.refresh_token_encrypted);
+    console.log('[Firestore Token Storage] Access token decrypted successfully');
 
-    return {
+    console.log('[Firestore Token Storage] Decrypting refresh token...');
+    const refreshToken = decrypt(data.refresh_token_encrypted);
+    console.log('[Firestore Token Storage] Refresh token decrypted successfully');
+
+    const result = {
       access_token: accessToken,
       refresh_token: refreshToken,
       token_type: data.token_type,
@@ -85,8 +94,12 @@ async function getTokensFromFirestore(zohoEmail) {
       zoho_email: data.zoho_email,
       zoho_user_id: data.zoho_user_id
     };
+
+    console.log('[Firestore Token Storage] Token retrieved successfully, expires at:', result.expires_at);
+    return result;
   } catch (error) {
     console.error('[Firestore Token Storage] Error getting tokens:', error);
+    console.error('[Firestore Token Storage] Error stack:', error.stack);
     throw error;
   }
 }
