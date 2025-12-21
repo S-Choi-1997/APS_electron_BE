@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, session, Menu, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let mainWindow;
+let tray = null; // System tray
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
@@ -90,6 +91,55 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Create system tray
+  createTray();
+}
+
+// Create system tray
+function createTray() {
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, 'icon.ico')
+    : path.join(__dirname, 'icon.png');
+
+  tray = new Tray(iconPath);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '열기',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      }
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: '종료',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('APS 컨설팅');
+  tray.setContextMenu(contextMenu);
+
+  // 트레이 아이콘 더블클릭 시 창 표시
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    } else {
+      createWindow();
+    }
   });
 }
 
@@ -211,6 +261,7 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     minWidth: 300,
     maxWidth: 300,
     opacity: savedSettings?.opacity || defaultOpacity,
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -512,6 +563,7 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
     alwaysOnTop: true,
     resizable: false,
     parent: parentWindow,
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -616,6 +668,7 @@ function createToastNotification(data) {
     transparent: true,
     focusable: false,
     show: false,
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -746,9 +799,11 @@ ipcMain.handle('navigate-from-notification', async (event, route) => {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // 트레이로 백그라운드 실행 유지 (명시적 종료만 앱 종료)
+  if (process.platform !== 'darwin' && app.isQuitting) {
     app.quit();
   }
+  // 그 외에는 백그라운드에서 계속 실행
 });
 
 app.on('activate', () => {
