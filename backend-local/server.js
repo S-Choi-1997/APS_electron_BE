@@ -774,13 +774,18 @@ app.get("/inquiries", async (req, res) => {
     const snapshot = await query.get();
     const queryDuration = Date.now() - queryStartTime;
 
-    const inquiries = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      // Convert Firestore Timestamp to ISO string
-      createdAt: doc.data().createdAt?.toDate().toISOString(),
-      updatedAt: doc.data().updatedAt?.toDate().toISOString(),
-    }));
+    const inquiries = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        // Convert Firestore Timestamp to ISO string
+        createdAt: data.createdAt?.toDate().toISOString(),
+        updatedAt: data.updatedAt?.toDate().toISOString(),
+        // Add status field if missing (backward compatibility)
+        status: data.status || (data.check ? 'responded' : 'unread'),
+      };
+    });
 
     const duration = Date.now() - startTime;
     console.log(`[Firestore] Query completed in ${queryDuration}ms, total ${duration}ms, returned ${inquiries.length} items`);
