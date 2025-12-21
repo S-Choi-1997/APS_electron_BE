@@ -208,7 +208,9 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   // IntegIdList contains comma-separated message IDs that this email is replying to
   let inReplyTo = null;
   if (message.IntegIdList) {
+    console.log('[ZOHO Parse] Raw IntegIdList:', message.IntegIdList);
     const replyIds = message.IntegIdList.split(',').map(id => id.trim()).filter(id => id);
+    console.log('[ZOHO Parse] Parsed reply IDs:', replyIds);
     if (replyIds.length > 0) {
       // Take the first ID as the direct parent
       inReplyTo = replyIds[0];
@@ -216,6 +218,13 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   } else if (message.inReplyTo) {
     inReplyTo = message.inReplyTo;
   }
+
+  console.log('[ZOHO Parse] Email parsing debug:');
+  console.log('  - fromEmail:', fromEmail);
+  console.log('  - config.accountEmail:', config.accountEmail);
+  console.log('  - actuallyOutgoing:', actuallyOutgoing);
+  console.log('  - inReplyTo:', inReplyTo);
+  console.log('  - messageId:', message.messageId);
 
   return {
     messageId: message.messageId,
