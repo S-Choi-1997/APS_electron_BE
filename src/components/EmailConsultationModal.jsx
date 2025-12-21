@@ -34,15 +34,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   // 스레드 관련 이메일 찾기 (같은 상대방과 주고받은 모든 메일)
   const getThreadEmails = () => {
-    console.log('[Thread Debug] allEmails count:', allEmails?.length);
-    console.log('[Thread Debug] Current email:', email);
-
     if (!allEmails || allEmails.length === 0) return { before: [], after: [] };
 
     // 현재 이메일의 상대방 주소 (받은 메일이면 from, 보낸 메일이면 to)
     const counterpartyEmail = cleanEmail(email.isOutgoing ? email.to : email.from);
-    console.log('[Thread Debug] Counterparty email:', counterpartyEmail);
-
     if (!counterpartyEmail) return { before: [], after: [] };
 
     // 현재 이메일의 수신 시간
@@ -55,19 +50,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       // 받은 메일: from이 상대방 이메일과 일치
       // 보낸 메일: to가 상대방 이메일과 일치
       const emailCounterparty = cleanEmail(e.isOutgoing ? e.to : e.from);
-      const matches = emailCounterparty === counterpartyEmail;
-
-      if (matches) {
-        console.log('[Thread Debug] Found match:', {
-          id: e.id,
-          from: e.from,
-          to: e.to,
-          isOutgoing: e.isOutgoing,
-          counterparty: emailCounterparty
-        });
-      }
-
-      return matches;
+      return emailCounterparty === counterpartyEmail;
     });
 
     // 시간순으로 정렬

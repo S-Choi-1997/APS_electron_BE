@@ -35,9 +35,6 @@ function EmailConsultationsPage() {
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
 
-  // Debug logging
-  console.log('[EmailPage] Loading:', isLoading, 'Error:', isError, 'Inquiries:', inquiries?.length);
-
   // WebSocket 실시간 동기화는 AppRouter에서 전역으로 처리
   // EmailConsultationsPage에서는 별도 호출 불필요
 

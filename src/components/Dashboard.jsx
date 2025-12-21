@@ -578,7 +578,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
           // 알림창 열기 (리셋 모드 아님)
           await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
-          console.log('[Dashboard] Auto-opened sticky window on login');
         } catch (error) {
           console.error('[Dashboard] Failed to auto-open sticky window:', error);
         }

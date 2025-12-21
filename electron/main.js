@@ -187,8 +187,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     stickyWindow.loadURL(`http://localhost:5173/sticky.html?${queryParams}`);
-    // 개발 모드에서 DevTools 자동 열기
-    stickyWindow.webContents.openDevTools({ mode: 'detach' });
+    // 개발 모드에서 DevTools 자동 열기 (비활성화 - F12로 수동 열기 가능)
+    // stickyWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
     stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'), {
@@ -458,8 +458,8 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
 
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     subWindow.loadURL(`http://localhost:5173/memo-detail.html?${queryParams}`);
-    // 개발 모드에서 DevTools 자동 열기
-    subWindow.webContents.openDevTools({ mode: 'detach' });
+    // 개발 모드에서 DevTools 자동 열기 (비활성화 - F12로 수동 열기 가능)
+    // subWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     subWindow.loadFile(path.join(__dirname, '../dist/memo-detail.html'), {
       query: Object.fromEntries(new URLSearchParams(queryParams))
