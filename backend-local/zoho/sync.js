@@ -18,40 +18,51 @@ let syncIntervalId = null;
  */
 async function performFullSync(options = {}) {
   try {
-    const { limit = 100, folder = 'Inbox' } = options;
+    const { limit = 100 } = options;
 
     console.log('[ZOHO Sync] Starting full sync...');
     const startTime = Date.now();
 
-    // Fetch messages from ZOHO Mail API
-    const messages = await fetchMessages({ limit, folder });
+    let totalNewCount = 0;
+    let totalSkipCount = 0;
+    let totalErrorCount = 0;
+    let totalMessages = 0;
 
-    let newCount = 0;
-    let skipCount = 0;
-    let errorCount = 0;
+    // Sync both Inbox and Sent folders
+    const folders = ['Inbox', 'Sent'];
 
-    // Process each message
-    for (const message of messages) {
-      try {
-        // Parse message to inquiry format
-        const inquiry = parseMessageToInquiry(message);
+    for (const folder of folders) {
+      console.log(`[ZOHO Sync] Syncing ${folder} folder...`);
 
-        // Save to database (will skip if already exists)
-        const saved = await saveEmailInquiry(inquiry);
+      // Fetch messages from ZOHO Mail API
+      const messages = await fetchMessages({ limit, folder });
+      totalMessages += messages.length;
 
-        if (saved) {
-          newCount++;
-          // Emit WebSocket event for real-time updates
-          if (global.broadcastEvent) {
-            global.broadcastEvent('email:created', saved);
+      // Process each message
+      for (const message of messages) {
+        try {
+          // Parse message to inquiry format
+          const inquiry = parseMessageToInquiry(message, folder === 'Sent');
+
+          // Save to database (will skip if already exists)
+          const saved = await saveEmailInquiry(inquiry);
+
+          if (saved) {
+            totalNewCount++;
+            // Emit WebSocket event for real-time updates
+            if (global.broadcastEvent) {
+              global.broadcastEvent('email:created', saved);
+            }
+          } else {
+            totalSkipCount++;
           }
-        } else {
-          skipCount++;
+        } catch (error) {
+          console.error('[ZOHO Sync] Error processing message:', error.message);
+          totalErrorCount++;
         }
-      } catch (error) {
-        console.error('[ZOHO Sync] Error processing message:', error.message);
-        errorCount++;
       }
+
+      console.log(`[ZOHO Sync] ${folder} sync: ${messages.length} fetched`);
     }
 
     // Update last sync time
@@ -59,14 +70,14 @@ async function performFullSync(options = {}) {
 
     const duration = Date.now() - startTime;
     console.log(`[ZOHO Sync] Full sync completed in ${duration}ms`);
-    console.log(`[ZOHO Sync] Stats: ${newCount} new, ${skipCount} skipped, ${errorCount} errors`);
+    console.log(`[ZOHO Sync] Stats: ${totalNewCount} new, ${totalSkipCount} skipped, ${totalErrorCount} errors`);
 
     return {
       success: true,
-      total: messages.length,
-      new: newCount,
-      skipped: skipCount,
-      errors: errorCount,
+      total: totalMessages,
+      new: totalNewCount,
+      skipped: totalSkipCount,
+      errors: totalErrorCount,
       duration
     };
   } catch (error) {
@@ -80,7 +91,7 @@ async function performFullSync(options = {}) {
  */
 async function performIncrementalSync(options = {}) {
   try {
-    const { limit = 50, folder = 'Inbox' } = options;
+    const { limit = 50 } = options;
 
     console.log('[ZOHO Sync] Starting incremental sync...');
     const startTime = Date.now();
@@ -98,40 +109,47 @@ async function performIncrementalSync(options = {}) {
       }
     }
 
-    // Fetch recent messages (most recent first)
-    const messages = await fetchMessages({ limit, folder, sortOrder: 'desc' });
+    let totalNewCount = 0;
+    let totalSkipCount = 0;
+    let totalErrorCount = 0;
 
-    let newCount = 0;
-    let skipCount = 0;
-    let errorCount = 0;
+    // Sync both Inbox and Sent folders
+    const folders = ['Inbox', 'Sent'];
 
-    // Process messages until we hit one we've seen before or processed all
-    for (const message of messages) {
-      try {
-        // Parse message to inquiry format
-        const inquiry = parseMessageToInquiry(message);
+    for (const folder of folders) {
+      console.log(`[ZOHO Sync] Syncing ${folder} folder...`);
 
-        // If we have a last sync time and this message is older, skip remaining
-        if (lastSyncTime && inquiry.receivedAt <= lastSyncTime) {
-          skipCount++;
-          continue;
-        }
+      // Fetch recent messages (most recent first)
+      const messages = await fetchMessages({ limit, folder, sortOrder: 'desc' });
 
-        // Save to database
-        const saved = await saveEmailInquiry(inquiry);
+      // Process messages until we hit one we've seen before or processed all
+      for (const message of messages) {
+        try {
+          // Parse message to inquiry format
+          const inquiry = parseMessageToInquiry(message, folder === 'Sent');
 
-        if (saved) {
-          newCount++;
-          // Emit WebSocket event for real-time updates
-          if (global.broadcastEvent) {
-            global.broadcastEvent('email:created', saved);
+          // If we have a last sync time and this message is older, skip remaining
+          if (lastSyncTime && inquiry.receivedAt <= lastSyncTime) {
+            totalSkipCount++;
+            continue;
           }
-        } else {
-          skipCount++;
+
+          // Save to database (will skip duplicates automatically via ON CONFLICT)
+          const saved = await saveEmailInquiry(inquiry);
+
+          if (saved) {
+            totalNewCount++;
+            // Emit WebSocket event for real-time updates
+            if (global.broadcastEvent) {
+              global.broadcastEvent('email:created', saved);
+            }
+          } else {
+            totalSkipCount++;
+          }
+        } catch (error) {
+          console.error('[ZOHO Sync] Error processing message:', error.message);
+          totalErrorCount++;
         }
-      } catch (error) {
-        console.error('[ZOHO Sync] Error processing message:', error.message);
-        errorCount++;
       }
     }
 
@@ -140,14 +158,13 @@ async function performIncrementalSync(options = {}) {
 
     const duration = Date.now() - startTime;
     console.log(`[ZOHO Sync] Incremental sync completed in ${duration}ms`);
-    console.log(`[ZOHO Sync] Stats: ${newCount} new, ${skipCount} skipped, ${errorCount} errors`);
+    console.log(`[ZOHO Sync] Stats: ${totalNewCount} new, ${totalSkipCount} skipped, ${totalErrorCount} errors`);
 
     return {
       success: true,
-      total: messages.length,
-      new: newCount,
-      skipped: skipCount,
-      errors: errorCount,
+      new: totalNewCount,
+      skipped: totalSkipCount,
+      errors: totalErrorCount,
       duration
     };
   } catch (error) {

@@ -124,7 +124,8 @@ async function saveEmailInquiry(inquiryData) {
       receivedAt,
       toEmail,
       ccEmails = [],
-      hasAttachments = false
+      hasAttachments = false,
+      isOutgoing = false
     } = inquiryData;
 
     // Insert into email_inquiries table with source='zoho'
@@ -141,11 +142,13 @@ async function saveEmailInquiry(inquiryData) {
         body_text,
         body_html,
         has_attachments,
+        is_outgoing,
         received_at,
         "check",
+        status,
         created_at,
         updated_at
-      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, false, NOW(), NOW())
+      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
       ON CONFLICT (message_id) DO NOTHING
       RETURNING *;
     `;
@@ -160,7 +163,10 @@ async function saveEmailInquiry(inquiryData) {
       body,
       bodyHtml || body,
       hasAttachments,
-      receivedAt
+      isOutgoing,
+      receivedAt,
+      false, // check
+      isOutgoing ? 'responded' : 'unread' // status: outgoing emails are already "responded"
     ];
 
     const result = await query(sql, values);

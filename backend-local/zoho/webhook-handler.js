@@ -127,6 +127,8 @@ async function processNewMessage(messageData) {
         body: saved.body_text,
         bodyHtml: saved.body_html,
         hasAttachments: saved.has_attachments,
+        isOutgoing: saved.is_outgoing || false,
+        status: saved.status || (saved.check ? 'read' : 'unread'),
         receivedAt: saved.received_at,
         check: saved.check,
         createdAt: saved.created_at,

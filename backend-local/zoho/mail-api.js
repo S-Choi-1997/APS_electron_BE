@@ -166,7 +166,7 @@ async function searchMessages(searchQuery, options = {}) {
 /**
  * Parse ZOHO message to inquiry format
  */
-function parseMessageToInquiry(message) {
+function parseMessageToInquiry(message, isOutgoing = false) {
   // Parse receivedAt with fallback to current time
   let receivedAt;
   if (message.receivedTime) {
@@ -191,7 +191,8 @@ function parseMessageToInquiry(message) {
     ccEmails: message.ccAddress && message.ccAddress !== 'Not Provided'
       ? message.ccAddress.split(',').map(e => e.trim())
       : (message.ccEmails || []),
-    hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments
+    hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments,
+    isOutgoing: isOutgoing
   };
 }
 
