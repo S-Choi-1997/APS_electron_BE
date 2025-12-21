@@ -8,19 +8,14 @@
  * 실행: node backend-local/migrations/migrate-inquiry-status.js
  */
 
-const admin = require('firebase-admin');
-const path = require('path');
+const { Firestore, FieldValue } = require('@google-cloud/firestore');
 
-// Firebase Admin 초기화
-const serviceAccountPath = path.join(__dirname, '../config/firebase-adminsdk.json');
+// GCP Firestore 초기화 (gcloud 인증 사용)
+const db = new Firestore({
+  projectId: process.env.GCP_PROJECT_ID || 'apsconsulting'
+});
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(require(serviceAccountPath))
-  });
-}
-
-const db = admin.firestore();
+console.log('✓ Firestore initialized successfully');
 
 async function migrateInquiryStatus() {
   try {
@@ -46,9 +41,9 @@ async function migrateInquiryStatus() {
     for (const doc of snapshot.docs) {
       const data = doc.data();
 
-      // 이미 status 필드가 있으면 스킵
-      if (data.status) {
-        console.log(`[SKIP] ${doc.id} - already has status: ${data.status}`);
+      // 기존 status가 'new'인 경우 또는 없는 경우 업데이트
+      if (data.status && data.status !== 'new') {
+        console.log(`[SKIP] ${doc.id} - status already migrated: ${data.status}`);
         skipped++;
         continue;
       }
@@ -58,13 +53,13 @@ async function migrateInquiryStatus() {
 
       batch.update(doc.ref, {
         status: status,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
       });
 
       updated++;
       currentBatch++;
 
-      console.log(`[UPDATE] ${doc.id} - check: ${data.check} → status: ${status}`);
+      console.log(`[UPDATE] ${doc.id} - old status: ${data.status || 'none'}, check: ${data.check} → new status: ${status}`);
 
       // Batch 크기 제한에 도달하면 커밋
       if (currentBatch >= batchSize) {

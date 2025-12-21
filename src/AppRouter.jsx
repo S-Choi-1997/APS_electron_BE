@@ -179,8 +179,12 @@ function AppContent() {
       setConsultations(prev => {
         const existing = prev.find(c => c.id === data.id);
         // 이미 같은 상태면 업데이트 스킵 (리렌더링 방지)
-        if (existing && existing.check === data.updates.check) {
-          return prev;
+        if (existing && data.updates) {
+          const existingStatus = existing.status || (existing.check ? 'responded' : 'unread');
+          const newStatus = data.updates.status || (data.updates.check ? 'responded' : 'unread');
+          if (existingStatus === newStatus) {
+            return prev;
+          }
         }
         return prev.map(c => c.id === data.id ? { ...c, ...data.updates } : c);
       });

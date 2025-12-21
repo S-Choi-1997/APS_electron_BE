@@ -75,7 +75,8 @@
       "Bash(npm run build:*)",
       "Bash(grep:*)",
       "Bash(git restore:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(node migrations/migrate-inquiry-status.js:*)"
     ]
   }
 }

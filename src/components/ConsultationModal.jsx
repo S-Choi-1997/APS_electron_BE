@@ -54,7 +54,8 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
   };
 
   const typeColor = getTypeColor(consultation.type);
-  const isUnread = !consultation.check;
+  const currentStatus = consultation.status || (consultation.check ? 'responded' : 'unread');
+  const canRespond = currentStatus !== 'responded'; // 응신 완료된 경우만 버튼 비활성화
 
   const imageAttachments = useMemo(() => {
     const images = (attachments || []).filter((file) => {
@@ -121,13 +122,13 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                   {consultation.type}
                 </span>
                 <button
-                  className={`modal-respond-btn ${isUnread ? 'primary' : 'secondary'}`}
+                  className={`modal-respond-btn ${canRespond ? 'primary' : 'secondary'}`}
                   onClick={() => onRespond?.(consultation.id, consultation.check)}
-                  disabled={!isUnread}
+                  disabled={!canRespond}
                   type="button"
-                  title={isUnread ? '확인 시 SMS 자동 발송' : '확인 완료 (문자 발송됨)'}
+                  title={canRespond ? 'SMS 응신 발송' : '응신 완료 (문자 발송됨)'}
                 >
-                  {isUnread ? '확인문자' : '확인 완료'}
+                  {canRespond ? 'SMS 응신' : '응신 완료'}
                 </button>
               </div>
             </div>

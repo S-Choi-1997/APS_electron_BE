@@ -127,6 +127,10 @@
   color: #ef4444;
 }
 
+.stat-value.responded {
+  color: #10b981; /* Green to match responded status */
+}
+
 /* Filters Container */
 .filters-container {
   display: flex;
@@ -253,13 +257,26 @@
   text-align: right;
 }
 
-/* Status Indicator */
+/* Status Indicator - 3 States */
 .status-indicator {
   display: inline-block;
   font-size: 16px;
   font-weight: 600;
 }
 
+.status-indicator.status-unread {
+  color: #ef4444; /* Red for unread */
+}
+
+.status-indicator.status-read {
+  color: #3b82f6; /* Blue for read (just viewed) */
+}
+
+.status-indicator.status-responded {
+  color: #10b981; /* Green for responded (SMS sent) */
+}
+
+/* Legacy support */
 .status-indicator.unread {
   color: #ef4444;
 }

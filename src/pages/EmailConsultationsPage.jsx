@@ -154,34 +154,6 @@ function EmailConsultationsPage() {
         </div>
       </div>
 
-      {/* Status Filter Tabs */}
-      <div className="status-tabs">
-        <button
-          className={`tab-btn ${selectedStatus === 'all' ? 'active' : ''}`}
-          onClick={() => handleStatusChange('all')}
-        >
-          전체
-        </button>
-        <button
-          className={`tab-btn ${selectedStatus === EMAIL_STATUS.UNREAD ? 'active' : ''}`}
-          onClick={() => handleStatusChange(EMAIL_STATUS.UNREAD)}
-        >
-          미확인
-        </button>
-        <button
-          className={`tab-btn ${selectedStatus === EMAIL_STATUS.READ ? 'active' : ''}`}
-          onClick={() => handleStatusChange(EMAIL_STATUS.READ)}
-        >
-          확인
-        </button>
-        <button
-          className={`tab-btn ${selectedStatus === EMAIL_STATUS.RESPONDED ? 'active' : ''}`}
-          onClick={() => handleStatusChange(EMAIL_STATUS.RESPONDED)}
-        >
-          응신
-        </button>
-      </div>
-
       {/* Email List */}
       <div className="page-content">
         {isError ? (

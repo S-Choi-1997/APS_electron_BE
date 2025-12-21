@@ -69,9 +69,14 @@ function useWebSocketSync(user, handlers = {}) {
           handlers.loadStats();
         }
 
-        // Toast 알림 (확인 처리된 경우)
-        if (data.updates.check === true) {
-          showToastNotification('consultation', `${data.updates.name}님 문의가 확인되었습니다.`);
+        // Toast 알림 (확인 또는 응신 처리된 경우)
+        if (data.updates) {
+          const status = data.updates.status || (data.updates.check ? 'responded' : null);
+          if (status === 'read') {
+            showToastNotification('consultation', `${data.updates.name || ''}님 문의가 확인되었습니다.`);
+          } else if (status === 'responded') {
+            showToastNotification('consultation', `${data.updates.name || ''}님 문의에 응신하였습니다.`);
+          }
         }
       });
     }

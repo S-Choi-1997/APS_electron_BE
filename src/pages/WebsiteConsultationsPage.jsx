@@ -24,13 +24,24 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
   const handleRowClick = async (consultation) => {
     setSelectedConsultation(consultation);
 
-    // Mark as read if unread
-    if (!consultation.check) {
-      // TODO: 백엔드 API 호출로 check 상태 업데이트
-      const updatedConsultations = consultations.map(item =>
-        item.id === consultation.id ? { ...item, check: true } : item
-      );
-      setConsultations(updatedConsultations);
+    // Mark as read (not responded) if unread
+    const currentStatus = consultation.status || (consultation.check ? 'responded' : 'unread');
+    if (currentStatus === 'unread') {
+      // Update to 'read' status (just opened, not responded yet)
+      try {
+        const { updateInquiry } = await import('../services/inquiryService');
+        const { getCurrentUser } = await import('../auth/authManager');
+
+        await updateInquiry(consultation.id, { status: 'read' }, { currentUser: getCurrentUser() });
+
+        // Update local state
+        const updatedConsultations = consultations.map(item =>
+          item.id === consultation.id ? { ...item, status: 'read' } : item
+        );
+        setConsultations(updatedConsultations);
+      } catch (error) {
+        console.error('Failed to update status to read:', error);
+      }
     }
   };
 
@@ -48,11 +59,21 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
     return true;
   });
 
-  // Statistics
-  const stats = {
-    total: filteredConsultations.length,
-    unread: filteredConsultations.filter(item => !item.check).length
-  };
+  // Statistics - status 기반 3단계
+  const stats = useMemo(() => {
+    let unread = 0;
+    let read = 0;
+    let responded = 0;
+
+    consultations.forEach((c) => {
+      const status = c.status || (c.check ? 'responded' : 'unread');
+      if (status === 'unread') unread++;
+      else if (status === 'read') read++;
+      else if (status === 'responded') responded++;
+    });
+
+    return { total: consultations.length, unread, read, responded };
+  }, [consultations]);
 
   // Pagination
   const totalPages = Math.ceil(filteredConsultations.length / ITEMS_PER_PAGE);
@@ -116,15 +137,19 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
         </div>
       </div>
 
-      {/* Statistics */}
+      {/* Statistics - 3단계 */}
       <div className="stats-container">
-        <div className="stat-card">
-          <div className="stat-label">전체</div>
-          <div className="stat-value">{stats.total}</div>
-        </div>
         <div className="stat-card">
           <div className="stat-label">미확인</div>
           <div className="stat-value highlight">{stats.unread}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">확인</div>
+          <div className="stat-value">{stats.read}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">응신</div>
+          <div className="stat-value responded">{stats.responded}</div>
         </div>
       </div>
 
@@ -169,8 +194,14 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
                     style={{ cursor: 'pointer' }}
                   >
                     <td className="col-status">
-                      <span className={`status-indicator ${item.check ? 'read' : 'unread'}`}>
-                        {item.check ? '✓' : '●'}
+                      <span className={`status-indicator status-${item.status || (item.check ? 'responded' : 'unread')}`}>
+                        {(() => {
+                          const status = item.status || (item.check ? 'responded' : 'unread');
+                          if (status === 'unread') return '●';
+                          if (status === 'read') return '○';
+                          if (status === 'responded') return '✓';
+                          return '●';
+                        })()}
                       </span>
                     </td>
                     <td className="col-type">
