@@ -105,7 +105,7 @@ async function handleEmailResponse(user, body) {
     // Save the outgoing email to database
     if (result.success && result.messageId) {
       try {
-        await saveOutgoingEmail({
+        const savedEmail = await saveOutgoingEmail({
           messageId: result.messageId,
           inReplyTo: originalEmail.messageId,
           to: originalEmail.from,
@@ -118,6 +118,12 @@ async function handleEmailResponse(user, body) {
         });
 
         console.log('[ZOHO Routes] Outgoing email saved to database');
+
+        // Broadcast WebSocket event for real-time updates
+        if (global.broadcastEvent && savedEmail) {
+          global.broadcastEvent('email:created', savedEmail);
+          console.log('[ZOHO Routes] WebSocket event broadcast for outgoing email');
+        }
 
         // Update original email status to 'responded'
         await updateEmailStatus(emailId, 'responded');

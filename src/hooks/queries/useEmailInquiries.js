@@ -210,9 +210,16 @@ export function useSendEmailResponse() {
   return useMutation({
     mutationFn: ({ emailId, responseText, originalEmail }) =>
       sendEmailResponse(emailId, responseText, originalEmail),
-    onSuccess: () => {
-      // 응답 전송 후 목록 갱신 (필요 시)
-      queryClient.invalidateQueries({ queryKey: emailQueryKeys.all });
+    onSuccess: (response, variables) => {
+      console.log('[Email Response] Successfully sent');
+
+      // Optimistic Update: 스레드 쿼리 무효화 (보낸 메일 포함)
+      queryClient.invalidateQueries({
+        queryKey: emailQueryKeys.list({ includeOutgoing: true })
+      });
+
+      // 통계도 갱신 (responded 상태로 변경됨)
+      queryClient.invalidateQueries({ queryKey: emailQueryKeys.stats() });
     },
     onError: (err) => {
       console.error('[Email Response] Failed:', err);

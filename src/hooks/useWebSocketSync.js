@@ -168,6 +168,22 @@ function useWebSocketSync(user, handlers = {}) {
     socket.on('email:created', (newEmail) => {
       console.log('[WebSocket] New email received:', newEmail);
 
+      // 보낸 메일은 목록에 추가하지 않음 (스레드에서만 표시)
+      if (newEmail.isOutgoing) {
+        console.log('[WebSocket] Outgoing email - skip adding to list');
+
+        // 통계만 갱신 (보낸 메일도 responded 상태로 카운트)
+        queryClient.invalidateQueries({ queryKey: ['emailInquiries', 'stats'] });
+
+        // 스레드 데이터는 갱신 (모달에서 보낸 메일 보기 위해)
+        queryClient.invalidateQueries({
+          queryKey: ['emailInquiries', 'list', { includeOutgoing: true }]
+        });
+
+        return;  // 여기서 종료
+      }
+
+      // 받은 메일만 캐시에 추가
       // Optimistic Update: 캐시에 직접 추가 (순서 유지)
       queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
         if (!oldData) return [newEmail];
@@ -186,7 +202,7 @@ function useWebSocketSync(user, handlers = {}) {
         };
       });
 
-      // Toast 알림
+      // Toast 알림 (받은 메일만)
       const fromName = newEmail.fromName || newEmail.from || '발신자';
       const subject = newEmail.subject || '(제목 없음)';
       showToastNotification('email', `새 이메일: ${fromName}\n${subject}`);

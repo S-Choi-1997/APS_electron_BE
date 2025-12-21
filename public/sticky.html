@@ -1020,9 +1020,20 @@
     async function loadConsultationStats() {
       try {
         console.log('[Sticky] Loading consultation stats from API...');
-        const response = await apiRequest('/inquiries/stats');
-        console.log('[Sticky] Stats API response:', response);
-        stats = response.data || { website: 0, email: 0 };
+
+        // 홈페이지 통계
+        const websiteResponse = await apiRequest('/inquiries/stats');
+        console.log('[Sticky] Website stats API response:', websiteResponse);
+
+        // 이메일 통계
+        const emailResponse = await apiRequest('/email-inquiries/stats');
+        console.log('[Sticky] Email stats API response:', emailResponse);
+
+        stats = {
+          website: websiteResponse.data?.website || 0,
+          email: emailResponse.data?.unread || 0,  // 미확인 수량
+        };
+
         console.log('[Sticky] Parsed stats:', stats);
         updateConsultationStats();
       } catch (error) {
@@ -1360,6 +1371,24 @@
         // 상담 삭제 이벤트
         socket.on('consultation:deleted', () => {
           console.log('[Sticky WebSocket] Consultation deleted');
+          loadConsultationStats();
+        });
+
+        // 이메일 생성 이벤트
+        socket.on('email:created', (newEmail) => {
+          console.log('[Sticky WebSocket] Email created:', newEmail);
+          loadConsultationStats();
+        });
+
+        // 이메일 업데이트 이벤트
+        socket.on('email:updated', (data) => {
+          console.log('[Sticky WebSocket] Email updated:', data.id);
+          loadConsultationStats();
+        });
+
+        // 이메일 삭제 이벤트
+        socket.on('email:deleted', (data) => {
+          console.log('[Sticky WebSocket] Email deleted:', data.id);
           loadConsultationStats();
         });
 

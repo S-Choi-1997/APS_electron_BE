@@ -89,12 +89,21 @@ function AppContent() {
   // 통계 불러오기
   const loadStats = async () => {
     try {
-      const response = await apiRequest('/inquiries/stats', {
+      // 홈페이지 통계
+      const websiteResponse = await apiRequest('/inquiries/stats', {
         method: 'GET',
       }, auth);
 
-      if (response.data) {
-        setStats(response.data);
+      // 이메일 통계
+      const emailResponse = await apiRequest('/email-inquiries/stats', {
+        method: 'GET',
+      }, auth);
+
+      if (websiteResponse.data && emailResponse.data) {
+        setStats({
+          website: websiteResponse.data.website || 0,
+          email: emailResponse.data.unread || 0,  // 미확인 수량
+        });
       }
     } catch (error) {
       console.error('Failed to fetch stats:', error);

@@ -341,8 +341,38 @@ async function saveOutgoingEmail(emailData) {
 
     const result = await query(sql, values);
 
-    console.log('[ZOHO DB] Outgoing email saved successfully:', messageId);
-    return result.rows[0];
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      console.log('[ZOHO DB] Outgoing email saved successfully:', messageId);
+
+      // Map DB column names to frontend-friendly names (consistent with GET endpoint)
+      const mappedEmail = {
+        id: row.id,
+        messageId: row.message_id,
+        source: row.source,
+        from: row.from_email,
+        fromName: row.from_name,
+        to: row.to_email,
+        cc: row.cc_emails,
+        subject: row.subject,
+        body: row.body_text,
+        bodyHtml: row.body_html,
+        hasAttachments: row.has_attachments,
+        receivedAt: row.received_at,
+        check: row.check,
+        status: row.status || (row.check ? 'read' : 'unread'),
+        inReplyTo: row.in_reply_to,
+        references: row.references,
+        threadId: row.thread_id,
+        isOutgoing: row.is_outgoing || false,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+
+      return mappedEmail;
+    }
+
+    return null;
   } catch (error) {
     console.error('[ZOHO DB] Error saving outgoing email:', error);
     throw error;
