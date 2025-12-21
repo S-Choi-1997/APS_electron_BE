@@ -204,6 +204,19 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   // Even if it's in Inbox folder, if sender is our account, it's outgoing
   const actuallyOutgoing = isOutgoing || (config.accountEmail && fromEmail === config.accountEmail);
 
+  // Extract inReplyTo from IntegIdList (ZOHO webhook format)
+  // IntegIdList contains comma-separated message IDs that this email is replying to
+  let inReplyTo = null;
+  if (message.IntegIdList) {
+    const replyIds = message.IntegIdList.split(',').map(id => id.trim()).filter(id => id);
+    if (replyIds.length > 0) {
+      // Take the first ID as the direct parent
+      inReplyTo = replyIds[0];
+    }
+  } else if (message.inReplyTo) {
+    inReplyTo = message.inReplyTo;
+  }
+
   return {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
@@ -218,7 +231,8 @@ function parseMessageToInquiry(message, isOutgoing = false) {
       ? message.ccAddress.split(',').map(e => decodeAndCleanEmail(e))
       : (message.ccEmails || []),
     hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments,
-    isOutgoing: actuallyOutgoing
+    isOutgoing: actuallyOutgoing,
+    inReplyTo: inReplyTo
   };
 }
 

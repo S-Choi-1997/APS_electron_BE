@@ -415,6 +415,44 @@ async function updateEmailStatus(emailId, status) {
   }
 }
 
+/**
+ * Update email inquiry status by message ID (for webhook handling)
+ * Used when a reply is detected via webhook to mark the original email as responded
+ * @param {string} messageId - Original message ID
+ * @param {string} status - New status ('responded')
+ * @returns {Promise<Object|null>} Updated email record or null if not found
+ */
+async function updateEmailStatusByMessageId(messageId, status) {
+  try {
+    console.log(`[ZOHO DB] Updating email with messageId ${messageId} status to: ${status}`);
+
+    const sql = `
+      UPDATE email_inquiries
+      SET status = $1,
+          "check" = $2,
+          updated_at = NOW()
+      WHERE message_id = $3 AND is_outgoing = false
+      RETURNING *;
+    `;
+
+    // Sync check field with status for backward compatibility
+    const checkValue = (status === 'read' || status === 'responded');
+
+    const result = await query(sql, [status, checkValue, messageId]);
+
+    if (result.rows.length === 0) {
+      console.log(`[ZOHO DB] No email found with messageId: ${messageId}`);
+      return null;
+    }
+
+    console.log(`[ZOHO DB] Email status updated successfully by messageId`);
+    return result.rows[0];
+  } catch (error) {
+    console.error('[ZOHO DB] Error updating email status by messageId:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   saveOAuthTokens,
   getOAuthTokens,
@@ -423,5 +461,6 @@ module.exports = {
   getEmailInquiriesBySource,
   getEmailStats,
   saveOutgoingEmail,
-  updateEmailStatus
+  updateEmailStatus,
+  updateEmailStatusByMessageId
 };

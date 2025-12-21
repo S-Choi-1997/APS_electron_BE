@@ -7,7 +7,7 @@
 
 const crypto = require('crypto');
 const config = require('./config');
-const { saveEmailInquiry } = require('./db-helper');
+const { saveEmailInquiry, updateEmailStatusByMessageId } = require('./db-helper');
 const { parseMessageToInquiry } = require('./mail-api');
 
 /**
@@ -139,6 +139,25 @@ async function processNewMessage(messageData) {
       if (global.broadcastEvent) {
         global.broadcastEvent('email:created', mappedEmail);
         console.log('[ZOHO Webhook] Real-time event emitted');
+      }
+
+      // If this is an outgoing email (reply), update the original email's status to 'responded'
+      if (inquiry.isOutgoing && inquiry.inReplyTo) {
+        console.log('[ZOHO Webhook] Detected outgoing reply, updating original email status');
+        try {
+          const updatedOriginal = await updateEmailStatusByMessageId(inquiry.inReplyTo, 'responded');
+
+          if (updatedOriginal && global.broadcastEvent) {
+            global.broadcastEvent('email:updated', {
+              id: updatedOriginal.id,
+              status: 'responded'
+            });
+            console.log('[ZOHO Webhook] Original email status updated to responded and event broadcast');
+          }
+        } catch (error) {
+          console.error('[ZOHO Webhook] Failed to update original email status:', error);
+          // Don't fail the webhook processing
+        }
       }
 
       console.log('[ZOHO Webhook] Message processed successfully');
