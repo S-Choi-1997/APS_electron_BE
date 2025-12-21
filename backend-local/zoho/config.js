@@ -28,6 +28,7 @@ module.exports = {
   // Scopes required for mail access
   scopes: [
     'ZohoMail.messages.READ',
+    'ZohoMail.messages.CREATE',
     'ZohoMail.folders.READ',
     'ZohoMail.accounts.READ'
   ].join(','),
