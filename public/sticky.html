@@ -950,7 +950,7 @@
     // 로컬 스토리지에서 인증 정보 가져오기
     function getAuthToken() {
       try {
-        const userStr = localStorage.getItem('currentUser');
+        const userStr = localStorage.getItem('aps-local-auth-user');
         if (!userStr) return null;
         const user = JSON.parse(userStr);
         return user.idToken;
@@ -962,7 +962,7 @@
 
     function getUserProvider() {
       try {
-        const userStr = localStorage.getItem('currentUser');
+        const userStr = localStorage.getItem('aps-local-auth-user');
         if (!userStr) return null;
         const user = JSON.parse(userStr);
         return user.provider;
