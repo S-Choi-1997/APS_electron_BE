@@ -2073,7 +2073,7 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
 
         // Check if tokens are available (try to get valid access token)
         try {
-          await zoho.oauth.getValidAccessToken();
+          await zoho.getValidAccessToken();
           console.log('[ZOHO] OAuth tokens found, performing initial full sync...');
         } catch (tokenError) {
           console.warn('[ZOHO] OAuth tokens not found or invalid:', tokenError.message);
