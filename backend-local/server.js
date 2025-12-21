@@ -1854,6 +1854,10 @@ app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
 
     const result = await db_postgres.query(sql, values);
 
+    console.log(`[Email Inquiries] Query returned ${result.rows.length} rows (includeOutgoing=${includeOutgoing}, status=${status}, check=${check})`);
+    console.log(`[Email Inquiries] SQL: ${sql}`);
+    console.log(`[Email Inquiries] Values:`, values);
+
     // Map DB column names to frontend-friendly names
     const mappedData = result.rows.map(row => ({
       id: row.id,

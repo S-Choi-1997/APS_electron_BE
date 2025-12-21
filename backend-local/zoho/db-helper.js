@@ -281,7 +281,7 @@ async function saveOutgoingEmail(emailData) {
     if (inReplyTo) {
       // Query original email to get its thread_id and references
       const originalSql = `
-        SELECT thread_id, references, message_id
+        SELECT thread_id, "references", message_id
         FROM email_inquiries
         WHERE message_id = $1;
       `;
@@ -313,7 +313,7 @@ async function saveOutgoingEmail(emailData) {
         body_text,
         body_html,
         in_reply_to,
-        references,
+        "references",
         thread_id,
         is_outgoing,
         status,
@@ -387,7 +387,7 @@ async function saveOutgoingEmail(emailData) {
  */
 async function updateEmailStatus(emailId, status) {
   try {
-    console.log(`[ZOHO DB] Updating email ${emailId} status to: ${status}`);
+    console.log(`[ZOHO DB] Updating email ID=${emailId} status to: ${status}`);
 
     const sql = `
       UPDATE email_inquiries
@@ -404,10 +404,12 @@ async function updateEmailStatus(emailId, status) {
     const result = await query(sql, [status, checkValue, emailId]);
 
     if (result.rows.length === 0) {
+      console.log(`[ZOHO DB] ERROR: Email ID ${emailId} not found!`);
       throw new Error(`Email inquiry ${emailId} not found`);
     }
 
-    console.log(`[ZOHO DB] Email status updated successfully`);
+    console.log(`[ZOHO DB] ✓ Email ID ${emailId} status updated to '${status}' successfully`);
+    console.log(`[ZOHO DB] Updated email:`, result.rows[0]);
     return result.rows[0];
   } catch (error) {
     console.error('[ZOHO DB] Error updating email status:', error);

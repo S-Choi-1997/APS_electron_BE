@@ -31,6 +31,11 @@ function EmailConsultationsPage() {
   const { data: inquiries = [], isLoading, isError, error } = useEmailInquiries();
   const { data: allEmailsForThread = [] } = useAllEmailsForThread(); // 스레드용 (보낸 메일 포함)
   const { data: stats = { total: 0, unread: 0, read: 0, responded: 0, gmail: 0, zoho: 0 } } = useEmailStats();
+
+  // Debug: 받아온 이메일 데이터 확인
+  console.log('[EmailPage] Inquiries received:', inquiries.length, inquiries);
+  console.log('[EmailPage] Selected status:', selectedStatus);
+  console.log('[EmailPage] Stats:', stats);
   const updateMutation = useUpdateEmailInquiry();
   const syncMutation = useTriggerZohoSync();
   const responseMutation = useSendEmailResponse();
