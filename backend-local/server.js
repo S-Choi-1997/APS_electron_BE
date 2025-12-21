@@ -2071,16 +2071,38 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
       try {
         console.log('[ZOHO] Checking OAuth tokens before initial sync...');
 
-        // Check if tokens are available (try to get valid access token)
-        try {
-          await zoho.getValidAccessToken();
-          console.log('[ZOHO] OAuth tokens found, performing initial full sync...');
-        } catch (tokenError) {
-          console.warn('[ZOHO] OAuth tokens not found or invalid:', tokenError.message);
-          console.log('[ZOHO] Skipping initial sync. Please authorize ZOHO first:');
-          console.log(`[ZOHO]   1. Visit: http://localhost:${PORT}/api/zoho/auth/start`);
-          console.log('[ZOHO]   2. After authorization, trigger sync via POST /api/zoho/sync');
-          return;
+        // Sync tokens from Firestore to PostgreSQL on startup
+        const { getTokensFromFirestore } = require('./zoho/firestore-token-storage');
+        const { saveOAuthTokens } = require('./zoho/db-helper');
+        const zohoEmail = process.env.ZOHO_ACCOUNT_EMAIL;
+
+        if (zohoEmail) {
+          try {
+            const firestoreToken = await getTokensFromFirestore(zohoEmail);
+            if (firestoreToken) {
+              console.log('[ZOHO] Syncing tokens from Firestore to PostgreSQL...');
+              await saveOAuthTokens({
+                accessToken: firestoreToken.access_token,
+                refreshToken: firestoreToken.refresh_token,
+                expiresIn: Math.floor((new Date(firestoreToken.expires_at) - Date.now()) / 1000),
+                tokenType: firestoreToken.token_type,
+                zohoEmail: firestoreToken.zoho_email,
+                zohoUserId: firestoreToken.zoho_user_id
+              });
+              console.log('[ZOHO] Tokens synced successfully, performing initial full sync...');
+            } else {
+              console.log('[ZOHO] No tokens found in Firestore. Please authorize ZOHO first:');
+              console.log(`[ZOHO]   1. Visit: http://localhost:${PORT}/api/zoho/auth/start`);
+              console.log('[ZOHO]   2. After authorization, trigger sync via POST /api/zoho/sync');
+              return;
+            }
+          } catch (syncError) {
+            console.warn('[ZOHO] Token sync failed:', syncError.message);
+            console.log('[ZOHO] Skipping initial sync. Please authorize ZOHO first:');
+            console.log(`[ZOHO]   1. Visit: http://localhost:${PORT}/api/zoho/auth/start`);
+            console.log('[ZOHO]   2. After authorization, trigger sync via POST /api/zoho/sync');
+            return;
+          }
         }
 
         const result = await zoho.performFullSync();
