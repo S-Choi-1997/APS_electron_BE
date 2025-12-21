@@ -16,12 +16,28 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [sending, setSending] = useState(false);
   const [showToast, setShowToast] = useState(false);
 
+  // Helper function to decode HTML entities and extract clean email
+  const cleanEmail = (emailStr) => {
+    if (!emailStr) return '';
+
+    // Decode HTML entities
+    const decoded = emailStr
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"');
+
+    // Extract email from formats like "Name <email@domain.com>" or "<email@domain.com>"
+    const emailMatch = decoded.match(/<([^>]+)>/) || decoded.match(/([^\s<>]+@[^\s<>]+)/);
+    return emailMatch ? emailMatch[1] : decoded.trim();
+  };
+
   // 스레드 관련 이메일 찾기 (같은 상대방과 주고받은 모든 메일)
   const getThreadEmails = () => {
     if (!allEmails || allEmails.length === 0) return { before: [], after: [] };
 
     // 현재 이메일의 상대방 주소 (받은 메일이면 from, 보낸 메일이면 to)
-    const counterpartyEmail = email.isOutgoing ? email.to : email.from;
+    const counterpartyEmail = cleanEmail(email.isOutgoing ? email.to : email.from);
     if (!counterpartyEmail) return { before: [], after: [] };
 
     // 현재 이메일의 수신 시간
@@ -33,7 +49,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
       // 받은 메일: from이 상대방 이메일과 일치
       // 보낸 메일: to가 상대방 이메일과 일치
-      const emailCounterparty = e.isOutgoing ? e.to : e.from;
+      const emailCounterparty = cleanEmail(e.isOutgoing ? e.to : e.from);
       return emailCounterparty === counterpartyEmail;
     });
 

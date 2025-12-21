@@ -164,6 +164,26 @@ async function searchMessages(searchQuery, options = {}) {
 }
 
 /**
+ * Helper function to decode HTML entities and extract clean email address
+ */
+function decodeAndCleanEmail(emailStr) {
+  if (!emailStr) return '';
+
+  // Decode common HTML entities
+  const decoded = emailStr
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/');
+
+  // Extract email from formats like "Name <email@domain.com>" or "<email@domain.com>"
+  const emailMatch = decoded.match(/<([^>]+)>/) || decoded.match(/([^\s<>]+@[^\s<>]+)/);
+  return emailMatch ? emailMatch[1].trim() : decoded.trim();
+}
+
+/**
  * Parse ZOHO message to inquiry format
  */
 function parseMessageToInquiry(message, isOutgoing = false) {
@@ -181,15 +201,15 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   return {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
-    from: message.fromAddress || message.from,
+    from: decodeAndCleanEmail(message.fromAddress || message.from),
     fromName: message.sender || message.fromName,
     subject: message.subject,
     body: message.content || message.summary || message.body,
     bodyHtml: message.content || message.bodyHtml,
     receivedAt: receivedAt,
-    toEmail: message.toAddress || message.to,
+    toEmail: decodeAndCleanEmail(message.toAddress || message.to),
     ccEmails: message.ccAddress && message.ccAddress !== 'Not Provided'
-      ? message.ccAddress.split(',').map(e => e.trim())
+      ? message.ccAddress.split(',').map(e => decodeAndCleanEmail(e))
       : (message.ccEmails || []),
     hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments,
     isOutgoing: isOutgoing
