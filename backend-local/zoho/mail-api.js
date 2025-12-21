@@ -198,10 +198,16 @@ function parseMessageToInquiry(message, isOutgoing = false) {
     receivedAt = new Date();
   }
 
+  const fromEmail = decodeAndCleanEmail(message.fromAddress || message.from);
+
+  // Check if this is an outgoing email based on sender
+  // Even if it's in Inbox folder, if sender is our account, it's outgoing
+  const actuallyOutgoing = isOutgoing || (config.accountEmail && fromEmail === config.accountEmail);
+
   return {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
-    from: decodeAndCleanEmail(message.fromAddress || message.from),
+    from: fromEmail,
     fromName: message.sender || message.fromName,
     subject: message.subject,
     body: message.content || message.summary || message.body,
@@ -212,7 +218,7 @@ function parseMessageToInquiry(message, isOutgoing = false) {
       ? message.ccAddress.split(',').map(e => decodeAndCleanEmail(e))
       : (message.ccEmails || []),
     hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments,
-    isOutgoing: isOutgoing
+    isOutgoing: actuallyOutgoing
   };
 }
 

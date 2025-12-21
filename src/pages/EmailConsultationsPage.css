@@ -282,6 +282,24 @@
   color: #1e40af;
 }
 
+/* From Cell */
+.from-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.from-name {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.from-email {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
 /* Subject Cell */
 .subject-cell {
   display: flex;

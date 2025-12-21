@@ -64,11 +64,11 @@ function EmailConsultationsPage() {
     await responseMutation.mutateAsync({ emailId, responseText, originalEmail });
   };
 
-  // Handle manual sync (admin only)
+  // Handle manual sync (all users allowed)
   const handleManualSync = async () => {
     const user = getCurrentUser();
-    if (!user || user.role !== 'admin') {
-      alert('관리자만 동기화를 실행할 수 있습니다.');
+    if (!user) {
+      alert('로그인이 필요합니다.');
       return;
     }
 
@@ -228,7 +228,12 @@ function EmailConsultationsPage() {
                         {item.source === 'gmail' ? 'Gmail' : 'ZOHO'}
                       </span>
                     </td>
-                    <td className="col-from">{item.fromName || item.from}</td>
+                    <td className="col-from">
+                      <div className="from-cell">
+                        <div className="from-name">{item.fromName || item.from}</div>
+                        <div className="from-email">{item.from}</div>
+                      </div>
+                    </td>
                     <td className="col-subject">
                       <div className="subject-cell">
                         <div className="subject-text">{item.subject}</div>
