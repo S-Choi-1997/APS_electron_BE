@@ -60,14 +60,14 @@ async function sendEmail(emailData) {
       payload.bccAddress = bcc.join(',');
     }
 
-    // Add threading headers for replies
-    if (inReplyTo) {
-      payload.inReplyTo = inReplyTo;
-    }
-
-    if (references) {
-      payload.references = references;
-    }
+    // Note: ZOHO Mail API does not support inReplyTo/references in regular send
+    // Threading must be done through folder-specific reply endpoints
+    // if (inReplyTo) {
+    //   payload.inReplyTo = inReplyTo;
+    // }
+    // if (references) {
+    //   payload.references = references;
+    // }
 
     console.log('[ZOHO Send] Sending email to:', to);
     console.log('[ZOHO Send] Subject:', subject);

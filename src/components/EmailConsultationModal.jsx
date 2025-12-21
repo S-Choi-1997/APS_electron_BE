@@ -12,28 +12,39 @@ import './ConsultationModal.css';
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   if (!email) return null;
 
-  const [responseMode, setResponseMode] = useState(false);
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // 스레드 관련 이메일 찾기 (같은 발신자 이메일 주소 기준)
+  // 스레드 관련 이메일 찾기 (같은 발신자 이메일 주소 기준, 시간순 정렬)
   const getThreadEmails = () => {
-    if (!allEmails || allEmails.length === 0) return [];
+    if (!allEmails || allEmails.length === 0) return { before: [], after: [] };
 
     // 현재 이메일의 발신자 주소
     const currentEmailAddress = email.from;
-    if (!currentEmailAddress) return [];
+    if (!currentEmailAddress) return { before: [], after: [] };
+
+    // 현재 이메일의 수신 시간
+    const currentTime = new Date(email.receivedAt).getTime();
 
     // 같은 발신자의 모든 이메일 (현재 이메일 제외)
-    return allEmails.filter(e => {
+    const sameFrom = allEmails.filter(e => {
       if (e.id === email.id) return false; // 현재 메일 제외
-
-      // 같은 발신자 이메일 주소
       return e.from === currentEmailAddress;
-    }).sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
+    });
+
+    // 시간순으로 정렬
+    const sorted = sameFrom.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
+
+    // 현재 메일 기준으로 이전/이후 분리
+    const before = sorted.filter(e => new Date(e.receivedAt).getTime() < currentTime);
+    const after = sorted.filter(e => new Date(e.receivedAt).getTime() > currentTime);
+
+    return { before, after };
   };
 
-  const previousThreads = getThreadEmails();
+  const { before: previousThreads, after: laterThreads } = getThreadEmails();
+  const [showPrevious, setShowPrevious] = useState(false);
+  const [showLater, setShowLater] = useState(false);
 
   const formatFullDate = (date) => {
     if (!date) return '';
@@ -73,7 +84,6 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       // Optimistic update: 현재 이메일 상태를 응신으로 변경
       email.status = EMAIL_STATUS.RESPONDED;
 
-      setResponseMode(false);
       setResponseText('');
       alert('답변이 전송되었습니다.');
     } catch (error) {
@@ -86,17 +96,11 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   const sourceColor = email.source === 'zoho' ? '#6366f1' : '#dc2626'; // indigo : red
 
-  // CollapsibleThreadItem Component
-  const CollapsibleThreadItem = ({ thread, index }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-
+  // ThreadItem Component (펼쳐진 상태만)
+  const ThreadItem = ({ thread, index }) => {
     return (
-      <div className="thread-item-collapsible">
-        {/* 접힌 상태 헤더 */}
-        <div
-          className="thread-item-header"
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
+      <div className="thread-item-expanded">
+        <div className="thread-item-header-expanded">
           <span className="thread-index">#{index + 1}</span>
           <span className={`thread-direction ${thread.isOutgoing ? 'outgoing' : 'incoming'}`}>
             {thread.isOutgoing ? '→ 보낸 메일' : '← 받은 메일'}
@@ -109,99 +113,142 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
           <span className="thread-date">
             {formatFullDate(thread.receivedAt)}
           </span>
-          <span className="expand-icon">
-            {isExpanded ? '▼' : '▶'}
-          </span>
         </div>
 
-        {/* 펼친 상태 내용 */}
-        {isExpanded && (
-          <div className="thread-item-body">
-            <div className="thread-subject">
-              <strong>제목:</strong> {thread.subject}
-            </div>
-            <div className="thread-content">
-              {thread.bodyHtml ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(thread.bodyHtml, {
-                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
-                      ALLOWED_ATTR: ['href', 'target', 'style', 'class']
-                    })
-                  }}
-                />
-              ) : (
-                <div className="thread-text">{thread.body || '내용 없음'}</div>
-              )}
-            </div>
+        <div className="thread-item-body">
+          <div className="thread-subject">
+            <strong>제목:</strong> {thread.subject}
           </div>
-        )}
+          <div className="thread-content">
+            {thread.bodyHtml ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(thread.bodyHtml, {
+                    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
+                    ALLOWED_ATTR: ['href', 'target', 'style', 'class']
+                  })
+                }}
+              />
+            ) : (
+              <div className="thread-text">{thread.body || '내용 없음'}</div>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
 
   return (
     <div className="modal-backdrop" onClick={handleBackdropClick}>
-      <div className="modal-content consultation-modal">
-        {/* Header */}
-        <div className="modal-header">
-          <div className="header-content">
-            <div className="header-main">
-              <h2 className="modal-title">{email.subject}</h2>
-              <div className="header-badges">
-                <span
-                  className="type-badge"
-                  style={{
-                    backgroundColor: sourceColor,
-                    color: 'white'
-                  }}
-                >
-                  {email.source === 'zoho' ? 'ZOHO' : 'Gmail'}
-                </span>
-                <span className={`status-badge status-${email.status}`}>
-                  {email.status === EMAIL_STATUS.UNREAD && '미확인'}
-                  {email.status === EMAIL_STATUS.READ && '확인'}
-                  {email.status === EMAIL_STATUS.RESPONDED && '응신'}
-                </span>
-                {email.hasAttachments && <span className="attachment-badge">📎</span>}
-              </div>
-            </div>
-            <div className="header-meta">
-              <span className="meta-item">
-                <strong>보낸사람:</strong>
-                <span className="email-address" onClick={handleCopyEmail} title="클릭하여 복사">
-                  {email.fromName || email.from} &lt;{email.from}&gt;
-                </span>
-              </span>
-              <span className="meta-item">
-                <strong>받은시간:</strong> {formatFullDate(email.receivedAt)}
-              </span>
-            </div>
-          </div>
-          <button className="close-button" onClick={onClose} aria-label="닫기">
-            ×
+      <div className="email-thread-container">
+        {/* 위쪽: 이전 메시지들 */}
+        {previousThreads.length > 0 && !showPrevious && (
+          <button
+            className="thread-expand-button-stack"
+            onClick={() => setShowPrevious(true)}
+          >
+            ▲ 이전 메시지 {previousThreads.length}개
           </button>
-        </div>
+        )}
 
-        {/* Body - 3층 구조 */}
-        <div className="modal-body email-modal-body">
-          {/* 1층: 이전 대화들 (접힌 상태) */}
-          {previousThreads.length > 0 && (
-            <div className="previous-threads-section">
-              <h3>이전 대화 ({previousThreads.length}개)</h3>
+        {/* 스크롤 영역 */}
+        <div className="thread-scroll-area">
+          {/* 이전 메시지들 (펼쳤을 때) */}
+          {showPrevious && (
+            <div className="thread-stack">
               {previousThreads.map((thread, index) => (
-                <CollapsibleThreadItem
-                  key={thread.id}
-                  thread={thread}
-                  index={index}
-                />
+                <div key={thread.id} className="thread-item-stack">
+                  <div className="modal-header">
+                    <div className="header-content">
+                      <div className="header-main">
+                        <h2 className="modal-title">{thread.subject}</h2>
+                        <div className="header-badges">
+                          <span className="thread-index-badge">#{index + 1}</span>
+                          <span className={`thread-direction ${thread.isOutgoing ? 'outgoing' : 'incoming'}`}>
+                            {thread.isOutgoing ? '→ 보낸 메일' : '← 받은 메일'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="header-meta">
+                        <span className="meta-item">
+                          <strong>보낸사람:</strong>
+                          <span>{thread.fromName || thread.from} &lt;{thread.from}&gt;</span>
+                        </span>
+                        <span className="meta-item">
+                          <strong>받은시간:</strong> {formatFullDate(thread.receivedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="modal-body">
+                    {thread.bodyHtml ? (
+                      <div
+                        className="message-html"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(thread.bodyHtml, {
+                            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
+                            ALLOWED_ATTR: ['href', 'target', 'style', 'class']
+                          })
+                        }}
+                      />
+                    ) : (
+                      <div className="message-text">{thread.body || '내용 없음'}</div>
+                    )}
+                  </div>
+                </div>
               ))}
+              <button
+                className="thread-collapse-button-stack"
+                onClick={() => setShowPrevious(false)}
+              >
+                ▼ 이전 메시지 접기
+              </button>
             </div>
           )}
 
-          {/* 2층: 현재 선택한 메일 (펼친 상태) */}
-          <div className="current-email-section">
-            <div className="message-section">
+          {/* 현재 메일 */}
+          <div className="current-email-stack">
+            <div className="modal-header">
+              <div className="header-content">
+                <div className="header-main">
+                  <h2 className="modal-title">{email.subject}</h2>
+                  <div className="header-badges">
+                    <span className="thread-index-badge">#{previousThreads.length + 1}</span>
+                    <span
+                      className="type-badge"
+                      style={{
+                        backgroundColor: sourceColor,
+                        color: 'white'
+                      }}
+                    >
+                      {email.source === 'zoho' ? 'ZOHO' : 'Gmail'}
+                    </span>
+                    <span className={`status-badge status-${email.status}`}>
+                      {email.status === EMAIL_STATUS.UNREAD && '미확인'}
+                      {email.status === EMAIL_STATUS.READ && '확인'}
+                      {email.status === EMAIL_STATUS.RESPONDED && '응신'}
+                    </span>
+                    {email.hasAttachments && <span className="attachment-badge">📎</span>}
+                  </div>
+                </div>
+                <div className="header-meta">
+                  <span className="meta-item">
+                    <strong>보낸사람:</strong>
+                    <span className="email-address" onClick={handleCopyEmail} title="클릭하여 복사">
+                      {email.fromName || email.from} &lt;{email.from}&gt;
+                    </span>
+                  </span>
+                  <span className="meta-item">
+                    <strong>받은시간:</strong> {formatFullDate(email.receivedAt)}
+                  </span>
+                </div>
+              </div>
+              <button className="close-button" onClick={onClose} aria-label="닫기">
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
               {email.bodyHtml ? (
                 <div
                   className="message-html"
@@ -217,22 +264,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                   {email.body || '(내용 없음)'}
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* 3층: 응신 입력 영역 (고정 높이) */}
-          {!responseMode ? (
-            <div className="action-buttons">
-              <button
-                className="respond-button primary"
-                onClick={() => setResponseMode(true)}
-              >
-                답변하기
-              </button>
-            </div>
-          ) : (
-            <div className="response-section">
-              <h3>답변 작성</h3>
               <textarea
                 className="response-textarea"
                 value={responseText}
@@ -240,6 +272,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                 placeholder="답변 내용을 입력하세요..."
                 disabled={sending}
               />
+
               <div className="response-actions">
                 <button
                   className="send-button primary"
@@ -251,17 +284,79 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                 <button
                   className="cancel-button"
                   onClick={() => {
-                    setResponseMode(false);
                     setResponseText('');
                   }}
                   disabled={sending}
                 >
-                  취소
+                  초기화
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* 이후 메시지들 (펼쳤을 때) */}
+          {showLater && (
+            <div className="thread-stack">
+              <button
+                className="thread-collapse-button-stack"
+                onClick={() => setShowLater(false)}
+              >
+                ▲ 이후 메시지 접기
+              </button>
+              {laterThreads.map((thread, index) => (
+                <div key={thread.id} className="thread-item-stack">
+                  <div className="modal-header">
+                    <div className="header-content">
+                      <div className="header-main">
+                        <h2 className="modal-title">{thread.subject}</h2>
+                        <div className="header-badges">
+                          <span className="thread-index-badge">#{previousThreads.length + 1 + index + 1}</span>
+                          <span className={`thread-direction ${thread.isOutgoing ? 'outgoing' : 'incoming'}`}>
+                            {thread.isOutgoing ? '→ 보낸 메일' : '← 받은 메일'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="header-meta">
+                        <span className="meta-item">
+                          <strong>보낸사람:</strong>
+                          <span>{thread.fromName || thread.from} &lt;{thread.from}&gt;</span>
+                        </span>
+                        <span className="meta-item">
+                          <strong>받은시간:</strong> {formatFullDate(thread.receivedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="modal-body">
+                    {thread.bodyHtml ? (
+                      <div
+                        className="message-html"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(thread.bodyHtml, {
+                            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
+                            ALLOWED_ATTR: ['href', 'target', 'style', 'class']
+                          })
+                        }}
+                      />
+                    ) : (
+                      <div className="message-text">{thread.body || '내용 없음'}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
+
+        {/* 아래쪽: 이후 메시지 버튼 */}
+        {laterThreads.length > 0 && !showLater && (
+          <button
+            className="thread-expand-button-stack"
+            onClick={() => setShowLater(true)}
+          >
+            ▼ 이후 메시지 {laterThreads.length}개
+          </button>
+        )}
       </div>
     </div>
   );
