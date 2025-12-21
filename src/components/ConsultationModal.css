@@ -1315,3 +1315,61 @@
 .thread-scroll-area::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
 }
+
+/* ===== Email Toast Notification ===== */
+.email-toast-notification {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px 40px;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 2000;
+  animation: toastSlideIn 0.3s ease, toastSlideOut 0.3s ease 2.7s;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -60%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes toastSlideOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -40%);
+  }
+}
+
+.toast-icon {
+  font-size: 32px;
+  font-weight: bold;
+  background: rgba(255, 255, 255, 0.3);
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.toast-message {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}

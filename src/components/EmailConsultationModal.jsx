@@ -14,26 +14,31 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
-  // 스레드 관련 이메일 찾기 (같은 발신자 이메일 주소 기준, 시간순 정렬)
+  // 스레드 관련 이메일 찾기 (같은 상대방과 주고받은 모든 메일)
   const getThreadEmails = () => {
     if (!allEmails || allEmails.length === 0) return { before: [], after: [] };
 
-    // 현재 이메일의 발신자 주소
-    const currentEmailAddress = email.from;
-    if (!currentEmailAddress) return { before: [], after: [] };
+    // 현재 이메일의 상대방 주소 (받은 메일이면 from, 보낸 메일이면 to)
+    const counterpartyEmail = email.isOutgoing ? email.to : email.from;
+    if (!counterpartyEmail) return { before: [], after: [] };
 
     // 현재 이메일의 수신 시간
     const currentTime = new Date(email.receivedAt).getTime();
 
-    // 같은 발신자의 모든 이메일 (현재 이메일 제외)
-    const sameFrom = allEmails.filter(e => {
+    // 같은 상대방과 주고받은 모든 이메일 (현재 이메일 제외)
+    const threadEmails = allEmails.filter(e => {
       if (e.id === email.id) return false; // 현재 메일 제외
-      return e.from === currentEmailAddress;
+
+      // 받은 메일: from이 상대방 이메일과 일치
+      // 보낸 메일: to가 상대방 이메일과 일치
+      const emailCounterparty = e.isOutgoing ? e.to : e.from;
+      return emailCounterparty === counterpartyEmail;
     });
 
     // 시간순으로 정렬
-    const sorted = sameFrom.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
+    const sorted = threadEmails.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
 
     // 현재 메일 기준으로 이전/이후 분리
     const before = sorted.filter(e => new Date(e.receivedAt).getTime() < currentTime);
@@ -85,7 +90,12 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       email.status = EMAIL_STATUS.RESPONDED;
 
       setResponseText('');
-      alert('답변이 전송되었습니다.');
+
+      // 토스트 표시
+      setShowToast(true);
+      setTimeout(() => {
+        setShowToast(false);
+      }, 3000); // 3초 후 자동으로 사라짐
     } catch (error) {
       console.error('[Email Response] Failed:', error);
       alert('답변 전송 실패: ' + error.message);
@@ -107,7 +117,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
           </span>
           <span className="thread-from">
             {thread.isOutgoing
-              ? `To: ${thread.toEmail || thread.from}`
+              ? `To: ${thread.to || thread.from}`
               : (thread.fromName || thread.from)}
           </span>
           <span className="thread-date">
@@ -140,6 +150,14 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   return (
     <div className="modal-backdrop" onClick={handleBackdropClick}>
+      {/* 토스트 알림 */}
+      {showToast && (
+        <div className="email-toast-notification">
+          <div className="toast-icon">✓</div>
+          <div className="toast-message">답변이 성공적으로 전송되었습니다</div>
+        </div>
+      )}
+
       <div className="email-thread-container">
         {/* 위쪽: 이전 메시지들 */}
         {previousThreads.length > 0 && !showPrevious && (

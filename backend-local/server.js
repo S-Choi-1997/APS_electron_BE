@@ -1821,9 +1821,13 @@ console.log('✓ Firestore real-time listener registered for inquiries collectio
 // Get all email inquiries
 app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
   try {
-    const { source, check, status, limit = 50, offset = 0 } = req.query;
+    const { source, check, status, limit = 50, offset = 0, includeOutgoing } = req.query;
 
-    let sql = 'SELECT * FROM email_inquiries WHERE 1=1';
+    // By default, only fetch incoming emails (is_outgoing = false)
+    // Set includeOutgoing=true to fetch all emails (for thread view)
+    let sql = includeOutgoing === 'true'
+      ? 'SELECT * FROM email_inquiries WHERE 1=1'
+      : 'SELECT * FROM email_inquiries WHERE is_outgoing = false';
     const values = [];
     let paramIndex = 1;
 

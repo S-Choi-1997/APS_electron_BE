@@ -21,6 +21,17 @@ export function useEmailInquiries(options = {}) {
 }
 
 /**
+ * 모든 이메일 조회 (스레드용 - 보낸 메일 포함)
+ */
+export function useAllEmailsForThread(options = {}) {
+  return useQuery({
+    queryKey: emailQueryKeys.list({ ...options, includeOutgoing: true }),
+    queryFn: () => fetchEmailInquiries({ ...options, includeOutgoing: true }),
+    staleTime: 5 * 60 * 1000,  // 5분
+  });
+}
+
+/**
  * 이메일 통계 조회
  */
 export function useEmailStats() {

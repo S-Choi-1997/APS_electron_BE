@@ -10,6 +10,7 @@ import EmailConsultationModal from '../components/EmailConsultationModal';
 import Pagination from '../components/Pagination';
 import {
   useEmailInquiries,
+  useAllEmailsForThread,
   useEmailStats,
   useUpdateEmailInquiry,
   useTriggerZohoSync,
@@ -28,6 +29,7 @@ function EmailConsultationsPage() {
 
   // React Query Hooks
   const { data: inquiries = [], isLoading, isError, error } = useEmailInquiries();
+  const { data: allEmailsForThread = [] } = useAllEmailsForThread(); // 스레드용 (보낸 메일 포함)
   const { data: stats = { total: 0, unread: 0, read: 0, responded: 0, gmail: 0, zoho: 0 } } = useEmailStats();
   const updateMutation = useUpdateEmailInquiry();
   const syncMutation = useTriggerZohoSync();
@@ -258,7 +260,7 @@ function EmailConsultationsPage() {
       {selectedEmail && (
         <EmailConsultationModal
           email={selectedEmail}
-          allEmails={inquiries}
+          allEmails={allEmailsForThread}
           onClose={() => setSelectedEmail(null)}
           onRespond={handleRespond}
         />

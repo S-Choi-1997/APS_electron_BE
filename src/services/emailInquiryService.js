@@ -21,7 +21,7 @@ export const EMAIL_STATUS = {
  */
 export async function fetchEmailInquiries(options = {}) {
   try {
-    const { source, check, status, limit, offset } = options;
+    const { source, check, status, limit, offset, includeOutgoing } = options;
 
     // Build query string
     const params = new URLSearchParams();
@@ -30,6 +30,7 @@ export async function fetchEmailInquiries(options = {}) {
     if (status) params.append('status', status);
     if (limit) params.append('limit', limit);
     if (offset) params.append('offset', offset);
+    if (includeOutgoing) params.append('includeOutgoing', 'true');
 
     const queryString = params.toString();
     const endpoint = queryString ? `/email-inquiries?${queryString}` : '/email-inquiries';

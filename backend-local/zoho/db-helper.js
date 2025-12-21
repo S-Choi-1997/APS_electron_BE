@@ -279,7 +279,7 @@ async function saveOutgoingEmail(emailData) {
         FROM email_inquiries
         WHERE message_id = $1;
       `;
-      const originalResult = await db_postgres.query(originalSql, [inReplyTo]);
+      const originalResult = await query(originalSql, [inReplyTo]);
 
       if (originalResult.rows.length > 0) {
         const original = originalResult.rows[0];
@@ -333,7 +333,7 @@ async function saveOutgoingEmail(emailData) {
       sentAt || new Date()
     ];
 
-    const result = await db_postgres.query(sql, values);
+    const result = await query(sql, values);
 
     console.log('[ZOHO DB] Outgoing email saved successfully:', messageId);
     return result.rows[0];
@@ -365,7 +365,7 @@ async function updateEmailStatus(emailId, status) {
     // Sync check field with status for backward compatibility
     const checkValue = (status === 'read' || status === 'responded');
 
-    const result = await db_postgres.query(sql, [status, checkValue, emailId]);
+    const result = await query(sql, [status, checkValue, emailId]);
 
     if (result.rows.length === 0) {
       throw new Error(`Email inquiry ${emailId} not found`);
