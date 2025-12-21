@@ -947,35 +947,51 @@
       console.log('[Sticky] Initial values set');
     });
 
-    // 로컬 스토리지에서 인증 정보 가져오기
-    function getAuthToken() {
+    // 전역 인증 정보 캐시
+    let cachedAuthData = null;
+
+    // IPC를 통해 메인 프로세스에서 인증 정보 가져오기
+    async function getAuthData() {
+      if (cachedAuthData) {
+        return cachedAuthData;
+      }
+
       try {
-        const userStr = localStorage.getItem('aps-local-auth-user');
-        if (!userStr) return null;
-        const user = JSON.parse(userStr);
-        return user.idToken;
+        if (window.electron && window.electron.getAuthToken) {
+          const result = await window.electron.getAuthToken();
+          if (result.success) {
+            cachedAuthData = result.user;
+            console.log('[Sticky] Auth data loaded from main process:', cachedAuthData.email);
+            return cachedAuthData;
+          } else {
+            console.error('[Sticky] Failed to get auth token:', result.error);
+            return null;
+          }
+        } else {
+          console.error('[Sticky] Electron API not available');
+          return null;
+        }
       } catch (error) {
-        console.error('Failed to get auth token:', error);
+        console.error('[Sticky] Failed to get auth data:', error);
         return null;
       }
     }
 
-    function getUserProvider() {
-      try {
-        const userStr = localStorage.getItem('aps-local-auth-user');
-        if (!userStr) return null;
-        const user = JSON.parse(userStr);
-        return user.provider;
-      } catch (error) {
-        console.error('Failed to get user provider:', error);
-        return null;
-      }
+    // 로컬 스토리지에서 인증 정보 가져오기 (폴백)
+    async function getAuthToken() {
+      const authData = await getAuthData();
+      return authData ? authData.idToken : null;
+    }
+
+    async function getUserProvider() {
+      const authData = await getAuthData();
+      return authData ? authData.provider : null;
     }
 
     // API 호출 헬퍼
     async function apiRequest(endpoint, options = {}) {
-      const token = getAuthToken();
-      const provider = getUserProvider();
+      const token = await getAuthToken();
+      const provider = await getUserProvider();
 
       if (!token) {
         throw new Error('인증 토큰이 없습니다.');
@@ -1300,17 +1316,16 @@
     // WebSocket 연결 및 이벤트 리스너
     let socket = null;
 
-    function connectWebSocket() {
-      const userStr = localStorage.getItem('currentUser');
-      if (!userStr) {
-        console.warn('[Sticky WebSocket] No user found, cannot connect');
+    async function connectWebSocket() {
+      const authData = await getAuthData();
+      if (!authData) {
+        console.warn('[Sticky WebSocket] No auth data found, cannot connect');
         return null;
       }
 
       try {
-        const user = JSON.parse(userStr);
-        const token = user.idToken;
-        const provider = user.provider;
+        const token = authData.idToken;
+        const provider = authData.provider;
 
         if (!token) {
           console.warn('[Sticky WebSocket] No token found');
@@ -1332,9 +1347,9 @@
           socket.emit('handshake', {
             type: 'client',
             metadata: {
-              email: user.email,
-              provider: user.provider,
-              displayName: user.displayName,
+              email: authData.email,
+              provider: authData.provider,
+              displayName: authData.displayName,
               connectedAt: new Date().toISOString()
             }
           });
@@ -1478,13 +1493,13 @@
     // 페이지 로드 시 데이터 초기화
     document.addEventListener('DOMContentLoaded', async () => {
       console.log('[Sticky] Initializing data...');
-      console.log('[Sticky] Checking localStorage...');
+      console.log('[Sticky] Checking auth data via IPC...');
 
-      const userStr = localStorage.getItem('currentUser');
-      console.log('[Sticky] currentUser from localStorage:', userStr ? 'Found' : 'NOT FOUND');
+      const authData = await getAuthData();
+      console.log('[Sticky] Auth data from IPC:', authData ? 'Found' : 'NOT FOUND');
 
-      if (!userStr) {
-        console.error('[Sticky] No auth token found in localStorage!');
+      if (!authData) {
+        console.error('[Sticky] No auth token found!');
         document.getElementById('memoBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다. 메인 창에서 로그인해주세요.</div>';
         document.getElementById('scheduleBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다.</div>';
         return;

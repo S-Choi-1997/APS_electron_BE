@@ -96,4 +96,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Electron 환경 확인
   isElectron: true,
+
+  // 인증 토큰 가져오기 (메인 프로세스에서 제공)
+  getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
 });

@@ -129,6 +129,12 @@ async function handleEmailResponse(user, body) {
         await updateEmailStatus(emailId, 'responded');
 
         console.log('[ZOHO Routes] Original email status updated to responded');
+
+        // Broadcast WebSocket event for original email status update
+        if (global.broadcastEvent) {
+          global.broadcastEvent('email:updated', { id: emailId, status: 'responded' });
+          console.log('[ZOHO Routes] WebSocket event broadcast for email status update');
+        }
       } catch (dbError) {
         console.error('[ZOHO Routes] Failed to save outgoing email to DB:', dbError);
         // Don't fail the request if DB save fails - email was sent successfully

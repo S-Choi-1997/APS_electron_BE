@@ -57,12 +57,23 @@ function createWindow() {
   });
 
   // 개발 모드: Vite 개발 서버 로드
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  console.log('=== Electron 로드 모드 확인 ===');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('app.isPackaged:', app.isPackaged);
+  console.log('__dirname:', __dirname);
+
+  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
+    console.log('-> 개발 모드: Vite 서버 로드');
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools(); // DevTools 자동 열기
+    // mainWindow.webContents.openDevTools(); // 개발 시 필요하면 주석 해제
   } else {
     // 프로덕션: 빌드된 파일 로드
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const distPath = path.join(__dirname, '../dist/index.html');
+    console.log('-> 프로덕션 모드: 파일 로드');
+    console.log('   파일 경로:', distPath);
+    console.log('   파일 존재:', fs.existsSync(distPath));
+    mainWindow.loadFile(distPath);
+    // mainWindow.webContents.openDevTools(); // 디버깅 시 필요하면 주석 해제
   }
 
   // DevTools 단축키 활성화
@@ -91,6 +102,39 @@ ipcMain.handle('clear-session', async () => {
     return { success: true };
   }
   return { success: false };
+});
+
+// 인증 토큰 가져오기 (sticky 윈도우용)
+ipcMain.handle('get-auth-token', async () => {
+  try {
+    // 메인 윈도우의 localStorage에서 인증 정보 가져오기
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return { success: false, error: 'Main window not found' };
+    }
+
+    const userDataStr = await mainWindow.webContents.executeJavaScript(`
+      localStorage.getItem('aps-local-auth-user')
+    `);
+
+    if (!userDataStr) {
+      return { success: false, error: 'No auth data found' };
+    }
+
+    const userData = JSON.parse(userDataStr);
+    return {
+      success: true,
+      user: {
+        email: userData.email,
+        displayName: userData.displayName,
+        provider: userData.provider,
+        idToken: userData.idToken,
+        accessToken: userData.accessToken
+      }
+    };
+  } catch (error) {
+    console.error('[Main] Failed to get auth token:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // 윈도우 제어 IPC 핸들러
@@ -163,7 +207,9 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     frame: false,
     alwaysOnTop: true,
     show: false, // 크기 조정 후 표시
-    resizable: false,
+    resizable: true, // setSize() 호출을 위해 true로 설정
+    minWidth: 300,
+    maxWidth: 300,
     opacity: savedSettings?.opacity || defaultOpacity,
     webPreferences: {
       nodeIntegration: false,
@@ -185,19 +231,36 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   const queryParams = cachedDataParam ? `${typeParam}&${cachedDataParam}` : typeParam;
 
   // 개발 모드와 프로덕션 모드 분기
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
+    console.log('[Sticky] 개발 모드: Vite 서버에서 로드');
     stickyWindow.loadURL(`http://localhost:5173/sticky.html?${queryParams}`);
-    // 개발 모드에서 DevTools 자동 열기
-    stickyWindow.webContents.openDevTools({ mode: 'detach' });
+    // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
   } else {
     // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
-    stickyWindow.loadFile(path.join(__dirname, '../dist/sticky.html'), {
+    const stickyPath = path.join(__dirname, '../dist/sticky.html');
+    console.log('[Sticky] 프로덕션 모드: 파일에서 로드');
+    console.log('[Sticky] 파일 경로:', stickyPath);
+    console.log('[Sticky] 파일 존재:', fs.existsSync(stickyPath));
+    stickyWindow.loadFile(stickyPath, {
       search: queryParams
     });
+    // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
   }
 
   stickyWindows[type] = stickyWindow;
   console.log(`[Sticky] Registered sticky window: ${type}, current keys:`, Object.keys(stickyWindows));
+
+  // 에러 핸들링 추가
+  stickyWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error(`[Sticky] Failed to load: ${errorCode} - ${errorDescription}`);
+  });
+
+  stickyWindow.webContents.on('did-finish-load', () => {
+    console.log(`[Sticky] Successfully loaded: ${type}`);
+    // 로드 완료 후 윈도우 표시
+    stickyWindow.show();
+    console.log(`[Sticky] Window shown: ${type}`);
+  });
 
   stickyWindow.on('closed', () => {
     console.log(`[Sticky] Closing sticky window: ${type}`);
@@ -225,9 +288,12 @@ ipcMain.handle('is-sticky-window-open', async (event, type) => {
 ipcMain.handle('resize-sticky-window', async (event, { width, height }) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (senderWindow) {
+    console.log(`[Sticky] Resizing window to ${width}x${height}`);
     senderWindow.setSize(width, height);
+    console.log('[Sticky] Window resized successfully');
     return { success: true };
   }
+  console.error('[Sticky] Resize failed: sender window not found');
   return { success: false };
 });
 
@@ -458,12 +524,12 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
 
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     subWindow.loadURL(`http://localhost:5173/memo-detail.html?${queryParams}`);
-    // 개발 모드에서 DevTools 자동 열기
-    subWindow.webContents.openDevTools({ mode: 'detach' });
+    // subWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
   } else {
     subWindow.loadFile(path.join(__dirname, '../dist/memo-detail.html'), {
       query: Object.fromEntries(new URLSearchParams(queryParams))
     });
+    // subWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
   }
 
   memoSubWindows[parentType] = subWindow;
