@@ -510,6 +510,50 @@ ipcMain.handle('open-external-url', async (event, url) => {
   }
 });
 
+// 파일 다운로드
+ipcMain.handle('download-file', async (event, { url, filename }) => {
+  try {
+    console.log(`[Main] Downloading file: ${filename} from ${url}`);
+    const { dialog } = require('electron');
+    const https = require('https');
+    const http = require('http');
+
+    // 다운로드 경로 선택
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: filename,
+      filters: [{ name: 'All Files', extensions: ['*'] }]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, canceled: true };
+    }
+
+    // URL에서 파일 다운로드
+    const protocol = url.startsWith('https') ? https : http;
+
+    return new Promise((resolve) => {
+      const file = fs.createWriteStream(filePath);
+
+      protocol.get(url, (response) => {
+        response.pipe(file);
+
+        file.on('finish', () => {
+          file.close();
+          console.log(`[Main] File downloaded successfully: ${filePath}`);
+          resolve({ success: true, filePath });
+        });
+      }).on('error', (error) => {
+        fs.unlink(filePath, () => {}); // 실패 시 파일 삭제
+        console.error('[Main] Download failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+    });
+  } catch (error) {
+    console.error('[Main] Failed to download file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // 메모 서브 윈도우 열기 (알림창 옆에 배치)
 ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   console.log('[Main] open-memo-sub-window called:', { mode, memoId });

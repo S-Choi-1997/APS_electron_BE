@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('electron', {
   // 외부 브라우저에서 URL 열기
   openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
 
+  // 파일 다운로드
+  downloadFile: (url, filename) => ipcRenderer.invoke('download-file', { url, filename }),
+
   // 메인 창 포커스 및 라우팅
   focusMainWindow: (route) => ipcRenderer.invoke('focus-main-window', route),
 

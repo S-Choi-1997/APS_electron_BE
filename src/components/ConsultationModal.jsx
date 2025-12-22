@@ -220,10 +220,19 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                             <a
                               href={file.downloadUrl}
                               className="download-link external-link"
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.preventDefault();
-                                if (window.electron && window.electron.openExternal) {
-                                  window.electron.openExternal(file.downloadUrl);
+                                if (window.electron && window.electron.downloadFile) {
+                                  const result = await window.electron.downloadFile(
+                                    file.downloadUrl,
+                                    file.name || file.filename || 'download'
+                                  );
+                                  if (result.success) {
+                                    console.log('[ConsultationModal] File downloaded:', result.filePath);
+                                  } else if (!result.canceled) {
+                                    console.error('[ConsultationModal] Download failed:', result.error);
+                                    alert('다운로드 실패: ' + result.error);
+                                  }
                                 } else {
                                   window.open(file.downloadUrl, '_blank');
                                 }
