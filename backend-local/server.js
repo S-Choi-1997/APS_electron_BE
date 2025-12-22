@@ -982,11 +982,12 @@ app.get("/inquiries/:id/attachments/urls", async (req, res) => {
         }
 
         // Generate signed URL (valid for 1 hour)
-        // Using timestamp number instead of Date object to avoid content-type being added to signature
+        // Explicitly exclude content-type from signed headers to avoid CORS issues
         const [url] = await file.getSignedUrl({
           version: "v4",
           action: "read",
           expires: Date.now() + 60 * 60 * 1000, // 1 hour
+          extensionHeaders: {}, // Prevent content-type from being added to signature
         });
 
         console.log('[DEBUG] Generated signed URL:', url);
