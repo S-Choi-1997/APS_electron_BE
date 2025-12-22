@@ -55,7 +55,7 @@ console.log("=".repeat(60));
 try {
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),
-    storageBucket: process.env.STORAGE_BUCKET || "aps-list.appspot.com",
+    storageBucket: process.env.STORAGE_BUCKET || "aps-list",
   });
   console.log("✓ Firebase Admin initialized successfully");
 } catch (error) {
