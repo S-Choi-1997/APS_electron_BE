@@ -177,15 +177,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
       // Toast 알림은 WebSocket 이벤트 핸들러에서 처리됨 (중복 방지)
 
-      // 중요 메모일 경우 알림창 자동으로 열기
-      if (memoForm.important && window.electron && window.electron.openStickyWindow) {
-        try {
-          await window.electron.openStickyWindow('memo', '중요 메모', createdMemo);
-        } catch (error) {
-          console.error('알림창 열기 실패:', error);
-        }
-      }
-
       setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowMemoCreateModal(false);
     } catch (error) {

@@ -571,7 +571,9 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     }
 
     // Generate JWT tokens
-    const { accessToken, refreshToken } = auth.generateTokens(adminUser);
+    const userAgent = req.headers['user-agent'] || null;
+    const ipAddress = req.ip || req.connection.remoteAddress || null;
+    const { accessToken, refreshToken } = await auth.generateTokens(adminUser, userAgent, ipAddress);
 
     console.log(`[Auth] Login successful for ${email} (role: ${adminUser.role})`);
 
@@ -607,7 +609,9 @@ app.post('/auth/refresh', async (req, res) => {
     }
 
     // Verify refresh token and generate new access token + new refresh token (rolling)
-    const { accessToken, refreshToken: newRefreshToken, email } = await auth.refreshAccessToken(refreshToken);
+    const userAgent = req.headers['user-agent'] || null;
+    const ipAddress = req.ip || req.connection.remoteAddress || null;
+    const { accessToken, refreshToken: newRefreshToken, email } = await auth.refreshAccessToken(refreshToken, userAgent, ipAddress);
 
     // Get admin info from Firestore (avoid shadowing 'admin' module)
     const adminUser = await firestoreAdmin.getAdminByEmail(email);

@@ -77,6 +77,24 @@ CREATE INDEX IF NOT EXISTS idx_zoho_tokens_email ON zoho_oauth_tokens(zoho_email
 CREATE INDEX IF NOT EXISTS idx_zoho_tokens_expires_at ON zoho_oauth_tokens(expires_at);
 
 -- ============================================
+-- Refresh Tokens Table (JWT Auto-Login)
+-- ============================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id SERIAL PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  email VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  user_agent TEXT,
+  ip_address VARCHAR(45)
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_email ON refresh_tokens(email);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- ============================================
 -- Memos Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS memos (
