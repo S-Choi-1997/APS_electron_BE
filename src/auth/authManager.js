@@ -36,6 +36,11 @@ export async function signInWithLocal(email, password) {
   // Save to localStorage for Electron IPC access
   localStorage.setItem('currentUser', JSON.stringify(user));
 
+  // Update last login email (if email saving feature was ever used)
+  if (localStorage.getItem('aps-saved-email') !== null) {
+    localStorage.setItem('aps-saved-email', user.email);
+  }
+
   notifyAuthListeners(user);
   return user;
 }
@@ -48,8 +53,10 @@ export function signOut() {
     localAuth.signOut();
   }
 
-  // Clear currentUser from localStorage
+  // Clear auth data from localStorage
   localStorage.removeItem('currentUser');
+  // Note: aps-auto-login and aps-saved-email are kept (user preferences)
+
   currentUser = null;
   notifyAuthListeners(null);
 
@@ -141,18 +148,18 @@ export async function restoreSession() {
 
   if (user) {
     currentUser = user;
-    console.log('[AuthManager] Session restored:', currentUser.email);
+    console.log('[AuthManager] Session restored:', currentUser.email, 'displayName:', currentUser.displayName);
 
-    // Fetch user info from backend to get displayName
-    try {
-      const userInfo = await getCurrentUserInfo({ currentUser });
-      currentUser.displayName = userInfo.display_name || '';
-    } catch (error) {
-      console.warn('[AuthManager] Failed to fetch user info from backend:', error);
-      currentUser.displayName = currentUser.displayName || currentUser.email;
-    }
+    // displayName is already included in the refresh token response from backend
+    // No need to fetch again - it's already set by localAuth.restoreSession()
 
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+    // Update last login email (if email saving feature was ever used)
+    if (localStorage.getItem('aps-saved-email') !== null) {
+      localStorage.setItem('aps-saved-email', currentUser.email);
+    }
+
     notifyAuthListeners(currentUser);
     return currentUser;
   }

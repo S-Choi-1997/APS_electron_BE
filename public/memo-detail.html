@@ -251,6 +251,92 @@
       color: #764ba2;
       border-bottom-color: #764ba2;
     }
+
+    /* 삭제 확인 모달 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 340px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      animation: modalFadeIn 0.2s ease-out;
+    }
+
+    @keyframes modalFadeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .modal-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 12px;
+    }
+
+    .modal-message {
+      font-size: 0.9375rem;
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .modal-btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-btn-danger {
+      background: #ff4444;
+      color: white;
+    }
+
+    .modal-btn-danger:hover {
+      background: #cc0000;
+    }
+
+    .modal-btn-secondary {
+      background: #f0f0f0;
+      color: #666;
+    }
+
+    .modal-btn-secondary:hover {
+      background: #e0e0e0;
+    }
   </style>
 </head>
 <body>
@@ -263,6 +349,21 @@
   <!-- 컨텐츠 -->
   <div class="content" id="content">
     <!-- 동적으로 로드됨 -->
+  </div>
+
+  <!-- 삭제 확인 모달 -->
+  <div class="modal-overlay" id="deleteModal" onclick="closeDeleteModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-title">메모 삭제</div>
+      <div class="modal-message">
+        이 메모를 삭제하시겠습니까?<br>
+        <span style="color: #999; font-size: 0.8125rem;">이 작업은 되돌릴 수 없습니다.</span>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-danger" onclick="confirmDelete()">삭제</button>
+        <button class="modal-btn modal-btn-secondary" onclick="closeDeleteModal()">취소</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -280,7 +381,7 @@
     // 로컬 스토리지에서 인증 정보 가져오기
     function getAuthToken() {
       try {
-        const userStr = localStorage.getItem('currentUser');
+        const userStr = localStorage.getItem('aps-local-auth-user');
         if (!userStr) return null;
         const user = JSON.parse(userStr);
         return user.idToken;
@@ -292,7 +393,7 @@
 
     function getUserProvider() {
       try {
-        const userStr = localStorage.getItem('currentUser');
+        const userStr = localStorage.getItem('aps-local-auth-user');
         if (!userStr) return null;
         const user = JSON.parse(userStr);
         return user.provider;
@@ -304,7 +405,7 @@
 
     function getCurrentUser() {
       try {
-        const userStr = localStorage.getItem('currentUser');
+        const userStr = localStorage.getItem('aps-local-auth-user');
         if (!userStr) return null;
         return JSON.parse(userStr);
       } catch (error) {
@@ -383,7 +484,7 @@
           </div>
 
           <div class="button-group">
-            <button class="btn btn-danger" onclick="deleteMemo()">삭제</button>
+            <button class="btn btn-danger" onclick="showDeleteModal()">삭제</button>
             <button class="btn btn-secondary" onclick="window.close()">닫기</button>
           </div>
         `;
@@ -484,11 +585,19 @@
       }
     }
 
-    // 메모 삭제
-    async function deleteMemo() {
-      if (!confirm('이 메모를 삭제하시겠습니까?')) {
-        return;
-      }
+    // 삭제 모달 열기
+    function showDeleteModal() {
+      document.getElementById('deleteModal').classList.add('show');
+    }
+
+    // 삭제 모달 닫기
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.remove('show');
+    }
+
+    // 삭제 확인
+    async function confirmDelete() {
+      closeDeleteModal();
 
       try {
         await apiRequest(`/memos/${memoId}`, {
@@ -521,11 +630,11 @@
     // 초기화
     console.log('[MemoDetail] Initializing... mode:', mode, 'memoId:', memoId);
     console.log('[MemoDetail] Checking localStorage...');
-    const userStr = localStorage.getItem('currentUser');
-    console.log('[MemoDetail] currentUser exists:', !!userStr);
+    const userStr = localStorage.getItem('aps-local-auth-user');
+    console.log('[MemoDetail] aps-local-auth-user exists:', !!userStr);
 
     if (!userStr) {
-      console.error('[MemoDetail] No currentUser in localStorage!');
+      console.error('[MemoDetail] No aps-local-auth-user in localStorage!');
       document.getElementById('content').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">인증 정보가 없습니다.<br>메인 창에서 로그인해주세요.</div>';
     } else if (mode === 'view' && memoId) {
       renderViewMode();

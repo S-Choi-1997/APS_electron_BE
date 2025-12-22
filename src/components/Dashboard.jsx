@@ -446,13 +446,13 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     }
   }, []);
 
-  // Electron IPC 이벤트 리스너 - 알림창에서 메모 삭제 시 자동 새로고침
+  // Electron IPC 이벤트 리스너 - 알림창에서 메모 삭제 시 즉시 반영
   useEffect(() => {
     if (window.electron && window.electron.onMemoDeleted) {
       const cleanup = window.electron.onMemoDeleted((memoId) => {
         console.log('[Dashboard] 메모 삭제 이벤트 수신:', memoId);
-        // 메모 목록 새로고침
-        loadMemos();
+        // 즉시 state에서 제거
+        setMemos(prev => prev.filter(m => m.id !== memoId));
       });
 
       // 컴포넌트 언마운트 시 리스너 정리
@@ -475,10 +475,10 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       loadMemos();
     });
 
-    // 메모 삭제 이벤트 - 데이터 새로고침
+    // 메모 삭제 이벤트 - 즉시 state에서 제거
     socket.on('memo:deleted', (data) => {
       console.log('[Dashboard] Memo deleted event received:', data.id);
-      loadMemos();
+      setMemos(prev => prev.filter(m => m.id !== data.id));
     });
 
     // 일정 생성 이벤트 - 데이터 새로고침
@@ -493,10 +493,10 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       loadSchedules();
     });
 
-    // 일정 삭제 이벤트 - 데이터 새로고침
+    // 일정 삭제 이벤트 - 즉시 state에서 제거
     socket.on('schedule:deleted', (data) => {
       console.log('[Dashboard] Schedule deleted event received:', data.id);
-      loadSchedules();
+      setSchedules(prev => prev.filter(s => s.id !== data.id));
     });
 
     return () => {
@@ -1388,12 +1388,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
           <p className="delete-confirm-subtitle">이 작업은 되돌릴 수 없습니다.</p>
           <div className="modal-actions">
             <button
-              className="modal-btn secondary"
-              onClick={() => setShowDeleteConfirmModal(false)}
-            >
-              취소
-            </button>
-            <button
               className="modal-btn danger"
               onClick={() => {
                 if (deleteTarget?.type === 'memo') handleMemoDelete();
@@ -1401,6 +1395,12 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
               }}
             >
               삭제
+            </button>
+            <button
+              className="modal-btn secondary"
+              onClick={() => setShowDeleteConfirmModal(false)}
+            >
+              취소
             </button>
           </div>
         </div>

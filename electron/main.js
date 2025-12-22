@@ -53,6 +53,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false, // Allow loading images from external URLs (Google Cloud Storage)
     },
     icon: path.join(__dirname, 'icon.png'),
   });

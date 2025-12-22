@@ -480,11 +480,11 @@ function MemoPage({ user }) {
         <div className="confirm-dialog">
           <p>이 메모를 삭제하시겠습니까?</p>
           <div className="modal-actions">
-            <button className="modal-btn secondary" onClick={() => setShowDeleteConfirmModal(false)}>
-              취소
-            </button>
             <button className="modal-btn danger" onClick={handleMemoDelete}>
               삭제
+            </button>
+            <button className="modal-btn secondary" onClick={() => setShowDeleteConfirmModal(false)}>
+              취소
             </button>
           </div>
         </div>

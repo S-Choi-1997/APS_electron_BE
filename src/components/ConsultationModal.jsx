@@ -273,11 +273,13 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                   src={currentPreview.downloadUrl}
                   alt={currentPreview.name || 'attachment'}
                   onLoad={() => console.log('[ConsultationModal] Image loaded:', currentPreview.downloadUrl)}
-                  onError={(e) => console.error('[ConsultationModal] Image load error:', {
-                    src: currentPreview.downloadUrl,
-                    error: e,
-                    file: currentPreview
-                  })}
+                  onError={(e) => {
+                    console.error('[ConsultationModal] Image load error:', {
+                      src: currentPreview.downloadUrl,
+                      error: e,
+                      file: currentPreview
+                    });
+                  }}
                 />
                 {imageAttachments.length > 1 && (
                   <>

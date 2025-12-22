@@ -20,6 +20,8 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
   const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'success', title: '', message: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState('전체');
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const ITEMS_PER_PAGE = 10;
 
   // 기본 5가지 타입 필터 (항상 표시)
@@ -28,6 +30,22 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
   // Handle row click to open modal
   const handleRowClick = async (consultation) => {
     setSelectedConsultation(consultation);
+    setAttachments([]);
+    setAttachmentsLoading(true);
+
+    // Fetch attachments
+    try {
+      const { fetchAttachmentUrls } = await import('../services/inquiryService');
+      const { getCurrentUser } = await import('../auth/authManager');
+
+      const urls = await fetchAttachmentUrls(consultation.id, { currentUser: getCurrentUser() });
+      setAttachments(urls || []);
+    } catch (error) {
+      console.error('Failed to fetch attachments:', error);
+      setAttachments([]);
+    } finally {
+      setAttachmentsLoading(false);
+    }
 
     // Mark as read (not responded) if unread
     const currentStatus = consultation.status || (consultation.check ? 'responded' : 'unread');
@@ -370,6 +388,8 @@ function WebsiteConsultationsPage({ consultations, setConsultations }) {
           consultation={selectedConsultation}
           onClose={() => setSelectedConsultation(null)}
           onRespond={handleRespond}
+          attachments={attachments}
+          attachmentsLoading={attachmentsLoading}
         />
       )}
 

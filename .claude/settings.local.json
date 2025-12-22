@@ -77,7 +77,8 @@
       "Bash(git restore:*)",
       "Bash(python:*)",
       "Bash(node migrations/migrate-inquiry-status.js:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(gh release:*)"
     ]
   }
 }
