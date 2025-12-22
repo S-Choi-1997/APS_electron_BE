@@ -989,6 +989,9 @@ app.get("/inquiries/:id/attachments/urls", async (req, res) => {
           expires: Date.now() + 60 * 60 * 1000, // 1 hour
         });
 
+        console.log('[DEBUG] Generated signed URL:', url);
+        console.log('[DEBUG] URL contains X-Goog-SignedHeaders:', url.includes('X-Goog-SignedHeaders'));
+
         return {
           name: attachment.name,
           type: attachment.type,
