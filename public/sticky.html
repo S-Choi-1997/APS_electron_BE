@@ -759,7 +759,7 @@
             id="opacitySlider"
             min="50"
             max="100"
-            value="95"
+            value="100"
             oninput="changeOpacity(this.value)"
           />
         </div>
@@ -1301,6 +1301,23 @@
       }
     }
 
+    // 페이지 로드 시 저장된 투명도 값으로 슬라이더 초기화
+    async function initializeOpacitySlider() {
+      if (window.electron && window.electron.getWindowOpacity) {
+        try {
+          const currentOpacity = await window.electron.getWindowOpacity();
+          const sliderValue = Math.round(currentOpacity * 100);
+          const slider = document.getElementById('opacitySlider');
+          if (slider) {
+            slider.value = sliderValue;
+            console.log('[Sticky] Opacity slider initialized:', sliderValue);
+          }
+        } catch (error) {
+          console.error('[Sticky] Failed to get window opacity:', error);
+        }
+      }
+    }
+
     // IPC 이벤트 리스너: 다른 창에서 상담/일정 생성/수정/삭제 시 자동 업데이트
     if (window.electron && window.electron.onConsultationUpdated) {
       window.electron.onConsultationUpdated(async () => {
@@ -1494,6 +1511,9 @@
     document.addEventListener('DOMContentLoaded', async () => {
       console.log('[Sticky] Initializing data...');
       console.log('[Sticky] Checking auth data via IPC...');
+
+      // 투명도 슬라이더 초기화
+      await initializeOpacitySlider();
 
       const authData = await getAuthData();
       console.log('[Sticky] Auth data from IPC:', authData ? 'Found' : 'NOT FOUND');

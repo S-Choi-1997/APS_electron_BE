@@ -247,7 +247,7 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   const savedSettings = loadStickySettings(type);
   const defaultX = 100;
   const defaultY = 100;
-  const defaultOpacity = 0.95;
+  const defaultOpacity = 1.0;
 
   const stickyWindow = new BrowserWindow({
     width: 300,
@@ -362,11 +362,13 @@ ipcMain.handle('set-window-opacity', async (event, opacity) => {
   if (senderWindow) {
     senderWindow.setOpacity(opacity);
 
-    // Save opacity setting
+    // Save opacity setting immediately
     for (const [type, window] of Object.entries(stickyWindows)) {
       if (window === senderWindow) {
         const [x, y] = senderWindow.getPosition();
-        saveStickySettings(type, { x, y, opacity });
+        const currentOpacity = senderWindow.getOpacity(); // Get current opacity
+        saveStickySettings(type, { x, y, opacity: currentOpacity });
+        console.log(`[Sticky] Opacity saved for ${type}: ${currentOpacity}`);
         break;
       }
     }
@@ -374,6 +376,17 @@ ipcMain.handle('set-window-opacity', async (event, opacity) => {
     return { success: true };
   }
   return { success: false };
+});
+
+// Get window opacity
+ipcMain.handle('get-window-opacity', async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    const opacity = senderWindow.getOpacity();
+    console.log(`[Sticky] Current opacity: ${opacity}`);
+    return opacity;
+  }
+  return 1.0; // Default opacity
 });
 
 // Close all sticky windows (called on logout)

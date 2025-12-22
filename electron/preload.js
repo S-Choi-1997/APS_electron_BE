@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowOpacity: (opacity) =>
     ipcRenderer.invoke('set-window-opacity', opacity),
 
+  getWindowOpacity: () =>
+    ipcRenderer.invoke('get-window-opacity'),
+
   // 메인 윈도우 제어
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
