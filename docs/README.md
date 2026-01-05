@@ -1,56 +1,72 @@
-# APS Admin 문서 모음
+# 문서 디렉토리
 
-이 폴더는 APS Admin Electron 앱과 관련된 모든 문서를 포함합니다.
-
-## 📚 사용 가이드
-
-| 문서 | 설명 |
-|------|------|
-| [RELEASE_GUIDE.md](RELEASE_GUIDE.md) | **새 버전 릴리즈 방법** - 자동/수동 빌드 및 배포 |
-| [ADMIN_ACCOUNT_GUIDE.md](ADMIN_ACCOUNT_GUIDE.md) | **관리자 계정 추가 방법** - 새 관리자 생성 |
-
-## 🏗️ 아키텍처 문서
-
-| 문서 | 설명 |
-|------|------|
-| [CLAUDE.md](CLAUDE.md) | **프로젝트 전체 가이드** - Claude Code를 위한 프로젝트 개요 |
-| [ELECTRON_MIGRATION.md](ELECTRON_MIGRATION.md) | GCP Cloud Run → Electron 마이그레이션 과정 |
-| [JWT_AUTH_MIGRATION.md](JWT_AUTH_MIGRATION.md) | JWT 인증 시스템 마이그레이션 |
-| [WEBSOCKET_GUIDE.md](WEBSOCKET_GUIDE.md) | WebSocket 릴레이 서버 가이드 |
-| [CSS_STRUCTURE.md](CSS_STRUCTURE.md) | CSS 구조 및 스타일 가이드 |
-
-## 🗂️ 레거시 문서
-
-| 문서 | 설명 |
-|------|------|
-| [계정추가법_legacy.txt](계정추가법_legacy.txt) | 구 관리자 계정 추가 방법 (참고용) |
-| [참고.txt](참고.txt) | 기타 참고 사항 |
-| [임시-진행도.md](임시-진행도.md) | 개발 진행 상황 메모 |
+> APS 상담 관리 시스템 프로젝트 문서
 
 ---
 
-## 빠른 참조
+## 📚 주요 문서
 
-### 새 버전 배포하기
-```bash
-# 1. 버전 업데이트 (package.json)
-# 2. 태그 생성 및 푸시
-git tag v1.2.0
-git push origin v1.2.0
-# 3. GitHub Actions에서 자동 빌드
-```
-👉 자세한 내용: [RELEASE_GUIDE.md](RELEASE_GUIDE.md)
+### [프로젝트소개.md](프로젝트소개.md)
+**포트폴리오용 프로젝트 설명서**
+- 프로젝트 개요 및 핵심 가치
+- 기술 스택 및 아키텍처
+- 주요 기능 및 기술적 특징
+- 데이터베이스 설계
+- 개발 성과 및 학습 포인트
 
-### 관리자 계정 추가하기
-```bash
-cd backend-local
-node create-admin.js admin@test.com TestPass123 "관리자" admin
-```
-👉 자세한 내용: [ADMIN_ACCOUNT_GUIDE.md](ADMIN_ACCOUNT_GUIDE.md)
+### [빠른시작가이드.md](빠른시작가이드.md)
+**처음 프로젝트를 받았을 때 개발 환경 구축**
+- 필수 프로그램 설치
+- 프로젝트 설치 및 환경 설정
+- Docker 백엔드 실행
+- 관리자 계정 생성
+- 앱 실행 및 트러블슈팅
 
-### 프로젝트 구조 이해하기
-👉 [CLAUDE.md](CLAUDE.md) 참조
+### [계정추가법.md](계정추가법.md)
+**관리자/사용자 계정 추가 방법**
+- create-admin.js 스크립트 사용법
+- 계정 생성 예시
+- 오류 해결 방법
 
 ---
 
-**문의:** 문제가 발생하면 각 문서의 "문제 해결" 섹션을 참고하세요.
+## 📂 디렉토리 구조
+
+```
+docs/
+├── README.md                 # 이 파일
+├── 프로젝트소개.md           # 포트폴리오용 종합 문서
+├── 빠른시작가이드.md         # 초기 환경 구축
+├── 계정추가법.md             # 사용자 계정 관리
+└── legacy/                   # 구 버전 문서 (참고용)
+    ├── 참고.txt
+    └── 계정추가법_legacy.txt
+```
+
+---
+
+## 🚀 문서 읽는 순서
+
+### 처음 프로젝트를 받았다면
+1. 빠른시작가이드.md - 환경 구축 (15~20분)
+2. 프로젝트소개.md - 전체 구조 이해
+3. 코드 탐색 시작
+
+### 포트폴리오/면접 준비
+1. 프로젝트소개.md - 프로젝트 설명
+2. 주요 코드 파일 리뷰:
+   - backend-local/server.js - 백엔드 API 구조
+   - src/App.jsx - 프론트엔드 구조
+   - backend-local/auth.js - JWT 인증 로직
+
+### 운영/배포 담당자
+1. 빠른시작가이드.md - 환경 구축
+2. 계정추가법.md - 사용자 관리
+
+---
+
+## 📝 문서 버전
+
+- **최초 작성**: 2025-12-30
+- **작성자**: 이창호 (chanmoolee@gmail.com)
+- **버전**: 1.0
