@@ -23,6 +23,7 @@
     "@tanstack/react-query": "^5.90.12",
     "@tanstack/react-query-devtools": "^5.91.1",
     "dompurify": "^3.3.1",
+    "electron-updater": "^6.7.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.10.1",
@@ -42,6 +43,11 @@
   "build": {
     "appId": "kr.apsconsulting.admin",
     "productName": "APS Admin",
+    "publish": {
+      "provider": "github",
+      "owner": "S-Choi-1997",
+      "repo": "APS_electron_BE"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*"

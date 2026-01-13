@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 let tray = null; // System tray
@@ -10,6 +11,97 @@ let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
 
 // Sticky window settings file path
 const STICKY_SETTINGS_PATH = path.join(app.getPath('userData'), 'sticky-settings.json');
+
+// ==================== Auto Updater 설정 ====================
+autoUpdater.autoDownload = false; // 자동 다운로드 비활성화 (사용자 확인 후 다운로드)
+autoUpdater.autoInstallOnAppQuit = true; // 앱 종료 시 자동 설치
+
+// 업데이트 확인 중
+autoUpdater.on('checking-for-update', () => {
+  console.log('[AutoUpdater] Checking for update...');
+});
+
+// 업데이트 가능
+autoUpdater.on('update-available', (info) => {
+  const version = info?.version || 'unknown';
+  console.log('[AutoUpdater] Update available:', version);
+
+  // 메인 윈도우에 알림
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-available', {
+      version: version,
+      releaseNotes: info?.releaseNotes || ''
+    });
+  }
+
+  // 다이얼로그로 사용자 확인 (mainWindow가 없으면 null로 대체)
+  const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+  dialog.showMessageBox(parentWindow, {
+    type: 'info',
+    title: '업데이트 가능',
+    message: `새 버전 ${version}이(가) 있습니다.\n다운로드하시겠습니까?`,
+    buttons: ['다운로드', '나중에'],
+    defaultId: 0,
+    cancelId: 1
+  }).then(({ response }) => {
+    if (response === 0) {
+      autoUpdater.downloadUpdate();
+    }
+  });
+});
+
+// 업데이트 없음
+autoUpdater.on('update-not-available', (info) => {
+  console.log('[AutoUpdater] Update not available. Current version is latest.');
+});
+
+// 다운로드 진행률
+autoUpdater.on('download-progress', (progressObj) => {
+  console.log(`[AutoUpdater] Download progress: ${progressObj.percent.toFixed(1)}%`);
+
+  // 메인 윈도우에 진행률 전송
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-download-progress', {
+      percent: progressObj.percent,
+      bytesPerSecond: progressObj.bytesPerSecond,
+      transferred: progressObj.transferred,
+      total: progressObj.total
+    });
+  }
+});
+
+// 다운로드 완료
+autoUpdater.on('update-downloaded', (info) => {
+  const version = info?.version || 'unknown';
+  console.log('[AutoUpdater] Update downloaded:', version);
+
+  // 메인 윈도우에 알림
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-downloaded', {
+      version: version
+    });
+  }
+
+  // 다이얼로그로 재시작 확인 (mainWindow가 없으면 null로 대체)
+  const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+  dialog.showMessageBox(parentWindow, {
+    type: 'info',
+    title: '업데이트 준비 완료',
+    message: `버전 ${version} 다운로드가 완료되었습니다.\n지금 재시작하여 업데이트하시겠습니까?`,
+    buttons: ['지금 재시작', '나중에'],
+    defaultId: 0,
+    cancelId: 1
+  }).then(({ response }) => {
+    if (response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+});
+
+// 업데이트 에러
+autoUpdater.on('error', (err) => {
+  console.error('[AutoUpdater] Error:', err);
+});
 
 // Load sticky window settings
 function loadStickySettings(type) {
@@ -915,7 +1007,18 @@ ipcMain.handle('navigate-from-notification', async (event, route) => {
   return { success: true };
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  // 프로덕션 환경에서만 업데이트 확인 (개발 모드에서는 실행 안함)
+  if (app.isPackaged) {
+    // 앱 시작 후 3초 뒤에 업데이트 확인 (UI 로딩 완료 후)
+    setTimeout(() => {
+      console.log('[AutoUpdater] Checking for updates...');
+      autoUpdater.checkForUpdates();
+    }, 3000);
+  }
+});
 
 app.on('window-all-closed', () => {
   // 트레이로 백그라운드 실행 유지 (명시적 종료만 앱 종료)

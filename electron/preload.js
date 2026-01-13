@@ -108,4 +108,23 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 인증 토큰 가져오기 (메인 프로세스에서 제공)
   getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
+
+  // ==================== Auto Update 관련 ====================
+  // 업데이트 가능 이벤트 수신
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.on('update-available', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('update-available');
+  },
+
+  // 다운로드 진행률 이벤트 수신
+  onUpdateDownloadProgress: (callback) => {
+    ipcRenderer.on('update-download-progress', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('update-download-progress');
+  },
+
+  // 업데이트 다운로드 완료 이벤트 수신
+  onUpdateDownloaded: (callback) => {
+    ipcRenderer.on('update-downloaded', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('update-downloaded');
+  },
 });
