@@ -554,6 +554,32 @@ ipcMain.handle('download-file', async (event, { url, filename }) => {
   }
 });
 
+// Blob/Buffer 데이터를 파일로 저장 (인증이 필요한 다운로드용)
+ipcMain.handle('save-file', async (event, { buffer, filename }) => {
+  try {
+    console.log(`[Main] Saving file: ${filename}`);
+    const { dialog } = require('electron');
+
+    // 다운로드 경로 선택
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: filename,
+      filters: [{ name: 'All Files', extensions: ['*'] }]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, canceled: true };
+    }
+
+    // Buffer 데이터를 파일로 저장
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+    console.log(`[Main] File saved successfully: ${filePath}`);
+    return { success: true, filePath };
+  } catch (error) {
+    console.error('[Main] Failed to save file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // 메모 서브 윈도우 열기 (알림창 옆에 배치)
 ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   console.log('[Main] open-memo-sub-window called:', { mode, memoId });

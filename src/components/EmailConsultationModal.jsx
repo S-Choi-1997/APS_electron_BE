@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
-import { API_URL } from '../config/api';
+import { API_URL, RELAY_ENVIRONMENT } from '../config/api';
 import './ConsultationModal.css';
 
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
@@ -23,7 +23,18 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [contentError, setContentError] = useState(null);
 
   // 인증 토큰 가져오기
-  const getAuthToken = () => localStorage.getItem('accessToken');
+  const getAuthToken = () => {
+    try {
+      const raw = localStorage.getItem('aps-local-auth-user');
+      if (raw) {
+        const user = JSON.parse(raw);
+        return user.idToken;
+      }
+    } catch (e) {
+      console.error('[Email Modal] Failed to get auth token:', e);
+    }
+    return null;
+  };
 
   // ZOHO 이메일의 경우 전체 내용과 첨부파일 정보 가져오기
   useEffect(() => {
@@ -41,7 +52,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       setContentError(null);
       const token = getAuthToken();
       const response = await fetch(`${API_URL}/email-inquiries/${email.id}/content`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Relay-Environment': RELAY_ENVIRONMENT
+        }
       });
       if (!response.ok) {
         if (response.status === 400) {
@@ -65,7 +79,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       setLoadingAttachments(true);
       const token = getAuthToken();
       const response = await fetch(`${API_URL}/email-inquiries/${email.id}/attachments`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Relay-Environment': RELAY_ENVIRONMENT
+        }
       });
       if (!response.ok) throw new Error('Failed to fetch attachments');
       const data = await response.json();
@@ -86,26 +103,47 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   };
 
   const handleDownloadAttachment = async (attachment) => {
+    console.log('[Email Modal] Download clicked:', attachment.attachmentName);
     try {
       const token = getAuthToken();
       const downloadUrl = `${API_URL}/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`;
+      console.log('[Email Modal] Downloading from:', downloadUrl);
 
-      // fetch로 다운로드 후 blob으로 저장
+      // fetch로 다운로드
       const response = await fetch(downloadUrl, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Relay-Environment': RELAY_ENVIRONMENT
+        }
       });
 
       if (!response.ok) throw new Error('Download failed');
 
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = attachment.attachmentName;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const arrayBuffer = await blob.arrayBuffer();
+
+      // Electron 환경: saveFile 사용
+      if (window.electron && window.electron.saveFile) {
+        const result = await window.electron.saveFile(
+          Array.from(new Uint8Array(arrayBuffer)),
+          attachment.attachmentName
+        );
+        if (result.success) {
+          console.log('[Email Modal] File saved:', result.filePath);
+        } else if (!result.canceled) {
+          throw new Error(result.error || 'Save failed');
+        }
+      } else {
+        // 브라우저 환경: blob URL 방식
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = attachment.attachmentName;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
     } catch (error) {
       console.error('[Email Modal] Failed to download attachment:', error);
       alert('첨부파일 다운로드에 실패했습니다.');

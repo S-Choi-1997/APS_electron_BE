@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld('electron', {
   // 파일 다운로드
   downloadFile: (url, filename) => ipcRenderer.invoke('download-file', { url, filename }),
 
+  // Blob/Buffer 데이터를 파일로 저장 (인증이 필요한 다운로드용)
+  saveFile: (buffer, filename) => ipcRenderer.invoke('save-file', { buffer, filename }),
+
   // 메인 창 포커스 및 라우팅
   focusMainWindow: (route) => ipcRenderer.invoke('focus-main-window', route),
 

@@ -7,6 +7,9 @@
 // API 기본 URL (환경 변수 또는 기본값)
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// Relay environment for routing to correct backend
+export const RELAY_ENVIRONMENT = import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
+
 // Export for use in auth modules
 export const API_URL = API_BASE_URL;
 
@@ -80,6 +83,7 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${idToken}`,
     'X-Provider': currentUser.provider, // 'google' | 'naver'
+    'X-Relay-Environment': RELAY_ENVIRONMENT, // 릴레이 서버 라우팅용
     ...options.headers,
   };
 
