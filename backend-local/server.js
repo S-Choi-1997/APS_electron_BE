@@ -164,6 +164,7 @@ const { io: ioClient } = require('socket.io-client');
 const RELAY_WS_URL = process.env.RELAY_WS_URL || 'ws://localhost:8080';
 const BACKEND_VERSION = process.env.BACKEND_VERSION || '1.0.0';
 const BACKEND_INSTANCE_ID = process.env.BACKEND_INSTANCE_ID || 'backend-local-001';
+const RELAY_ENVIRONMENT = process.env.RELAY_ENVIRONMENT || 'production';
 
 let relaySocket = null;
 let isRelayConnected = false;
@@ -191,6 +192,7 @@ function connectToRelay() {
       version: BACKEND_VERSION,
       instanceId: BACKEND_INSTANCE_ID,
       metadata: {
+        environment: RELAY_ENVIRONMENT,
         hostname: require('os').hostname(),
         pid: process.pid,
         startTime: new Date().toISOString()

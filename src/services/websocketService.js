@@ -9,6 +9,7 @@ import { getCurrentUser } from '../auth/authManager.js';
 
 // WebSocket Relay URL (from environment variable)
 const RELAY_WS_URL = import.meta.env.VITE_WS_RELAY_URL || 'ws://localhost:8080';
+const RELAY_ENVIRONMENT = import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
 
 let socket = null;
 
@@ -46,6 +47,7 @@ export function connectWebSocket() {
     socket.emit('handshake', {
       type: 'client',
       metadata: {
+        environment: RELAY_ENVIRONMENT,
         email: user.email,
         provider: user.provider,
         displayName: user.displayName,
