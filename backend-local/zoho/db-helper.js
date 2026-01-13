@@ -116,6 +116,7 @@ async function saveEmailInquiry(inquiryData) {
   try {
     const {
       messageId,
+      folderId,
       from,
       fromName,
       subject,
@@ -133,6 +134,7 @@ async function saveEmailInquiry(inquiryData) {
     const sql = `
       INSERT INTO email_inquiries (
         message_id,
+        folder_id,
         source,
         from_email,
         from_name,
@@ -148,13 +150,14 @@ async function saveEmailInquiry(inquiryData) {
         status,
         created_at,
         updated_at
-      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+      ) VALUES ($1, $2, 'zoho', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
       ON CONFLICT (message_id) DO NOTHING
       RETURNING *;
     `;
 
     const values = [
       messageId,
+      folderId,
       from,
       fromName || from,
       toEmail,
@@ -455,6 +458,22 @@ async function updateEmailStatusByMessageId(messageId, status) {
   }
 }
 
+/**
+ * Get email inquiry by ID
+ * @param {number} emailId - Email inquiry ID
+ * @returns {Promise<Object|null>} Email record or null if not found
+ */
+async function getEmailById(emailId) {
+  try {
+    const sql = `SELECT * FROM email_inquiries WHERE id = $1 LIMIT 1;`;
+    const result = await query(sql, [emailId]);
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('[ZOHO DB] Error getting email by ID:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   saveOAuthTokens,
   getOAuthTokens,
@@ -464,5 +483,6 @@ module.exports = {
   getEmailStats,
   saveOutgoingEmail,
   updateEmailStatus,
-  updateEmailStatusByMessageId
+  updateEmailStatusByMessageId,
+  getEmailById
 };

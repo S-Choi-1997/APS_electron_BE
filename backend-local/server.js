@@ -2075,6 +2075,123 @@ app.delete('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
   }
 });
 
+// Get full email content (not truncated)
+app.get('/email-inquiries/:id/content', auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get email from database
+    const sql = `SELECT message_id, folder_id, source FROM email_inquiries WHERE id = $1 LIMIT 1;`;
+    const result = await db_postgres.query(sql, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const email = result.rows[0];
+
+    // Only ZOHO emails support full content fetch
+    if (email.source !== 'zoho') {
+      return res.status(400).json({ error: 'Full content fetch only supported for ZOHO emails' });
+    }
+
+    if (!email.folder_id) {
+      return res.status(400).json({ error: 'Folder ID not available for this email' });
+    }
+
+    // Fetch full content from ZOHO API
+    const { fetchMessageContent } = require('./zoho/mail-api');
+    const content = await fetchMessageContent(email.message_id, email.folder_id);
+
+    res.json({ content });
+  } catch (error) {
+    console.error('[Email Inquiries] Error fetching email content:', error);
+    res.status(500).json({ error: 'Failed to fetch email content' });
+  }
+});
+
+// Get email attachments info
+app.get('/email-inquiries/:id/attachments', auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get email from database
+    const sql = `SELECT message_id, folder_id, source FROM email_inquiries WHERE id = $1 LIMIT 1;`;
+    const result = await db_postgres.query(sql, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const email = result.rows[0];
+
+    // Only ZOHO emails support attachment fetch
+    if (email.source !== 'zoho') {
+      return res.status(400).json({ error: 'Attachments fetch only supported for ZOHO emails' });
+    }
+
+    if (!email.folder_id) {
+      return res.status(400).json({ error: 'Folder ID not available for this email' });
+    }
+
+    // Fetch attachment info from ZOHO API
+    const { fetchAttachmentInfo } = require('./zoho/mail-api');
+    const attachments = await fetchAttachmentInfo(email.message_id, email.folder_id);
+
+    res.json({ attachments });
+  } catch (error) {
+    console.error('[Email Inquiries] Error fetching attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch attachments' });
+  }
+});
+
+// Download email attachment
+app.get('/email-inquiries/:id/attachments/:attachmentId/download', auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+
+    // Get email from database
+    const sql = `SELECT message_id, folder_id, source FROM email_inquiries WHERE id = $1 LIMIT 1;`;
+    const result = await db_postgres.query(sql, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const email = result.rows[0];
+
+    // Only ZOHO emails support attachment download
+    if (email.source !== 'zoho') {
+      return res.status(400).json({ error: 'Attachment download only supported for ZOHO emails' });
+    }
+
+    if (!email.folder_id) {
+      return res.status(400).json({ error: 'Folder ID not available for this email' });
+    }
+
+    // Download attachment from ZOHO API
+    const { downloadAttachment, fetchAttachmentInfo } = require('./zoho/mail-api');
+
+    // Get attachment name first
+    const attachments = await fetchAttachmentInfo(email.message_id, email.folder_id);
+    const attachment = attachments.find(a => a.attachmentId === attachmentId);
+    const attachmentName = attachment?.attachmentName || 'download';
+
+    // Download and stream the attachment
+    const response = await downloadAttachment(email.message_id, email.folder_id, attachmentId);
+
+    // Set headers for download
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachmentName)}"`);
+    res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+
+    // Pipe the stream to response
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('[Email Inquiries] Error downloading attachment:', error);
+    res.status(500).json({ error: 'Failed to download attachment' });
+  }
+});
+
 // Send email response
 app.post('/api/email-response', auth.authenticateJWT, async (req, res) => {
   const result = await zohoRoutes.handleEmailResponse(req.user, req.body);

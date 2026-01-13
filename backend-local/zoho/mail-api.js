@@ -134,6 +134,102 @@ async function fetchFolders() {
 }
 
 /**
+ * Fetch full message content (not truncated)
+ * Uses the /content endpoint to get complete email body
+ */
+async function fetchMessageContent(messageId, folderId) {
+  try {
+    const accessToken = await getValidAccessToken();
+    const accountId = await getAccountId();
+
+    if (!folderId) {
+      throw new Error('folderId is required to fetch message content');
+    }
+
+    const response = await axios.get(
+      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/content`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        params: {
+          includeBlockContent: true
+        }
+      }
+    );
+
+    console.log(`[ZOHO Mail API] Fetched full content for message: ${messageId}`);
+    return response.data.data?.content || response.data.data;
+  } catch (error) {
+    console.error('[ZOHO Mail API] Error fetching message content:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+/**
+ * Fetch attachment info for a message
+ */
+async function fetchAttachmentInfo(messageId, folderId) {
+  try {
+    const accessToken = await getValidAccessToken();
+    const accountId = await getAccountId();
+
+    if (!folderId) {
+      throw new Error('folderId is required to fetch attachment info');
+    }
+
+    const response = await axios.get(
+      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/attachmentinfo`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        params: {
+          includeInline: false
+        }
+      }
+    );
+
+    const attachments = response.data.data?.attachments || [];
+    console.log(`[ZOHO Mail API] Fetched ${attachments.length} attachments for message: ${messageId}`);
+    return attachments;
+  } catch (error) {
+    console.error('[ZOHO Mail API] Error fetching attachment info:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+/**
+ * Download attachment as stream
+ */
+async function downloadAttachment(messageId, folderId, attachmentId) {
+  try {
+    const accessToken = await getValidAccessToken();
+    const accountId = await getAccountId();
+
+    if (!folderId) {
+      throw new Error('folderId is required to download attachment');
+    }
+
+    const response = await axios.get(
+      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/attachments/${attachmentId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        responseType: 'stream'
+      }
+    );
+
+    console.log(`[ZOHO Mail API] Downloading attachment: ${attachmentId}`);
+    return response;
+  } catch (error) {
+    console.error('[ZOHO Mail API] Error downloading attachment:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+/**
  * Search messages by criteria
  */
 async function searchMessages(searchQuery, options = {}) {
@@ -248,6 +344,9 @@ function parseMessageToInquiry(message, isOutgoing = false) {
 module.exports = {
   fetchMessages,
   fetchMessageDetails,
+  fetchMessageContent,
+  fetchAttachmentInfo,
+  downloadAttachment,
   fetchFolders,
   searchMessages,
   parseMessageToInquiry,

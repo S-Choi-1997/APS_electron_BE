@@ -4,9 +4,10 @@
  * ConsultationModal을 기반으로 이메일 전용 UI 구현
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
+import api from '../services/api';
 import './ConsultationModal.css';
 
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
@@ -15,6 +16,88 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [responseText, setResponseText] = useState('');
   const [sending, setSending] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [fullContent, setFullContent] = useState(null);
+  const [attachments, setAttachments] = useState([]);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [contentError, setContentError] = useState(null);
+
+  // ZOHO 이메일의 경우 전체 내용과 첨부파일 정보 가져오기
+  useEffect(() => {
+    if (email.source === 'zoho') {
+      fetchFullContent();
+      if (email.hasAttachments) {
+        fetchAttachments();
+      }
+    }
+  }, [email.id]);
+
+  const fetchFullContent = async () => {
+    try {
+      setLoadingContent(true);
+      setContentError(null);
+      const response = await api.get(`/email-inquiries/${email.id}/content`);
+      setFullContent(response.data.content);
+    } catch (error) {
+      console.error('[Email Modal] Failed to fetch full content:', error);
+      // folder_id가 없는 기존 이메일은 에러 무시하고 기존 내용 사용
+      if (error.response?.status !== 400) {
+        setContentError('전체 내용을 불러오지 못했습니다.');
+      }
+    } finally {
+      setLoadingContent(false);
+    }
+  };
+
+  const fetchAttachments = async () => {
+    try {
+      setLoadingAttachments(true);
+      const response = await api.get(`/email-inquiries/${email.id}/attachments`);
+      setAttachments(response.data.attachments || []);
+    } catch (error) {
+      console.error('[Email Modal] Failed to fetch attachments:', error);
+    } finally {
+      setLoadingAttachments(false);
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleDownloadAttachment = async (attachment) => {
+    try {
+      // 새 탭에서 다운로드 URL 열기 (인증 토큰 포함)
+      const token = localStorage.getItem('accessToken');
+      const downloadUrl = `${api.defaults.baseURL}/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`;
+
+      // fetch로 다운로드 후 blob으로 저장
+      const response = await fetch(downloadUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Download failed');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.attachmentName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('[Email Modal] Failed to download attachment:', error);
+      alert('첨부파일 다운로드에 실패했습니다.');
+    }
+  };
 
   // Helper function to decode HTML entities and extract clean email
   const cleanEmail = (emailStr) => {
@@ -283,19 +366,63 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
             </div>
 
             <div className="modal-body">
-              {email.bodyHtml ? (
-                <div
-                  className="message-html"
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(email.bodyHtml, {
-                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
-                      ALLOWED_ATTR: ['href', 'target', 'style', 'class']
-                    })
-                  }}
-                />
-              ) : (
-                <div className="message-text">
-                  {email.body || '(내용 없음)'}
+              {/* 로딩 상태 표시 */}
+              {loadingContent && (
+                <div className="content-loading">전체 내용 불러오는 중...</div>
+              )}
+
+              {/* 에러 표시 */}
+              {contentError && (
+                <div className="content-error">{contentError}</div>
+              )}
+
+              {/* 이메일 본문 (전체 내용 우선, 없으면 기존 내용) */}
+              {!loadingContent && (
+                <>
+                  {(fullContent || email.bodyHtml) ? (
+                    <div
+                      className="message-html"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(fullContent || email.bodyHtml, {
+                          ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span', 'table', 'tr', 'td', 'th', 'tbody', 'thead', 'img'],
+                          ALLOWED_ATTR: ['href', 'target', 'style', 'class', 'src', 'alt', 'width', 'height']
+                        })
+                      }}
+                    />
+                  ) : (
+                    <div className="message-text">
+                      {email.body || '(내용 없음)'}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 첨부파일 섹션 */}
+              {email.hasAttachments && (
+                <div className="attachments-section">
+                  <h4 className="attachments-title">📎 첨부파일</h4>
+                  {loadingAttachments ? (
+                    <div className="attachments-loading">첨부파일 목록 로딩 중...</div>
+                  ) : attachments.length > 0 ? (
+                    <ul className="attachments-list">
+                      {attachments.map(att => (
+                        <li key={att.attachmentId} className="attachment-item">
+                          <button
+                            className="attachment-download-btn"
+                            onClick={() => handleDownloadAttachment(att)}
+                            title="클릭하여 다운로드"
+                          >
+                            <span className="attachment-icon">📄</span>
+                            <span className="attachment-name">{att.attachmentName}</span>
+                            <span className="attachment-size">({formatFileSize(att.attachmentSize)})</span>
+                            <span className="download-icon">⬇️</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="attachments-empty">첨부파일 정보를 가져올 수 없습니다.</div>
+                  )}
                 </div>
               )}
 

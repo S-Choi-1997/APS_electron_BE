@@ -9,6 +9,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS email_inquiries (
   id SERIAL PRIMARY KEY,
   message_id VARCHAR(255) UNIQUE NOT NULL,
+  folder_id VARCHAR(100),
   source VARCHAR(20) DEFAULT 'gmail' CHECK (source IN ('gmail', 'zoho')),
   from_email VARCHAR(255) NOT NULL,
   from_name VARCHAR(255),
@@ -37,6 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_email_inquiries_from_email ON email_inquiries(fro
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_thread_id ON email_inquiries(thread_id);
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_in_reply_to ON email_inquiries(in_reply_to);
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_is_outgoing ON email_inquiries(is_outgoing);
+CREATE INDEX IF NOT EXISTS idx_email_inquiries_folder_id ON email_inquiries(folder_id);
 
 -- ============================================
 -- Users Table (Synced from Firestore admins collection)
