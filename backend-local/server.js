@@ -390,10 +390,13 @@ function connectToRelay() {
       // For all other routes, use axios to localhost (fallback)
       const axios = require('axios');
       const BASE_URL = `http://localhost:${PORT}`;
+      const targetUrl = `${BASE_URL}${fullPath}`;
+
+      console.log(`[Backend] Tunnel forwarding to: ${targetUrl}`);
 
       const response = await axios({
         method: method.toLowerCase(),
-        url: `${BASE_URL}${fullPath}`,
+        url: targetUrl,
         headers: {
           ...headers,
           host: undefined,
@@ -402,6 +405,8 @@ function connectToRelay() {
         validateStatus: () => true,
         maxRedirects: 0,
       });
+
+      console.log(`[Backend] Tunnel got response: ${response.status} from ${targetUrl}`);
 
       relaySocket.emit('http:response', {
         requestId,
