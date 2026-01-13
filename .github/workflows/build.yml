@@ -28,6 +28,7 @@ jobs:
         run: |
           echo "VITE_API_URL=http://136.113.67.193:8080/proxy" > .env
           echo "VITE_WS_RELAY_URL=ws://136.113.67.193:8080" >> .env
+          echo "VITE_RELAY_ENVIRONMENT=production" >> .env
 
       - name: Build Electron app
         run: npm run electron:build
