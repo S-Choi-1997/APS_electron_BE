@@ -94,6 +94,14 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // 새 창 열기 요청 가로채기 (외부 링크 클릭 시)
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    console.log('[Main] Window open request:', url);
+    // 외부 URL은 시스템 브라우저로 열기
+    shell.openExternal(url);
+    return { action: 'deny' }; // Electron 새 창은 열지 않음
+  });
+
   // Create system tray
   createTray();
 }
@@ -510,7 +518,7 @@ ipcMain.handle('open-external-url', async (event, url) => {
   }
 });
 
-// 파일 다운로드
+// 파일 다운로드 (리다이렉트 지원)
 ipcMain.handle('download-file', async (event, { url, filename }) => {
   try {
     console.log(`[Main] Downloading file: ${filename} from ${url}`);
@@ -518,7 +526,7 @@ ipcMain.handle('download-file', async (event, { url, filename }) => {
     const https = require('https');
     const http = require('http');
 
-    // 다운로드 경로 선택
+    // 다운로드 경로 선택 (먼저 파일 탐색기 띄움)
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
       defaultPath: filename,
       filters: [{ name: 'All Files', extensions: ['*'] }]
@@ -528,26 +536,53 @@ ipcMain.handle('download-file', async (event, { url, filename }) => {
       return { success: false, canceled: true };
     }
 
-    // URL에서 파일 다운로드
-    const protocol = url.startsWith('https') ? https : http;
+    // URL에서 파일 다운로드 (리다이렉트 따라가기)
+    const downloadWithRedirect = (downloadUrl, maxRedirects = 5) => {
+      return new Promise((resolve, reject) => {
+        if (maxRedirects <= 0) {
+          reject(new Error('Too many redirects'));
+          return;
+        }
 
-    return new Promise((resolve) => {
-      const file = fs.createWriteStream(filePath);
+        const protocol = downloadUrl.startsWith('https') ? https : http;
 
-      protocol.get(url, (response) => {
-        response.pipe(file);
+        protocol.get(downloadUrl, (response) => {
+          // 리다이렉트 처리 (301, 302, 303, 307, 308)
+          if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+            const redirectUrl = response.headers.location;
+            console.log(`[Main] Redirecting to: ${redirectUrl}`);
+            downloadWithRedirect(redirectUrl, maxRedirects - 1)
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
 
-        file.on('finish', () => {
-          file.close();
-          console.log(`[Main] File downloaded successfully: ${filePath}`);
-          resolve({ success: true, filePath });
+          if (response.statusCode !== 200) {
+            reject(new Error(`HTTP ${response.statusCode}`));
+            return;
+          }
+
+          const file = fs.createWriteStream(filePath);
+          response.pipe(file);
+
+          file.on('finish', () => {
+            file.close();
+            console.log(`[Main] File downloaded successfully: ${filePath}`);
+            resolve({ success: true, filePath });
+          });
+
+          file.on('error', (err) => {
+            fs.unlink(filePath, () => {});
+            reject(err);
+          });
+        }).on('error', (error) => {
+          fs.unlink(filePath, () => {});
+          reject(error);
         });
-      }).on('error', (error) => {
-        fs.unlink(filePath, () => {}); // 실패 시 파일 삭제
-        console.error('[Main] Download failed:', error);
-        resolve({ success: false, error: error.message });
       });
-    });
+    };
+
+    return await downloadWithRedirect(url);
   } catch (error) {
     console.error('[Main] Failed to download file:', error);
     return { success: false, error: error.message };

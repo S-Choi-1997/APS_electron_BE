@@ -256,6 +256,60 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   const sourceColor = email.source === 'zoho' ? '#6366f1' : '#dc2626'; // indigo : red
 
+  // HTML 본문 내 링크 클릭 핸들러
+  const handleHtmlClick = async (e) => {
+    const link = e.target.closest('a');
+    if (link && link.href) {
+      e.preventDefault();
+
+      const url = link.href;
+      console.log('[Email Modal] Link clicked:', url);
+
+      // 파일 다운로드 링크인지 확인 (확장자로 판단)
+      const fileExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.hwp'];
+      const linkText = link.textContent || link.innerText || '';
+      const isFileLink = fileExtensions.some(ext =>
+        url.toLowerCase().includes(ext) || linkText.toLowerCase().includes(ext)
+      );
+
+      // ZOHO 관련 링크 또는 파일 다운로드 링크
+      const isDownloadLink = isFileLink ||
+                             url.includes('workdrive.zoho') ||
+                             url.includes('mail.zoho') ||
+                             url.includes('zoho.com/share') ||
+                             url.includes('download');
+
+      if (isDownloadLink && window.electron && window.electron.downloadFile) {
+        // 파일명 추출 (링크 텍스트에서 또는 URL에서)
+        let filename = linkText.trim();
+        if (!filename || filename.length > 100) {
+          // URL에서 파일명 추출 시도
+          const urlParts = url.split('/');
+          filename = urlParts[urlParts.length - 1].split('?')[0] || 'download';
+        }
+
+        console.log('[Email Modal] Downloading file:', filename);
+
+        try {
+          const result = await window.electron.downloadFile(url, filename);
+          if (result.success) {
+            console.log('[Email Modal] File saved:', result.filePath);
+          } else if (!result.canceled) {
+            throw new Error(result.error || 'Download failed');
+          }
+        } catch (error) {
+          console.error('[Email Modal] Download failed:', error);
+          // 실패해도 브라우저 안 열고 그냥 에러만 표시
+          alert('파일 다운로드에 실패했습니다: ' + error.message);
+        }
+      } else {
+        // 일반 링크: setWindowOpenHandler가 처리하도록 window.open 사용
+        // (main.js에서 외부 브라우저로 열고 Electron 창은 안 띄움)
+        window.open(url, '_blank');
+      }
+    }
+  };
+
   // ThreadItem Component (펼쳐진 상태만)
   const ThreadItem = ({ thread, index }) => {
     return (
@@ -282,6 +336,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
           <div className="thread-content">
             {thread.bodyHtml ? (
               <div
+                onClick={handleHtmlClick}
                 dangerouslySetInnerHTML={{
                   __html: DOMPurify.sanitize(thread.bodyHtml, {
                     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
@@ -352,6 +407,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                     {thread.bodyHtml ? (
                       <div
                         className="message-html"
+                        onClick={handleHtmlClick}
                         dangerouslySetInnerHTML={{
                           __html: DOMPurify.sanitize(thread.bodyHtml, {
                             ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
@@ -433,6 +489,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                   {(fullContent || email.bodyHtml) ? (
                     <div
                       className="message-html"
+                      onClick={handleHtmlClick}
                       dangerouslySetInnerHTML={{
                         __html: DOMPurify.sanitize(fullContent || email.bodyHtml, {
                           ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span', 'table', 'tr', 'td', 'th', 'tbody', 'thead', 'img'],
@@ -543,6 +600,7 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
                     {thread.bodyHtml ? (
                       <div
                         className="message-html"
+                        onClick={handleHtmlClick}
                         dangerouslySetInnerHTML={{
                           __html: DOMPurify.sanitize(thread.bodyHtml, {
                             ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
