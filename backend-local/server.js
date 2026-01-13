@@ -387,6 +387,98 @@ function connectToRelay() {
         return;
       }
 
+      // Handle attachment download directly (binary files)
+      const attachmentDownloadMatch = path.match(/^\/email-inquiries\/(\d+)\/attachments\/(\d+)\/download$/);
+      if (method === 'GET' && attachmentDownloadMatch) {
+        const jwt = require('jsonwebtoken');
+        const { downloadAttachment, fetchAttachmentInfo } = require('./zoho/mail-api');
+
+        const emailId = attachmentDownloadMatch[1];
+        const attachmentId = attachmentDownloadMatch[2];
+
+        // Verify JWT token
+        const authHeader = headers.authorization || headers.Authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Missing or invalid token' }
+          });
+          return;
+        }
+
+        try {
+          jwt.verify(authHeader.substring(7), process.env.JWT_SECRET);
+        } catch (err) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 401,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'unauthorized', message: 'Invalid or expired token' }
+          });
+          return;
+        }
+
+        // Get email from database
+        const sql = `SELECT message_id, folder_id, source FROM email_inquiries WHERE id = $1 LIMIT 1;`;
+        const result = await db_postgres.query(sql, [emailId]);
+
+        if (result.rows.length === 0) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 404,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'Email not found' }
+          });
+          return;
+        }
+
+        const email = result.rows[0];
+        if (email.source !== 'zoho' || !email.folder_id) {
+          relaySocket.emit('http:response', {
+            requestId,
+            statusCode: 400,
+            headers: { 'content-type': 'application/json' },
+            body: { error: 'Attachment download not supported for this email' }
+          });
+          return;
+        }
+
+        // Get attachment info and download
+        const attachments = await fetchAttachmentInfo(email.message_id, email.folder_id);
+        const attachment = attachments.find(a => a.attachmentId === attachmentId);
+        const attachmentName = attachment?.attachmentName || 'download';
+
+        console.log(`[Backend] Downloading attachment: ${attachmentName} (${attachmentId})`);
+
+        const response = await downloadAttachment(email.message_id, email.folder_id, attachmentId);
+
+        // Convert stream to buffer
+        const chunks = [];
+        for await (const chunk of response.data) {
+          chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+        const base64Data = buffer.toString('base64');
+
+        console.log(`[Backend] Attachment downloaded: ${buffer.length} bytes`);
+
+        relaySocket.emit('http:response', {
+          requestId,
+          statusCode: 200,
+          headers: {
+            'content-type': response.headers['content-type'] || 'application/octet-stream',
+            'content-disposition': `attachment; filename="${encodeURIComponent(attachmentName)}"`,
+            'x-binary-base64': 'true'
+          },
+          body: base64Data
+        });
+
+        console.log(`[Backend] Tunnel response 200 (requestId: ${requestId})`);
+        return;
+      }
+
       // For all other routes, use axios to localhost (fallback)
       const axios = require('axios');
       const BASE_URL = `http://localhost:${PORT}`;
