@@ -76,7 +76,14 @@ async function fetchMessages(options = {}) {
     });
 
     console.log(`[ZOHO Mail API] Fetched ${messagesResponse.data.data.length} messages from ${folder}`);
-    return messagesResponse.data.data;
+
+    // Add folderId to each message (ZOHO API doesn't include it in the response)
+    const messagesWithFolderId = messagesResponse.data.data.map(msg => ({
+      ...msg,
+      folderId: targetFolder.folderId
+    }));
+
+    return messagesWithFolderId;
   } catch (error) {
     console.error('[ZOHO Mail API] Error fetching messages:', error.response?.data || error.message);
     console.error('[ZOHO Mail API] Full error:', error);

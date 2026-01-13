@@ -223,29 +223,37 @@ async function getValidAccessToken() {
       throw new Error('ZOHO_ACCOUNT_EMAIL not configured');
     }
 
-    // Fetch token from Firestore (primary storage)
-    let tokenRecord = await getTokensFromFirestore(zohoEmail);
+    // Fetch token from PostgreSQL (primary storage)
+    let tokenRecord = null;
+    try {
+      const pgTokenRecord = await getOAuthTokens(zohoEmail);
+      if (pgTokenRecord) {
+        console.log('[ZOHO OAuth] Found token in PostgreSQL');
+        tokenRecord = pgTokenRecord;
+      }
+    } catch (pgError) {
+      console.warn('[ZOHO OAuth] PostgreSQL lookup failed:', pgError.message);
+    }
 
-    // Fallback to PostgreSQL if not found in Firestore
+    // Fallback to Firestore if not found in PostgreSQL
     if (!tokenRecord) {
-      console.log('[ZOHO OAuth] Token not found in Firestore, checking PostgreSQL...');
+      console.log('[ZOHO OAuth] Token not found in PostgreSQL, checking Firestore...');
       try {
-        const pgTokenRecord = await getOAuthTokens(zohoEmail);
-        if (pgTokenRecord) {
-          console.log('[ZOHO OAuth] Found token in PostgreSQL, migrating to Firestore...');
-          // Migrate to Firestore
-          await saveTokensToFirestore({
-            accessToken: pgTokenRecord.access_token,
-            refreshToken: pgTokenRecord.refresh_token,
-            expiresIn: Math.floor((new Date(pgTokenRecord.expires_at) - Date.now()) / 1000),
-            tokenType: pgTokenRecord.token_type || 'Bearer',
-            zohoEmail: pgTokenRecord.zoho_email,
-            zohoUserId: pgTokenRecord.zoho_user_id
+        tokenRecord = await getTokensFromFirestore(zohoEmail);
+        if (tokenRecord) {
+          console.log('[ZOHO OAuth] Found token in Firestore, syncing to PostgreSQL...');
+          // Sync to PostgreSQL for future use
+          await saveOAuthTokens({
+            accessToken: tokenRecord.access_token,
+            refreshToken: tokenRecord.refresh_token,
+            expiresIn: Math.floor((new Date(tokenRecord.expires_at) - Date.now()) / 1000),
+            tokenType: tokenRecord.token_type || 'Bearer',
+            zohoEmail: tokenRecord.zoho_email || zohoEmail,
+            zohoUserId: tokenRecord.zoho_user_id
           });
-          tokenRecord = pgTokenRecord;
         }
-      } catch (pgError) {
-        console.warn('[ZOHO OAuth] PostgreSQL lookup failed (non-critical):', pgError.message);
+      } catch (fsError) {
+        console.warn('[ZOHO OAuth] Firestore lookup failed (non-critical):', fsError.message);
       }
     }
 

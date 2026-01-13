@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
-import api from '../services/api';
+import { API_URL } from '../config/api';
 import './ConsultationModal.css';
 
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
@@ -21,6 +21,9 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const [loadingContent, setLoadingContent] = useState(false);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [contentError, setContentError] = useState(null);
+
+  // 인증 토큰 가져오기
+  const getAuthToken = () => localStorage.getItem('accessToken');
 
   // ZOHO 이메일의 경우 전체 내용과 첨부파일 정보 가져오기
   useEffect(() => {
@@ -36,14 +39,22 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
     try {
       setLoadingContent(true);
       setContentError(null);
-      const response = await api.get(`/email-inquiries/${email.id}/content`);
-      setFullContent(response.data.content);
+      const token = getAuthToken();
+      const response = await fetch(`${API_URL}/email-inquiries/${email.id}/content`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        if (response.status === 400) {
+          // folder_id가 없는 기존 이메일은 에러 무시
+          return;
+        }
+        throw new Error('Failed to fetch content');
+      }
+      const data = await response.json();
+      setFullContent(data.content);
     } catch (error) {
       console.error('[Email Modal] Failed to fetch full content:', error);
-      // folder_id가 없는 기존 이메일은 에러 무시하고 기존 내용 사용
-      if (error.response?.status !== 400) {
-        setContentError('전체 내용을 불러오지 못했습니다.');
-      }
+      setContentError('전체 내용을 불러오지 못했습니다.');
     } finally {
       setLoadingContent(false);
     }
@@ -52,8 +63,13 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
   const fetchAttachments = async () => {
     try {
       setLoadingAttachments(true);
-      const response = await api.get(`/email-inquiries/${email.id}/attachments`);
-      setAttachments(response.data.attachments || []);
+      const token = getAuthToken();
+      const response = await fetch(`${API_URL}/email-inquiries/${email.id}/attachments`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to fetch attachments');
+      const data = await response.json();
+      setAttachments(data.attachments || []);
     } catch (error) {
       console.error('[Email Modal] Failed to fetch attachments:', error);
     } finally {
@@ -71,15 +87,12 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
 
   const handleDownloadAttachment = async (attachment) => {
     try {
-      // 새 탭에서 다운로드 URL 열기 (인증 토큰 포함)
-      const token = localStorage.getItem('accessToken');
-      const downloadUrl = `${api.defaults.baseURL}/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`;
+      const token = getAuthToken();
+      const downloadUrl = `${API_URL}/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`;
 
       // fetch로 다운로드 후 blob으로 저장
       const response = await fetch(downloadUrl, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!response.ok) throw new Error('Download failed');
