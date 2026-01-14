@@ -24,6 +24,9 @@ COPY migrations/ ./migrations/
 # ZOHO Mail 모듈 복사
 COPY zoho/ ./zoho/
 
+# 스크립트 복사
+COPY scripts/ ./scripts/
+
 # GCP 서비스 계정 JSON 마운트 포인트 (docker-compose에서 volume으로 제공)
 # /app/service-account.json
 

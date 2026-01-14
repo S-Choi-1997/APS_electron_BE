@@ -128,7 +128,43 @@ function initAutoUpdater() {
     }).then(({ response }) => {
       if (response === 0) {
         logUpdate('User accepted restart, installing...');
-        autoUpdater.quitAndInstall();
+
+        // 업데이트 설치 전 모든 리소스 정리
+        app.isQuitting = true;
+
+        // 모든 Sticky 윈도우 닫기
+        Object.values(stickyWindows).forEach(win => {
+          if (win && !win.isDestroyed()) win.close();
+        });
+        stickyWindows = {};
+
+        // 메모 서브 윈도우 닫기
+        Object.values(memoSubWindows).forEach(win => {
+          if (win && !win.isDestroyed()) win.close();
+        });
+        memoSubWindows = {};
+
+        // Toast 알림 닫기
+        toastNotifications.forEach(win => {
+          if (win && !win.isDestroyed()) win.close();
+        });
+        toastNotifications = [];
+
+        // 트레이 제거
+        if (tray) {
+          tray.destroy();
+          tray = null;
+        }
+
+        // 메인 윈도우 닫기
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.close();
+        }
+
+        // 약간의 딜레이 후 설치 시작 (윈도우 정리 완료 대기)
+        setTimeout(() => {
+          autoUpdater.quitAndInstall(false, true);
+        }, 500);
       } else {
         logUpdate('User declined restart');
       }
