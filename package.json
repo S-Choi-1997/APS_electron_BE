@@ -1,6 +1,6 @@
 {
   "name": "aps-admin-electron",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "APS Admin Desktop Application",
   "main": "electron/main.js",
   "scripts": {
