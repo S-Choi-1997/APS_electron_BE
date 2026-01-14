@@ -1,6 +1,6 @@
 {
   "name": "aps-admin-electron",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "APS Admin Desktop Application",
   "main": "electron/main.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "electron": "electron .",
     "electron:prod": "cross-env NODE_ENV=production electron .",
     "electron:dev": "concurrently --kill-others --raw \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
     "release": "npm run electron:build && gh release create v%npm_package_version% \"dist/APS Admin Setup %npm_package_version%.exe\" dist/latest.yml --title \"v%npm_package_version%\" && git push --follow-tags"
   },
   "keywords": [
@@ -58,8 +58,7 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "electron/icon.png",
-      "sign": false
+      "icon": "electron/icon.png"
     }
   }
 }
