@@ -17,6 +17,9 @@ function SettingsPage() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [appVersion, setAppVersion] = useState('-');
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState(null); // 'checking', 'available', 'not-available', 'error'
 
   // 인증 상태 변경 감지
   useEffect(() => {
@@ -39,6 +42,44 @@ function SettingsPage() {
     setNotificationEnabled(settings.enabled);
     setNotificationSound(settings.sound);
   }, []);
+
+  // 앱 버전 가져오기
+  useEffect(() => {
+    if (window.electron?.getAppVersion) {
+      window.electron.getAppVersion().then(version => {
+        setAppVersion(version);
+      });
+    }
+  }, []);
+
+  // 수동 업데이트 확인
+  const handleCheckForUpdates = async () => {
+    if (!window.electron?.checkForUpdates) {
+      alert('업데이트 확인은 설치된 앱에서만 가능합니다.');
+      return;
+    }
+
+    setIsCheckingUpdate(true);
+    setUpdateStatus('checking');
+
+    try {
+      const result = await window.electron.checkForUpdates();
+      if (result.success) {
+        // 업데이트 이벤트는 main.js에서 처리됨
+        // 여기서는 잠시 후 상태 초기화 (업데이트 없을 경우)
+        setTimeout(() => {
+          setUpdateStatus(prev => prev === 'checking' ? 'not-available' : prev);
+        }, 5000);
+      } else {
+        setUpdateStatus('error');
+      }
+    } catch (error) {
+      console.error('Update check failed:', error);
+      setUpdateStatus('error');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   // 알림 설정 변경 핸들러
   const handleNotificationEnabledChange = (enabled) => {
@@ -195,9 +236,24 @@ function SettingsPage() {
           <h2 className="section-title">앱 정보</h2>
           <div className="settings-card">
             <div className="setting-item">
-              <div className="setting-label">버전</div>
-              <div className="setting-value">1.0.0</div>
+              <div className="setting-info">
+                <div className="setting-label">버전</div>
+                <div className="setting-description">v{appVersion}</div>
+              </div>
+              <button
+                className="btn-update"
+                onClick={handleCheckForUpdates}
+                disabled={isCheckingUpdate}
+              >
+                {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
+              </button>
             </div>
+            {updateStatus === 'not-available' && (
+              <div className="update-status success">최신 버전을 사용 중입니다.</div>
+            )}
+            {updateStatus === 'error' && (
+              <div className="update-status error">업데이트 확인 실패. 나중에 다시 시도해주세요.</div>
+            )}
             <div className="setting-item">
               <div className="setting-label">플랫폼</div>
               <div className="setting-value">

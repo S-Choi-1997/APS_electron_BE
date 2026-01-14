@@ -89,45 +89,77 @@ git push origin v1.2.0
 
 ---
 
-## 수동 릴리즈 (로컬 빌드)
+## 로컬 빌드 및 릴리즈 (권장)
 
-특별한 경우 로컬에서 직접 빌드할 수 있습니다.
+GitHub Actions 한도 초과 시 또는 빠른 릴리즈가 필요할 때 로컬에서 빌드합니다.
 
 ### 사전 요구사항
 
 - Node.js 20 이상
 - npm
-- Windows (Windows용 빌드) 또는 Linux (Linux용 빌드)
-
-### 빌드 명령어
+- GitHub CLI (`gh`) 설치 및 로그인
 
 ```bash
-# 의존성 설치 (최초 1회)
-npm install
+# GitHub CLI 설치 (최초 1회)
+winget install GitHub.cli
 
-# 프로덕션 빌드
-npm run electron:build
+# GitHub 로그인 (최초 1회)
+gh auth login
 ```
 
-### 빌드 결과물 위치
+### 릴리즈 방법 (한 줄)
 
-빌드가 완료되면 `dist/` 폴더에 설치 파일이 생성됩니다:
+```bash
+# 1. 버전 올리기
+npm version patch   # 1.2.10 → 1.2.11 (버그 수정)
+npm version minor   # 1.2.10 → 1.3.0  (새 기능)
+npm version major   # 1.2.10 → 2.0.0  (대규모 변경)
 
-**Windows:**
-- `dist/APS Admin Setup 1.2.0.exe`
+# 2. 빌드 + GitHub Release 생성 + 푸시
+npm run release
+```
 
-**Linux:**
-- `dist/APS-Admin-1.2.0.AppImage`
+### 수동으로 단계별 실행
 
-### 수동 배포
+```bash
+# 버전 올리기
+npm version patch
 
-1. `dist/` 폴더의 설치 파일을 사용자에게 전달:
-   - 이메일 첨부
-   - USB 드라이브
-   - 네트워크 공유 폴더
-   - 파일 서버 업로드
+# 빌드만 실행
+npm run electron:build
 
-2. 사용자는 설치 파일을 실행하여 앱 설치
+# GitHub Release 생성 (버전에 맞게 수정)
+gh release create v1.2.11 dist/APS-Admin-Setup-1.2.11.exe dist/latest.yml --title "v1.2.11"
+
+# 코드 푸시
+git push --follow-tags
+```
+
+### 빌드 결과물
+
+빌드가 완료되면 `dist/` 폴더에 생성됩니다:
+
+- `dist/APS-Admin-Setup-{버전}.exe` - 설치 파일
+- `dist/latest.yml` - 자동 업데이트용 메타데이터
+
+### 자동 업데이트 동작
+
+1. 설치된 앱이 시작 시 GitHub Release의 `latest.yml` 확인
+2. 새 버전 발견 시 다이얼로그 표시
+3. 사용자가 "다운로드" 선택 시 exe 다운로드
+4. 다운로드 완료 후 "재시작" 선택 시 자동 설치
+
+### 업데이트 로그 확인
+
+문제 발생 시 로그 파일 확인:
+```
+%APPDATA%/aps-admin-electron/update.log
+```
+
+### 주의사항
+
+- `latest.yml`과 exe 파일명이 **정확히 일치**해야 자동 업데이트가 작동합니다
+- 파일명 형식: `APS-Admin-Setup-{버전}.exe` (하이픈으로 구분)
 
 ---
 

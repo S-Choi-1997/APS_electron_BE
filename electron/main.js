@@ -13,18 +13,32 @@ let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
 const STICKY_SETTINGS_PATH = path.join(app.getPath('userData'), 'sticky-settings.json');
 
 // ==================== Auto Updater 설정 ====================
+// 로그 파일 설정
+const UPDATE_LOG_PATH = path.join(app.getPath('userData'), 'update.log');
+
+function logUpdate(message) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  console.log('[AutoUpdater]', message);
+  try {
+    fs.appendFileSync(UPDATE_LOG_PATH, logMessage);
+  } catch (e) {
+    console.error('Failed to write update log:', e);
+  }
+}
+
 autoUpdater.autoDownload = false; // 자동 다운로드 비활성화 (사용자 확인 후 다운로드)
 autoUpdater.autoInstallOnAppQuit = true; // 앱 종료 시 자동 설치
 
 // 업데이트 확인 중
 autoUpdater.on('checking-for-update', () => {
-  console.log('[AutoUpdater] Checking for update...');
+  logUpdate('Checking for update...');
 });
 
 // 업데이트 가능
 autoUpdater.on('update-available', (info) => {
   const version = info?.version || 'unknown';
-  console.log('[AutoUpdater] Update available:', version);
+  logUpdate(`Update available: ${version}`);
 
   // 메인 윈도우에 알림
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -45,19 +59,22 @@ autoUpdater.on('update-available', (info) => {
     cancelId: 1
   }).then(({ response }) => {
     if (response === 0) {
+      logUpdate('User accepted download');
       autoUpdater.downloadUpdate();
+    } else {
+      logUpdate('User declined download');
     }
   });
 });
 
 // 업데이트 없음
-autoUpdater.on('update-not-available', (info) => {
-  console.log('[AutoUpdater] Update not available. Current version is latest.');
+autoUpdater.on('update-not-available', () => {
+  logUpdate('No update available. Current version is latest.');
 });
 
 // 다운로드 진행률
 autoUpdater.on('download-progress', (progressObj) => {
-  console.log(`[AutoUpdater] Download progress: ${progressObj.percent.toFixed(1)}%`);
+  logUpdate(`Download progress: ${progressObj.percent.toFixed(1)}%`);
 
   // 메인 윈도우에 진행률 전송
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -73,7 +90,7 @@ autoUpdater.on('download-progress', (progressObj) => {
 // 다운로드 완료
 autoUpdater.on('update-downloaded', (info) => {
   const version = info?.version || 'unknown';
-  console.log('[AutoUpdater] Update downloaded:', version);
+  logUpdate(`Update downloaded: ${version}`);
 
   // 메인 윈도우에 알림
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -93,14 +110,17 @@ autoUpdater.on('update-downloaded', (info) => {
     cancelId: 1
   }).then(({ response }) => {
     if (response === 0) {
+      logUpdate('User accepted restart, installing...');
       autoUpdater.quitAndInstall();
+    } else {
+      logUpdate('User declined restart');
     }
   });
 });
 
 // 업데이트 에러
 autoUpdater.on('error', (err) => {
-  console.error('[AutoUpdater] Error:', err);
+  logUpdate(`Error: ${err.message || err}`);
 });
 
 // Load sticky window settings
@@ -1005,6 +1025,23 @@ ipcMain.handle('navigate-from-notification', async (event, route) => {
     mainWindow.webContents.send('navigate-to', route);
   }
   return { success: true };
+});
+
+// 앱 버전 가져오기
+ipcMain.handle('get-app-version', async () => {
+  return app.getVersion();
+});
+
+// 수동 업데이트 확인
+ipcMain.handle('check-for-updates', async () => {
+  logUpdate('Manual update check triggered');
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { success: true, result };
+  } catch (err) {
+    logUpdate(`Manual update check error: ${err.message}`);
+    return { success: false, error: err.message };
+  }
 });
 
 app.whenReady().then(() => {

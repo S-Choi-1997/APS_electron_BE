@@ -127,4 +127,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('update-downloaded', (event, data) => callback(data));
     return () => ipcRenderer.removeAllListeners('update-downloaded');
   },
+
+  // 앱 버전 가져오기
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+  // 수동 업데이트 확인
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 });
