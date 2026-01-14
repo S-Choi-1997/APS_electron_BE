@@ -10,7 +10,7 @@
     "electron:prod": "cross-env NODE_ENV=production electron .",
     "electron:dev": "concurrently --kill-others --raw \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
-    "release": "npm run electron:build && gh release create v%npm_package_version% dist/*.exe --title \"v%npm_package_version%\" && git push --follow-tags"
+    "release": "npm run electron:build && gh release create v%npm_package_version% \"dist/APS Admin Setup %npm_package_version%.exe\" dist/latest.yml --title \"v%npm_package_version%\" && git push --follow-tags"
   },
   "keywords": [
     "aps",
@@ -59,7 +59,7 @@
     "win": {
       "target": "nsis",
       "icon": "electron/icon.png",
-      "signAndEditExecutable": false
+      "sign": false
     }
   }
 }
