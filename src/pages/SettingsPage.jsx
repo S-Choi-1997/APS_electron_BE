@@ -262,6 +262,20 @@ function SettingsPage() {
                  window.electron?.platform === 'linux' ? 'Linux' : 'Web'}
               </div>
             </div>
+            {window.electron?.restartApp && (
+              <div className="setting-item">
+                <div className="setting-info">
+                  <div className="setting-label">앱 재시작</div>
+                  <div className="setting-description">캐시 문제 등이 있을 때 앱을 다시 시작합니다</div>
+                </div>
+                <button
+                  className="btn-restart"
+                  onClick={() => window.electron.restartApp()}
+                >
+                  재시작
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

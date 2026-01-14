@@ -1,7 +1,9 @@
 const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { autoUpdater } = require('electron-updater');
+
+// electron-updater는 app.whenReady() 이후에 로드 (개발 모드에서는 에러 발생하므로)
+let autoUpdater = null;
 
 let mainWindow;
 let tray = null; // System tray
@@ -9,125 +11,143 @@ let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
 
-// Sticky window settings file path
-const STICKY_SETTINGS_PATH = path.join(app.getPath('userData'), 'sticky-settings.json');
+// Lazy getters for paths (app.getPath는 app ready 이후에만 사용 가능)
+let _stickySettingsPath = null;
+let _updateLogPath = null;
 
-// ==================== Auto Updater 설정 ====================
-// 로그 파일 설정
-const UPDATE_LOG_PATH = path.join(app.getPath('userData'), 'update.log');
+function getStickySettingsPath() {
+  if (!_stickySettingsPath) {
+    _stickySettingsPath = path.join(app.getPath('userData'), 'sticky-settings.json');
+  }
+  return _stickySettingsPath;
+}
+
+function getUpdateLogPath() {
+  if (!_updateLogPath) {
+    _updateLogPath = path.join(app.getPath('userData'), 'update.log');
+  }
+  return _updateLogPath;
+}
 
 function logUpdate(message) {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] ${message}\n`;
   console.log('[AutoUpdater]', message);
   try {
-    fs.appendFileSync(UPDATE_LOG_PATH, logMessage);
+    fs.appendFileSync(getUpdateLogPath(), logMessage);
   } catch (e) {
     console.error('Failed to write update log:', e);
   }
 }
 
-autoUpdater.autoDownload = false; // 자동 다운로드 비활성화 (사용자 확인 후 다운로드)
-autoUpdater.autoInstallOnAppQuit = true; // 앱 종료 시 자동 설치
+// AutoUpdater 초기화 함수 (app.whenReady() 이후에 호출)
+function initAutoUpdater() {
+  logUpdate(`initAutoUpdater called. app.isPackaged: ${app.isPackaged}`);
 
-// 업데이트 확인 중
-autoUpdater.on('checking-for-update', () => {
-  logUpdate('Checking for update...');
-});
-
-// 업데이트 가능
-autoUpdater.on('update-available', (info) => {
-  const version = info?.version || 'unknown';
-  logUpdate(`Update available: ${version}`);
-
-  // 메인 윈도우에 알림
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-available', {
-      version: version,
-      releaseNotes: info?.releaseNotes || ''
-    });
+  // 개발 모드에서는 electron-updater 로드하지 않음
+  if (!app.isPackaged) {
+    logUpdate('Skipping in development mode');
+    return;
   }
 
-  // 다이얼로그로 사용자 확인 (mainWindow가 없으면 null로 대체)
-  const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
-  dialog.showMessageBox(parentWindow, {
-    type: 'info',
-    title: '업데이트 가능',
-    message: `새 버전 ${version}이(가) 있습니다.\n다운로드하시겠습니까?`,
-    buttons: ['다운로드', '나중에'],
-    defaultId: 0,
-    cancelId: 1
-  }).then(({ response }) => {
-    if (response === 0) {
-      logUpdate('User accepted download');
-      autoUpdater.downloadUpdate();
-    } else {
-      logUpdate('User declined download');
+  try {
+    logUpdate('Loading electron-updater...');
+    autoUpdater = require('electron-updater').autoUpdater;
+    logUpdate('electron-updater loaded successfully');
+  } catch (e) {
+    logUpdate(`Failed to load electron-updater: ${e.message}\n${e.stack}`);
+    return;
+  }
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    logUpdate('Checking for update...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    const version = info?.version || 'unknown';
+    logUpdate(`Update available: ${version}`);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-available', { version, releaseNotes: info?.releaseNotes || '' });
+    }
+
+    const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+    dialog.showMessageBox(parentWindow, {
+      type: 'info',
+      title: '업데이트 가능',
+      message: `새 버전 ${version}이(가) 있습니다.\n다운로드하시겠습니까?`,
+      buttons: ['다운로드', '나중에'],
+      defaultId: 0,
+      cancelId: 1
+    }).then(({ response }) => {
+      if (response === 0) {
+        logUpdate('User accepted download');
+        autoUpdater.downloadUpdate();
+      } else {
+        logUpdate('User declined download');
+      }
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    const currentVersion = app.getVersion();
+    logUpdate(`No update available. Current version: ${currentVersion} is latest.`);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    logUpdate(`Download progress: ${progressObj.percent.toFixed(1)}%`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-download-progress', {
+        percent: progressObj.percent,
+        bytesPerSecond: progressObj.bytesPerSecond,
+        transferred: progressObj.transferred,
+        total: progressObj.total
+      });
     }
   });
-});
 
-// 업데이트 없음
-autoUpdater.on('update-not-available', () => {
-  logUpdate('No update available. Current version is latest.');
-});
+  autoUpdater.on('update-downloaded', (info) => {
+    const version = info?.version || 'unknown';
+    logUpdate(`Update downloaded: ${version}`);
 
-// 다운로드 진행률
-autoUpdater.on('download-progress', (progressObj) => {
-  logUpdate(`Download progress: ${progressObj.percent.toFixed(1)}%`);
-
-  // 메인 윈도우에 진행률 전송
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-download-progress', {
-      percent: progressObj.percent,
-      bytesPerSecond: progressObj.bytesPerSecond,
-      transferred: progressObj.transferred,
-      total: progressObj.total
-    });
-  }
-});
-
-// 다운로드 완료
-autoUpdater.on('update-downloaded', (info) => {
-  const version = info?.version || 'unknown';
-  logUpdate(`Update downloaded: ${version}`);
-
-  // 메인 윈도우에 알림
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-downloaded', {
-      version: version
-    });
-  }
-
-  // 다이얼로그로 재시작 확인 (mainWindow가 없으면 null로 대체)
-  const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
-  dialog.showMessageBox(parentWindow, {
-    type: 'info',
-    title: '업데이트 준비 완료',
-    message: `버전 ${version} 다운로드가 완료되었습니다.\n지금 재시작하여 업데이트하시겠습니까?`,
-    buttons: ['지금 재시작', '나중에'],
-    defaultId: 0,
-    cancelId: 1
-  }).then(({ response }) => {
-    if (response === 0) {
-      logUpdate('User accepted restart, installing...');
-      autoUpdater.quitAndInstall();
-    } else {
-      logUpdate('User declined restart');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-downloaded', { version });
     }
-  });
-});
 
-// 업데이트 에러
-autoUpdater.on('error', (err) => {
-  logUpdate(`Error: ${err.message || err}`);
-});
+    const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+    dialog.showMessageBox(parentWindow, {
+      type: 'info',
+      title: '업데이트 준비 완료',
+      message: `버전 ${version} 다운로드가 완료되었습니다.\n지금 재시작하여 업데이트하시겠습니까?`,
+      buttons: ['지금 재시작', '나중에'],
+      defaultId: 0,
+      cancelId: 1
+    }).then(({ response }) => {
+      if (response === 0) {
+        logUpdate('User accepted restart, installing...');
+        autoUpdater.quitAndInstall();
+      } else {
+        logUpdate('User declined restart');
+      }
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    logUpdate(`Error: ${err.message || err}`);
+  });
+
+  console.log('[AutoUpdater] Initialized successfully');
+}
 
 // Load sticky window settings
 function loadStickySettings(type) {
   try {
-    if (fs.existsSync(STICKY_SETTINGS_PATH)) {
-      const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+    const settingsPath = getStickySettingsPath();
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, 'utf8');
       const settings = JSON.parse(data);
       return settings[type] || null;
     }
@@ -140,13 +160,14 @@ function loadStickySettings(type) {
 // Save sticky window settings
 function saveStickySettings(type, settings) {
   try {
+    const settingsPath = getStickySettingsPath();
     let allSettings = {};
-    if (fs.existsSync(STICKY_SETTINGS_PATH)) {
-      const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, 'utf8');
       allSettings = JSON.parse(data);
     }
     allSettings[type] = settings;
-    fs.writeFileSync(STICKY_SETTINGS_PATH, JSON.stringify(allSettings, null, 2));
+    fs.writeFileSync(settingsPath, JSON.stringify(allSettings, null, 2));
     console.log(`[Sticky Settings] Saved settings for ${type}:`, settings);
   } catch (error) {
     console.error('[Sticky Settings] Failed to save settings:', error);
@@ -346,11 +367,12 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
 
       // 저장된 설정 삭제
       try {
-        if (fs.existsSync(STICKY_SETTINGS_PATH)) {
-          const data = fs.readFileSync(STICKY_SETTINGS_PATH, 'utf8');
+        const settingsPath = getStickySettingsPath();
+        if (fs.existsSync(settingsPath)) {
+          const data = fs.readFileSync(settingsPath, 'utf8');
           const allSettings = JSON.parse(data);
           delete allSettings[type];
-          fs.writeFileSync(STICKY_SETTINGS_PATH, JSON.stringify(allSettings, null, 2));
+          fs.writeFileSync(settingsPath, JSON.stringify(allSettings, null, 2));
           console.log(`[Sticky Settings] Deleted settings for ${type}`);
         }
       } catch (error) {
@@ -1034,6 +1056,9 @@ ipcMain.handle('get-app-version', async () => {
 
 // 수동 업데이트 확인
 ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) {
+    return { success: false, error: 'AutoUpdater not available in development mode' };
+  }
   logUpdate('Manual update check triggered');
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -1044,14 +1069,22 @@ ipcMain.handle('check-for-updates', async () => {
   }
 });
 
+// 앱 재시작
+ipcMain.handle('restart-app', async () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 app.whenReady().then(() => {
+  // AutoUpdater 초기화 (app.isPackaged 접근 가능)
+  initAutoUpdater();
+
   createWindow();
 
-  // 프로덕션 환경에서만 업데이트 확인 (개발 모드에서는 실행 안함)
-  if (app.isPackaged) {
-    // 앱 시작 후 3초 뒤에 업데이트 확인 (UI 로딩 완료 후)
+  // 프로덕션 환경에서만 업데이트 확인
+  if (autoUpdater) {
     setTimeout(() => {
-      console.log('[AutoUpdater] Checking for updates...');
+      logUpdate('Auto-checking for updates...');
       autoUpdater.checkForUpdates();
     }, 3000);
   }

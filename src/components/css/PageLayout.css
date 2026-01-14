@@ -10,7 +10,8 @@
   box-sizing: border-box;
   background: #f8f9fa;
   height: 100vh;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page-header {
@@ -62,26 +63,25 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  overflow-y: auto;
 }
 
-/* 커스텀 스크롤바 */
-.page-content::-webkit-scrollbar {
+/* 커스텀 스크롤바 - 페이지 전체에 적용 */
+.page-container::-webkit-scrollbar {
   width: 12px;
 }
 
-.page-content::-webkit-scrollbar-track {
+.page-container::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 10px;
 }
 
-.page-content::-webkit-scrollbar-thumb {
+.page-container::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
   border-radius: 10px;
   border: 2px solid #f1f1f1;
 }
 
-.page-content::-webkit-scrollbar-thumb:hover {
+.page-container::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #764ba2 0%, #667eea 100%);
 }
 

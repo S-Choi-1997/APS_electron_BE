@@ -133,4 +133,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 수동 업데이트 확인
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+  // 앱 재시작
+  restartApp: () => ipcRenderer.invoke('restart-app'),
 });

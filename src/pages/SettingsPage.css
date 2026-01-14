@@ -247,3 +247,21 @@ input:checked + .toggle-slider:before {
   background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
   color: #991b1b;
 }
+
+/* Restart Button */
+.btn-restart {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.btn-restart:hover {
+  background: #e5e7eb;
+  transform: translateY(-1px);
+}

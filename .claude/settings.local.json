@@ -78,7 +78,16 @@
       "Bash(python:*)",
       "Bash(node migrations/migrate-inquiry-status.js:*)",
       "Bash(git show:*)",
-      "Bash(gh release:*)"
+      "Bash(gh release:*)",
+      "Bash(npm run electron:prod:*)",
+      "Bash(node --check:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx electron --version)",
+      "Bash(npm run electron:build:*)",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\sanch\\\\AppData\\\\Roaming\\\\aps-admin-electron\")",
+      "Bash(cmd /c \"type C:\\\\Users\\\\sanch\\\\AppData\\\\Roaming\\\\aps-admin-electron\\\\update.log\")",
+      "Bash(docker manifest inspect:*)",
+      "Bash(docker image inspect:*)"
     ]
   }
 }
