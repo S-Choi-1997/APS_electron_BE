@@ -168,23 +168,34 @@ const RELAY_ENVIRONMENT = process.env.RELAY_ENVIRONMENT || 'production';
 
 let relaySocket = null;
 let isRelayConnected = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+let isConnecting = false;
+const RECONNECT_CHECK_INTERVAL = 30000; // 30초마다 재연결 체크
 
 function connectToRelay() {
+  if (isConnecting) {
+    console.log('[WebSocket Relay] Already attempting to connect, skipping...');
+    return;
+  }
+
+  isConnecting = true;
   console.log(`[WebSocket Relay] Connecting to ${RELAY_WS_URL}...`);
+
+  // 기존 소켓이 있으면 정리
+  if (relaySocket) {
+    relaySocket.removeAllListeners();
+    relaySocket.disconnect();
+    relaySocket = null;
+  }
 
   relaySocket = ioClient(RELAY_WS_URL, {
     transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+    reconnection: false, // Socket.IO 자동 재연결 비활성화 (수동으로 관리)
     timeout: 10000
   });
 
   relaySocket.on('connect', () => {
     console.log('[WebSocket Relay] Connected to relay server');
-    reconnectAttempts = 0;
+    isConnecting = false;
 
     // Send handshake
     relaySocket.emit('handshake', {
@@ -220,12 +231,9 @@ function connectToRelay() {
   });
 
   relaySocket.on('connect_error', (error) => {
-    reconnectAttempts++;
-    console.error(`[WebSocket Relay] Connection error (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}):`, error.message);
-
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('[WebSocket Relay] Max reconnection attempts reached. Giving up.');
-    }
+    console.error('[WebSocket Relay] Connection error:', error.message);
+    isConnecting = false;
+    isRelayConnected = false;
   });
 
   // ============================================
@@ -530,6 +538,14 @@ function connectToRelay() {
     }
   }, 30000);
 }
+
+// 주기적인 재연결 체크 (30초마다)
+setInterval(() => {
+  if (!relaySocket || !relaySocket.connected) {
+    console.log('[WebSocket Relay] Connection lost, attempting to reconnect...');
+    connectToRelay();
+  }
+}, RECONNECT_CHECK_INTERVAL);
 
 // 전역 broadcast 함수 (CRUD 작업에서 사용)
 global.broadcastEvent = (eventType, data) => {
