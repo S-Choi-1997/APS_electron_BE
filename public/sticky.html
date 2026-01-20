@@ -1332,6 +1332,10 @@
 
     // WebSocket 연결 및 이벤트 리스너
     let socket = null;
+    let isConnecting = false;
+    let heartbeatInterval = null;
+    let reconnectInterval = null;
+    const RECONNECT_CHECK_INTERVAL = 30000; // 30초마다 재연결 체크
 
     async function connectWebSocket() {
       const authData = await getAuthData();
@@ -1340,27 +1344,49 @@
         return null;
       }
 
+      if (socket?.connected) {
+        console.log('[Sticky WebSocket] Already connected');
+        return socket;
+      }
+
+      if (isConnecting) {
+        console.log('[Sticky WebSocket] Already attempting to connect, skipping...');
+        return socket;
+      }
+
+      isConnecting = true;
+
       try {
         const token = authData.idToken;
         const provider = authData.provider;
 
         if (!token) {
           console.warn('[Sticky WebSocket] No token found');
+          isConnecting = false;
           return null;
         }
 
         console.log('[Sticky WebSocket] Connecting to', WEBSOCKET_URL);
 
+        // 기존 소켓이 있으면 정리
+        if (socket) {
+          socket.removeAllListeners();
+          socket.disconnect();
+          socket = null;
+        }
+
         socket = io(WEBSOCKET_URL, {
           transports: ['websocket', 'polling'],
           reconnectionDelay: 1000,
-          reconnection: true,
-          reconnectionAttempts: 10,
+          reconnection: false, // Socket.IO 자동 재연결 비활성화 (수동 관리)
           timeout: 10000
         });
 
-        // Send handshake (메인 앱과 동일)
         socket.on('connect', () => {
+          console.log('[Sticky WebSocket] Connected to server');
+          isConnecting = false;
+
+          // Send handshake (메인 앱과 동일)
           socket.emit('handshake', {
             type: 'client',
             metadata: {
@@ -1376,17 +1402,27 @@
           console.log('[Sticky WebSocket] Handshake successful:', data);
         });
 
-        socket.on('connect', () => {
-          console.log('[Sticky WebSocket] Connected to server');
-        });
-
         socket.on('disconnect', (reason) => {
           console.log('[Sticky WebSocket] Disconnected from server:', reason);
         });
 
         socket.on('connect_error', (error) => {
           console.error('[Sticky WebSocket] Connection error:', error.message);
+          isConnecting = false;
         });
+
+        // Heartbeat (30초마다 전송)
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval);
+        }
+        heartbeatInterval = setInterval(() => {
+          if (socket && socket.connected) {
+            socket.emit('heartbeat');
+          } else {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+          }
+        }, 30000);
 
         // 신규 상담 생성 이벤트
         socket.on('consultation:created', () => {
@@ -1468,12 +1504,71 @@
           }
         });
 
+        // 주기적인 재연결 체크 시작
+        startReconnectMonitor();
+
         return socket;
       } catch (error) {
         console.error('[Sticky WebSocket] Failed to connect:', error);
+        isConnecting = false;
         return null;
       }
     }
+
+    /**
+     * 주기적으로 연결 상태 확인 및 재연결
+     */
+    function startReconnectMonitor() {
+      // 기존 인터벌이 있으면 정리
+      if (reconnectInterval) {
+        clearInterval(reconnectInterval);
+      }
+
+      reconnectInterval = setInterval(async () => {
+        const authData = await getAuthData();
+
+        if (!authData) {
+          console.log('[Sticky WebSocket] No auth data, skipping reconnect check');
+          return;
+        }
+
+        if (!socket || !socket.connected) {
+          console.log('[Sticky WebSocket] Connection lost, attempting to reconnect...');
+          connectWebSocket();
+        }
+      }, RECONNECT_CHECK_INTERVAL);
+    }
+
+    /**
+     * WebSocket 연결 종료 (창 닫을 때 호출)
+     */
+    function disconnectWebSocket() {
+      // 재연결 모니터 중지
+      if (reconnectInterval) {
+        clearInterval(reconnectInterval);
+        reconnectInterval = null;
+      }
+
+      // Heartbeat 중지
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+
+      if (socket) {
+        console.log('[Sticky WebSocket] Disconnecting...');
+        socket.removeAllListeners();
+        socket.disconnect();
+        socket = null;
+      }
+
+      isConnecting = false;
+    }
+
+    // 창 닫힐 때 정리
+    window.addEventListener('beforeunload', () => {
+      disconnectWebSocket();
+    });
 
     // 초기 데이터 수신 및 렌더링
     function initializeWithCachedData(cachedData) {

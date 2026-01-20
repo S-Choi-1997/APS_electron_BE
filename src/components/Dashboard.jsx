@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Modal from './Modal';
 import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
@@ -23,6 +24,7 @@ import './css/DashboardPending.css';
 import './css/DashboardCalendar.css';
 
 function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
+  const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -30,9 +32,86 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   const [schedules, setSchedules] = useState([]);
   const [schedulesLoading, setSchedulesLoading] = useState(true);
 
-  // 메모 데이터 (API 연동)
-  const [memos, setMemos] = useState([]);
-  const [memosLoading, setMemosLoading] = useState(true);
+  // React Query - 메모 데이터 조회
+  const { data: memos = [], isLoading: memosLoading } = useQuery({
+    queryKey: ['memos'],
+    queryFn: async () => {
+      const data = await fetchMemos(auth);
+
+      // API 응답을 프론트엔드 형식으로 변환
+      const formattedMemos = data.map(memo => ({
+        id: memo.id,
+        title: memo.title,
+        content: memo.content,
+        important: memo.important,
+        createdAt: new Date(memo.created_at),
+        author: memo.author,
+        author_name: memo.author_name,
+        expire_date: memo.expire_date,
+      }));
+
+      // 만료되지 않은 메모만 반환
+      return formattedMemos.filter(memo => {
+        if (!memo.expire_date) return true;
+        const expireDate = new Date(memo.expire_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return expireDate >= today;
+      });
+    },
+    staleTime: 30000, // 30초 동안 캐시 유지
+    enabled: !!user, // user가 있을 때만 쿼리 실행
+  });
+
+  // React Query - 메모 삭제 Mutation
+  const deleteMemoMutation = useMutation({
+    mutationFn: async (memoId) => {
+      await deleteMemo(memoId, auth);
+      return memoId;
+    },
+    // 낙관적 업데이트: 서버 응답 전에 UI 즉시 업데이트
+    onMutate: async (memoId) => {
+      // 진행 중인 쿼리 취소 (충돌 방지)
+      await queryClient.cancelQueries({ queryKey: ['memos'] });
+
+      // 이전 데이터 백업 (롤백용)
+      const previousMemos = queryClient.getQueryData(['memos']);
+
+      // 낙관적 업데이트: 캐시에서 메모 즉시 제거
+      queryClient.setQueryData(['memos'], (old) => {
+        if (!old) return [];
+        return old.filter(m => m.id !== memoId);
+      });
+
+      console.log('[Dashboard] Optimistic update: removed memo', memoId);
+
+      // 롤백용 데이터 반환
+      return { previousMemos };
+    },
+    // 성공 시: 서버에서 최신 데이터 가져오기 (진실의 원천)
+    onSuccess: (memoId) => {
+      console.log('[Dashboard] Memo deleted successfully:', memoId);
+
+      // 서버에서 최신 데이터 가져오기
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
+
+      // IPC 브로드캐스트 (Sticky 창 동기화)
+      if (window.electron?.broadcastMemoDeleted) {
+        window.electron.broadcastMemoDeleted(memoId);
+      }
+    },
+    // 실패 시: 캐시를 백업 데이터로 롤백
+    onError: (error, memoId, context) => {
+      console.error('[Dashboard] Memo deletion failed:', error);
+
+      // 롤백: 이전 상태로 복구
+      if (context?.previousMemos) {
+        queryClient.setQueryData(['memos'], context.previousMemos);
+      }
+
+      alert('메모 삭제에 실패했습니다: ' + error.message);
+    },
+  });
 
   // 모달 상태
   const [showMemoCreateModal, setShowMemoCreateModal] = useState(false);
@@ -144,45 +223,53 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   // 선택된 날짜의 일정
   const selectedDateSchedules = getSchedulesForDate(selectedDate);
 
+  // React Query - 메모 생성 Mutation
+  const createMemoMutation = useMutation({
+    mutationFn: async (memoData) => {
+      return await createMemo(memoData, auth);
+    },
+    onSuccess: (createdMemo) => {
+      console.log('[Dashboard] Memo created successfully:', createdMemo.id);
+
+      // 캐시 무효화하여 서버에서 최신 데이터 가져오기
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
+
+      // 다른 창들에게 메모 생성 알림 (알림창 등)
+      if (window.electron?.broadcastMemoCreated) {
+        window.electron.broadcastMemoCreated(createdMemo);
+      }
+
+      // 폼 초기화 및 모달 닫기
+      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+      setShowMemoCreateModal(false);
+    },
+    onError: (error) => {
+      console.error('[Dashboard] Memo creation failed:', error);
+      alert('메모 생성에 실패했습니다: ' + error.message);
+    },
+  });
+
   // 메모 관련 핸들러
   const handleMemoCreate = async () => {
     if (!memoForm.content.trim()) return;
 
-    try {
-      let finalTitle = memoForm.title.trim();
+    let finalTitle = memoForm.title.trim();
 
-      // 제목이 없을 때만 자동 생성 (내용이 20자 이상이면 "..." 추가)
-      if (!finalTitle) {
-        const content = memoForm.content.trim();
-        finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
-      }
-
-      const memoData = {
-        title: finalTitle,
-        content: memoForm.content,
-        important: memoForm.important,
-        expire_date: memoForm.expire_date || null,
-        // author is automatically set by backend using req.user.email
-      };
-
-      const createdMemo = await createMemo(memoData, auth);
-
-      // 메모 목록 새로고침
-      await loadMemos();
-
-      // 다른 창들에게 메모 생성 알림 (알림창 등)
-      if (window.electron && window.electron.broadcastMemoCreated) {
-        window.electron.broadcastMemoCreated(createdMemo);
-      }
-
-      // Toast 알림은 WebSocket 이벤트 핸들러에서 처리됨 (중복 방지)
-
-      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
-      setShowMemoCreateModal(false);
-    } catch (error) {
-      console.error('메모 생성 실패:', error);
-      alert('메모 생성에 실패했습니다: ' + error.message);
+    // 제목이 없을 때만 자동 생성 (내용이 20자 이상이면 "..." 추가)
+    if (!finalTitle) {
+      const content = memoForm.content.trim();
+      finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
     }
+
+    const memoData = {
+      title: finalTitle,
+      content: memoForm.content,
+      important: memoForm.important,
+      expire_date: memoForm.expire_date || null,
+      // author is automatically set by backend using req.user.email
+    };
+
+    createMemoMutation.mutate(memoData);
   };
 
   const handleMemoClick = (memo) => {
@@ -202,58 +289,78 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     setShowMemoEditModal(true);
   };
 
-  const handleMemoUpdate = async () => {
-    if (!memoForm.content.trim()) return;
+  // React Query - 메모 수정 Mutation
+  const updateMemoMutation = useMutation({
+    mutationFn: async ({ memoId, updates }) => {
+      return await updateMemo(memoId, updates, auth);
+    },
+    // 낙관적 업데이트
+    onMutate: async ({ memoId, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['memos'] });
 
-    try {
-      let finalTitle = memoForm.title.trim();
+      const previousMemos = queryClient.getQueryData(['memos']);
 
-      if (!finalTitle) {
-        const content = memoForm.content.trim();
-        finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
-      }
+      queryClient.setQueryData(['memos'], (old) => {
+        if (!old) return [];
+        return old.map(m => m.id === memoId ? { ...m, ...updates } : m);
+      });
 
-      const updates = {
-        title: finalTitle,
-        content: memoForm.content,
-        important: memoForm.important,
-        expire_date: memoForm.expire_date || null,
-      };
+      console.log('[Dashboard] Optimistic update: updated memo', memoId);
 
-      await updateMemo(selectedMemo.id, updates, auth);
+      return { previousMemos };
+    },
+    onSuccess: () => {
+      console.log('[Dashboard] Memo updated successfully');
 
-      // 메모 목록 새로고침
-      await loadMemos();
+      // 서버에서 최신 데이터 가져오기
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
 
       setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowMemoEditModal(false);
       setSelectedMemo(null);
-    } catch (error) {
-      console.error('메모 수정 실패:', error);
+    },
+    onError: (error, variables, context) => {
+      console.error('[Dashboard] Memo update failed:', error);
+
+      if (context?.previousMemos) {
+        queryClient.setQueryData(['memos'], context.previousMemos);
+      }
+
       alert('메모 수정에 실패했습니다: ' + error.message);
+    },
+  });
+
+  const handleMemoUpdate = async () => {
+    if (!memoForm.content.trim()) return;
+
+    let finalTitle = memoForm.title.trim();
+
+    if (!finalTitle) {
+      const content = memoForm.content.trim();
+      finalTitle = content.length > 20 ? content.substring(0, 20) + '...' : content;
     }
+
+    const updates = {
+      title: finalTitle,
+      content: memoForm.content,
+      important: memoForm.important,
+      expire_date: memoForm.expire_date || null,
+    };
+
+    updateMemoMutation.mutate({ memoId: selectedMemo.id, updates });
   };
 
   const handleMemoDelete = async () => {
     if (deleteTarget && deleteTarget.type === 'memo') {
-      try {
-        const memoId = deleteTarget.id;
-        await deleteMemo(memoId, auth);
+      const memoId = deleteTarget.id;
 
-        // WebSocket 이벤트가 자동으로 메모 목록을 새로고침하므로 loadMemos() 호출 불필요
+      // 모달 닫기
+      setShowMemoDetailModal(false);
+      setShowDeleteConfirmModal(false);
+      setDeleteTarget(null);
 
-        // 다른 창들에게 메모 삭제 알림 (알림창 등)
-        if (window.electron && window.electron.broadcastMemoDeleted) {
-          window.electron.broadcastMemoDeleted(memoId);
-        }
-
-        setShowMemoDetailModal(false);
-        setShowDeleteConfirmModal(false);
-        setDeleteTarget(null);
-      } catch (error) {
-        console.error('메모 삭제 실패:', error);
-        alert('메모 삭제에 실패했습니다: ' + error.message);
-      }
+      // React Query Mutation 실행 (낙관적 업데이트 + 서버 동기화 자동 처리)
+      deleteMemoMutation.mutate(memoId);
     }
   };
 
@@ -426,59 +533,62 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;
   };
 
-  // 컴포넌트 마운트 시 데이터 로드
+  // 컴포넌트 마운트 시 데이터 로드 (메모는 React Query가 자동 처리)
   useEffect(() => {
-    loadMemos();
     loadSchedules();
   }, []);
 
   // Electron IPC 이벤트 리스너 - 알림창에서 메모 생성 시 자동 새로고침
   useEffect(() => {
-    if (window.electron && window.electron.onMemoCreated) {
+    if (window.electron?.onMemoCreated) {
       const cleanup = window.electron.onMemoCreated((newMemo) => {
         console.log('[Dashboard] 메모 생성 이벤트 수신:', newMemo);
-        // 메모 목록 새로고침
-        loadMemos();
+        // React Query 캐시 무효화
+        queryClient.invalidateQueries({ queryKey: ['memos'] });
       });
 
-      // 컴포넌트 언마운트 시 리스너 정리
       return cleanup;
     }
-  }, []);
+  }, [queryClient]);
 
   // Electron IPC 이벤트 리스너 - 알림창에서 메모 삭제 시 즉시 반영
   useEffect(() => {
-    if (window.electron && window.electron.onMemoDeleted) {
+    if (window.electron?.onMemoDeleted) {
       const cleanup = window.electron.onMemoDeleted((memoId) => {
         console.log('[Dashboard] 메모 삭제 이벤트 수신:', memoId);
-        // 즉시 state에서 제거
-        setMemos(prev => prev.filter(m => m.id !== memoId));
+        // React Query 캐시에서 즉시 제거
+        queryClient.setQueryData(['memos'], (old) => {
+          if (!old) return [];
+          return old.filter(m => m.id !== memoId);
+        });
       });
 
-      // 컴포넌트 언마운트 시 리스너 정리
       return cleanup;
     }
-  }, []);
+  }, [queryClient]);
 
   // WebSocket 이벤트 리스너 - 메모/일정 실시간 동기화
   // NOTE: AppRouter에서 useWebSocketSync로 중앙 관리됨
-  // Dashboard는 데이터 새로고침만 수행
+  // Dashboard는 React Query 캐시 업데이트만 수행
   useEffect(() => {
     if (!user) return;
 
     const socket = getSocket();
     if (!socket) return;
 
-    // 메모 생성 이벤트 - 데이터 새로고침
+    // 메모 생성 이벤트 - React Query 캐시 무효화
     socket.on('memo:created', (newMemo) => {
       console.log('[Dashboard] Memo created event received:', newMemo.id);
-      loadMemos();
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
     });
 
-    // 메모 삭제 이벤트 - 즉시 state에서 제거
+    // 메모 삭제 이벤트 - React Query 캐시에서 즉시 제거
     socket.on('memo:deleted', (data) => {
       console.log('[Dashboard] Memo deleted event received:', data.id);
-      setMemos(prev => prev.filter(m => m.id !== data.id));
+      queryClient.setQueryData(['memos'], (old) => {
+        if (!old) return [];
+        return old.filter(m => m.id !== data.id);
+      });
     });
 
     // 일정 생성 이벤트 - 데이터 새로고침
@@ -506,7 +616,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       socket.off('schedule:updated');
       socket.off('schedule:deleted');
     };
-  }, [user]);
+  }, [user, queryClient]);
 
   // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
   useEffect(() => {
@@ -522,7 +632,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
       const timer = setTimeout(() => {
         console.log('[Dashboard] 날짜 변경 감지 - 메모 및 일정 새로고침');
-        loadMemos(); // 만료된 메모 필터링
+        queryClient.invalidateQueries({ queryKey: ['memos'] }); // React Query 캐시 무효화
         loadSchedules(); // 일정도 함께 새로고침
 
         // 다음 자정을 위해 재귀 호출
@@ -536,7 +646,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
     // 컴포넌트 언마운트 시 타이머 정리
     return () => clearTimeout(timer);
-  }, []);
+  }, [queryClient]);
 
   // 일정 폼이 열릴 때 기본 시간 설정
   useEffect(() => {
@@ -577,43 +687,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       openStickyOnLogin();
     }
   }, [user, memosLoading, schedulesLoading, memos, schedules, consultations]);
-
-  // 메모 데이터 로드
-  const loadMemos = async () => {
-    try {
-      setMemosLoading(true);
-      const data = await fetchMemos(auth);
-
-      // API 응답을 프론트엔드 형식으로 변환
-      const formattedMemos = data.map(memo => ({
-        id: memo.id,
-        title: memo.title,
-        content: memo.content,
-        important: memo.important,
-        createdAt: new Date(memo.created_at),
-        author: memo.author,
-        author_name: memo.author_name,
-        expire_date: memo.expire_date,
-      }));
-
-      // 만료되지 않은 메모만 표시
-      const activeMemos = formattedMemos.filter(memo => {
-        if (!memo.expire_date) return true; // 만료일 없으면 항상 표시
-        const expireDate = new Date(memo.expire_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return expireDate >= today;
-      });
-
-      setMemos(activeMemos);
-    } catch (error) {
-      console.error('메모 로드 실패:', error);
-      // 에러 발생 시 빈 배열 유지
-      setMemos([]);
-    } finally {
-      setMemosLoading(false);
-    }
-  };
 
   // 일정 데이터 로드
   const loadSchedules = async () => {

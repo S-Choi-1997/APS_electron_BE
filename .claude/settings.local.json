@@ -87,7 +87,15 @@
       "Bash(cmd /c \"dir C:\\\\Users\\\\sanch\\\\AppData\\\\Roaming\\\\aps-admin-electron\")",
       "Bash(cmd /c \"type C:\\\\Users\\\\sanch\\\\AppData\\\\Roaming\\\\aps-admin-electron\\\\update.log\")",
       "Bash(docker manifest inspect:*)",
-      "Bash(docker image inspect:*)"
+      "Bash(docker image inspect:*)",
+      "Bash(dos2unix:*)",
+      "Bash(ssh:*)",
+      "Bash(gcloud compute config-ssh:*)",
+      "Bash(gcloud compute instances describe:*)",
+      "Bash(gcloud compute project-info describe:*)",
+      "Bash(gcloud compute os-login describe-profile:*)",
+      "Bash(ping:*)",
+      "Bash(gcloud compute instances reset:*)"
     ]
   }
 }
