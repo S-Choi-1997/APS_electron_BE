@@ -52,6 +52,26 @@ function SettingsPage() {
     }
   }, []);
 
+  // 업데이트 없음 이벤트 리스너
+  useEffect(() => {
+    if (!window.electron) return;
+
+    const cleanupNotAvailable = window.electron.onUpdateNotAvailable?.(() => {
+      setUpdateStatus('not-available');
+      setIsCheckingUpdate(false);
+    });
+
+    const cleanupError = window.electron.onUpdateError?.(() => {
+      setUpdateStatus('error');
+      setIsCheckingUpdate(false);
+    });
+
+    return () => {
+      cleanupNotAvailable?.();
+      cleanupError?.();
+    };
+  }, []);
+
   // 수동 업데이트 확인
   const handleCheckForUpdates = async () => {
     if (!window.electron?.checkForUpdates) {
@@ -64,19 +84,15 @@ function SettingsPage() {
 
     try {
       const result = await window.electron.checkForUpdates();
-      if (result.success) {
-        // 업데이트 이벤트는 main.js에서 처리됨
-        // 여기서는 잠시 후 상태 초기화 (업데이트 없을 경우)
-        setTimeout(() => {
-          setUpdateStatus(prev => prev === 'checking' ? 'not-available' : prev);
-        }, 5000);
-      } else {
+      if (!result.success) {
         setUpdateStatus('error');
+        setIsCheckingUpdate(false);
       }
+      // 업데이트 발견 시 모달이 자동으로 표시됨
+      // 업데이트 없음 시 onUpdateNotAvailable 이벤트가 발생
     } catch (error) {
       console.error('Update check failed:', error);
       setUpdateStatus('error');
-    } finally {
       setIsCheckingUpdate(false);
     }
   };

@@ -122,6 +122,18 @@ contextBridge.exposeInMainWorld('electron', {
     return () => ipcRenderer.removeAllListeners('update-downloaded');
   },
 
+  // 업데이트 없음 이벤트 수신
+  onUpdateNotAvailable: (callback) => {
+    ipcRenderer.on('update-not-available', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('update-not-available');
+  },
+
+  // 업데이트 에러 이벤트 수신
+  onUpdateError: (callback) => {
+    ipcRenderer.on('update-error', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('update-error');
+  },
+
   // 앱 버전 가져오기
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
@@ -130,6 +142,9 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 앱 재시작
   restartApp: () => ipcRenderer.invoke('restart-app'),
+
+  // 업데이트 설치 및 재시작
+  installUpdate: () => ipcRenderer.invoke('install-update'),
 
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),

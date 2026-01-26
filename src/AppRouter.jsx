@@ -17,6 +17,7 @@ import WebsiteConsultationsPage from './pages/WebsiteConsultationsPage';
 import EmailConsultationsPage from './pages/EmailConsultationsPage';
 import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
+import UpdateProgressModal from './components/UpdateProgressModal';
 import { fetchInquiries } from './services/inquiryService';
 import { apiRequest } from './config/api';
 import useWebSocketSync from './hooks/useWebSocketSync';
@@ -74,6 +75,7 @@ function AppContent() {
   const [consultations, setConsultations] = useState([]);
   const [stats, setStats] = useState({ website: 0, email: 0 });
   const [loading, setLoading] = useState(true);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // 인증 상태 감지
   useEffect(() => {
@@ -165,6 +167,24 @@ function AppContent() {
 
     loadInquiries();
   }, [user]);
+
+  // 업데이트 모달 표시 이벤트
+  useEffect(() => {
+    if (!window.electron) return;
+
+    const cleanupUpdateAvailable = window.electron.onUpdateAvailable?.(() => {
+      setShowUpdateModal(true);
+    });
+
+    const cleanupUpdateDownloaded = window.electron.onUpdateDownloaded?.(() => {
+      setShowUpdateModal(true);
+    });
+
+    return () => {
+      cleanupUpdateAvailable?.();
+      cleanupUpdateDownloaded?.();
+    };
+  }, []);
 
   // WebSocket 실시간 동기화 (Custom Hook으로 간소화)
   useWebSocketSync(user, {
@@ -316,6 +336,12 @@ function AppContent() {
           </div>
         </div>
       </div>
+
+      {/* 업데이트 진행 모달 */}
+      <UpdateProgressModal
+        isVisible={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+      />
     </Router>
   );
 }

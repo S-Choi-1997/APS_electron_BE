@@ -274,27 +274,26 @@ function initAutoUpdater() {
       mainWindow.webContents.send('update-available', { version, releaseNotes: info?.releaseNotes || '' });
     }
 
-    const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
-    dialog.showMessageBox(parentWindow, {
-      type: 'info',
-      title: '업데이트 가능',
-      message: `새 버전 ${version}이(가) 있습니다.\n다운로드하시겠습니까?`,
-      buttons: ['다운로드', '나중에'],
-      defaultId: 0,
-      cancelId: 1
-    }).then(({ response }) => {
-      if (response === 0) {
-        logUpdate('User accepted download');
-        autoUpdater.downloadUpdate();
-      } else {
-        logUpdate('User declined download');
-      }
-    });
+    // 자동으로 다운로드 시작 (모달에서 진행 상황 표시)
+    logUpdate('Starting automatic download');
+    autoUpdater.downloadUpdate();
   });
 
   autoUpdater.on('update-not-available', () => {
     const currentVersion = app.getVersion();
     logUpdate(`No update available. Current version: ${currentVersion} is latest.`);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-not-available', { currentVersion });
+    }
+  });
+
+  autoUpdater.on('error', (error) => {
+    logUpdate(`Update error: ${error.message}`);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-error', { message: error.message });
+    }
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
@@ -317,62 +316,7 @@ function initAutoUpdater() {
       mainWindow.webContents.send('update-downloaded', { version });
     }
 
-    const parentWindow = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
-    dialog.showMessageBox(parentWindow, {
-      type: 'info',
-      title: '업데이트 준비 완료',
-      message: `버전 ${version} 다운로드가 완료되었습니다.\n지금 재시작하여 업데이트하시겠습니까?`,
-      buttons: ['지금 재시작', '나중에'],
-      defaultId: 0,
-      cancelId: 1
-    }).then(({ response }) => {
-      if (response === 0) {
-        logUpdate('User accepted restart, installing...');
-
-        // 업데이트 설치 전 모든 리소스 정리
-        app.isQuitting = true;
-
-        // 모든 Sticky 윈도우 닫기
-        Object.values(stickyWindows).forEach(win => {
-          if (win && !win.isDestroyed()) win.close();
-        });
-        stickyWindows = {};
-
-        // 메모 서브 윈도우 닫기
-        Object.values(memoSubWindows).forEach(win => {
-          if (win && !win.isDestroyed()) win.close();
-        });
-        memoSubWindows = {};
-
-        // Toast 알림 닫기
-        toastNotifications.forEach(win => {
-          if (win && !win.isDestroyed()) win.close();
-        });
-        toastNotifications = [];
-
-        // 트레이 제거
-        if (tray) {
-          tray.destroy();
-          tray = null;
-        }
-
-        // 메인 윈도우 닫기
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.close();
-        }
-
-        // 약간의 딜레이 후 설치 시작 (윈도우 정리 완료 대기)
-        setTimeout(() => {
-          autoUpdater.quitAndInstall(false, true);
-        }, 500);
-      } else {
-        logUpdate('User declined restart');
-      }
-    });
-  });
-
-  autoUpdater.on('error', (err) => {
-    logUpdate(`Error: ${err.message || err}`);
+    // 모달에서 재시작 처리 (dialog 제거)
   });
 
   console.log('[AutoUpdater] Initialized successfully');
@@ -1300,6 +1244,55 @@ ipcMain.handle('check-for-updates', async () => {
 ipcMain.handle('restart-app', async () => {
   app.relaunch();
   app.exit(0);
+});
+
+// 업데이트 설치 및 재시작
+ipcMain.handle('install-update', async () => {
+  if (autoUpdater) {
+    logUpdate('User requested update installation');
+
+    // 업데이트 설치 전 모든 리소스 정리
+    app.isQuitting = true;
+
+    // 모든 Sticky 윈도우 닫기
+    Object.values(stickyWindows).forEach(win => {
+      if (win && !win.isDestroyed()) win.close();
+    });
+    stickyWindows = {};
+
+    // 메모 서브 윈도우 닫기
+    Object.values(memoSubWindows).forEach(win => {
+      if (win && !win.isDestroyed()) win.close();
+    });
+    memoSubWindows = {};
+
+    // Toast 알림 닫기
+    toastNotifications.forEach(win => {
+      if (win && !win.isDestroyed()) win.close();
+    });
+    toastNotifications = [];
+
+    // 트레이 제거
+    if (tray) {
+      tray.destroy();
+      tray = null;
+    }
+
+    // 메인 윈도우는 마지막에 닫기 (약간의 딜레이)
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.close();
+      }
+    }, 200);
+
+    // 약간의 딜레이 후 설치 시작 (윈도우 정리 완료 대기)
+    setTimeout(() => {
+      autoUpdater.quitAndInstall(false, true);
+    }, 500);
+
+    return { success: true };
+  }
+  return { success: false, error: 'AutoUpdater not available' };
 });
 
 app.whenReady().then(() => {
