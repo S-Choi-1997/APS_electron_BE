@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const io = require('socket.io-client');
 
 // electron-updater는 app.whenReady() 이후에 로드 (개발 모드에서는 에러 발생하므로)
 let autoUpdater = null;
@@ -10,6 +11,11 @@ let tray = null; // System tray
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
+
+// WebSocket 관련 변수
+let socket = null;
+let currentConfig = null;
+let heartbeatInterval = null;
 
 // Lazy getters for paths (app.getPath는 app ready 이후에만 사용 가능)
 let _stickySettingsPath = null;
@@ -38,6 +44,200 @@ function logUpdate(message) {
   } catch (e) {
     console.error('Failed to write update log:', e);
   }
+}
+
+// ============================================
+// Environment 설정 관리
+// ============================================
+const DEFAULT_CONFIG = {
+  environment: 'production',
+  wsRelayUrl: 'ws://136.113.67.193:8080'
+};
+
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'app-config.json');
+}
+
+function loadConfig() {
+  const configPath = getConfigPath();
+  if (fs.existsSync(configPath)) {
+    try {
+      const data = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(data);
+      console.log('[Config] Loaded configuration:', config);
+      return config;
+    } catch (e) {
+      console.error('[Config] Failed to load config:', e);
+    }
+  }
+  console.log('[Config] Using default configuration');
+  return DEFAULT_CONFIG;
+}
+
+function saveConfig(config) {
+  const configPath = getConfigPath();
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log('[Config] Saved configuration:', config);
+  } catch (e) {
+    console.error('[Config] Failed to save config:', e);
+  }
+}
+
+// ============================================
+// WebSocket 연결 관리
+// ============================================
+function broadcastToAllWindows(eventName, eventData) {
+  // 메인 창
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(eventName, eventData);
+  }
+
+  // Sticky 창들
+  Object.values(stickyWindows).forEach(window => {
+    if (window && !window.isDestroyed()) {
+      window.webContents.send(eventName, eventData);
+    }
+  });
+
+  // Memo Sub 창들
+  Object.values(memoSubWindows).forEach(window => {
+    if (window && !window.isDestroyed()) {
+      window.webContents.send(eventName, eventData);
+    }
+  });
+}
+
+function setupWebSocketEventListeners() {
+  if (!socket) return;
+
+  const RELAY_EVENTS = [
+    'memo:created',
+    'memo:updated',
+    'memo:deleted',
+    'consultation:created',
+    'consultation:updated',
+    'consultation:deleted',
+    'schedule:created',
+    'schedule:updated',
+    'schedule:deleted',
+    'email:created',
+    'email:updated',
+    'email:deleted'
+  ];
+
+  RELAY_EVENTS.forEach((eventName) => {
+    socket.on(eventName, (eventData) => {
+      console.log(`[WebSocket] Event received: ${eventName}`);
+      broadcastToAllWindows(eventName, eventData);
+    });
+  });
+
+  // 연결 상태 이벤트
+  socket.on('connect', () => {
+    console.log('[WebSocket] Connected to relay server');
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: true,
+      environment: currentConfig.environment
+    });
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('[WebSocket] Disconnected:', reason);
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: false,
+      environment: currentConfig.environment
+    });
+  });
+
+  socket.on('connect_error', (error) => {
+    console.error('[WebSocket] Connection error:', error.message);
+  });
+}
+
+function getAuthTokenFromMainWindow() {
+  // 메인 창에서 인증 정보 가져오기 (executeJavaScript 사용)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      // localStorage에서 인증 정보를 가져오는 시도
+      // 실제로는 preload를 통해 안전하게 가져와야 하지만,
+      // 여기서는 간단하게 기본값 사용
+      return {
+        email: 'main-process@electron',
+        provider: 'electron',
+        displayName: 'Main Process'
+      };
+    } catch (e) {
+      console.error('[WebSocket] Failed to get auth token:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+function connectWebSocket(config) {
+  currentConfig = config;
+
+  // 기존 heartbeat interval 정리
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+
+  // 기존 연결 정리
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
+
+  console.log(`[WebSocket] Connecting to ${config.wsRelayUrl} (${config.environment})`);
+
+  socket = io(config.wsRelayUrl, {
+    transports: ['websocket', 'polling'],
+    reconnectionDelay: 1000,
+    reconnection: true,
+    timeout: 10000
+  });
+
+  socket.on('connect', () => {
+    console.log('[WebSocket] Connected to relay server');
+
+    const user = getAuthTokenFromMainWindow();
+
+    socket.emit('handshake', {
+      type: 'client',
+      metadata: {
+        environment: config.environment,
+        email: user?.email || 'main-process',
+        provider: user?.provider || 'electron',
+        displayName: user?.displayName || 'Main Process',
+        connectedAt: new Date().toISOString()
+      }
+    });
+  });
+
+  socket.on('handshake:success', (data) => {
+    console.log('[WebSocket] Handshake successful:', data);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('[WebSocket] Disconnected:', reason);
+  });
+
+  socket.on('connect_error', (error) => {
+    console.error('[WebSocket] Connection error:', error.message);
+  });
+
+  // Heartbeat
+  heartbeatInterval = setInterval(() => {
+    if (socket && socket.connected) {
+      socket.emit('heartbeat');
+    }
+  }, 30000);
+
+  // 이벤트 리스너 등록
+  setupWebSocketEventListeners();
 }
 
 // AutoUpdater 초기화 함수 (app.whenReady() 이후에 호출)
@@ -365,6 +565,40 @@ ipcMain.handle('get-auth-token', async () => {
   }
 });
 
+// ============================================
+// Environment 설정 IPC 핸들러
+// ============================================
+ipcMain.handle('get-environment', async () => {
+  return currentConfig?.environment || 'production';
+});
+
+ipcMain.handle('set-environment', async (event, environment) => {
+  console.log(`[Config] Changing environment: ${currentConfig.environment} → ${environment}`);
+
+  const newConfig = { ...currentConfig, environment };
+  saveConfig(newConfig);
+
+  // WebSocket 재연결
+  connectWebSocket(newConfig);
+
+  // 모든 창에 알림
+  broadcastToAllWindows('environment-changed', { environment });
+
+  return { success: true, environment };
+});
+
+ipcMain.handle('get-config', async () => {
+  return currentConfig;
+});
+
+ipcMain.handle('get-websocket-status', async () => {
+  return {
+    connected: socket?.connected || false,
+    environment: currentConfig?.environment || 'production',
+    url: currentConfig?.wsRelayUrl || 'ws://136.113.67.193:8080'
+  };
+});
+
 // 윈도우 제어 IPC 핸들러
 ipcMain.handle('window-minimize', () => {
   if (mainWindow) {
@@ -586,56 +820,13 @@ ipcMain.handle('close-all-sticky-windows', async () => {
 });
 
 // 메모 생성 브로드캐스트
-ipcMain.handle('broadcast-memo-created', async (event, memoData) => {
-  // 자기 자신을 제외한 모든 창에 메모 생성 이벤트 전송
-  const sender = event.sender;
+// ============================================
+// IPC 브로드캐스트 핸들러 제거됨
+// WebSocket 이벤트가 Main Process를 통해 자동으로 모든 창에 전달됨
+// ============================================
 
-  // 메인 창에 전송
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents !== sender) {
-    mainWindow.webContents.send('memo-created', memoData);
-  }
-
-  // 다른 sticky 창들에 전송
-  Object.values(stickyWindows).forEach(window => {
-    if (window && !window.isDestroyed() && window.webContents !== sender) {
-      window.webContents.send('memo-created', memoData);
-    }
-  });
-  return { success: true };
-});
-
-// 메모 삭제 브로드캐스트
-ipcMain.handle('broadcast-memo-deleted', async (event, memoId) => {
-  // 자기 자신을 제외한 모든 창에 메모 삭제 이벤트 전송
-  const sender = event.sender;
-
-  // 메인 창에 전송
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents !== sender) {
-    mainWindow.webContents.send('memo-deleted', memoId);
-  }
-
-  // 다른 sticky 창들에 전송
-  Object.values(stickyWindows).forEach(window => {
-    if (window && !window.isDestroyed() && window.webContents !== sender) {
-      window.webContents.send('memo-deleted', memoId);
-    }
-  });
-  return { success: true };
-});
-
-// 상담 생성/수정 브로드캐스트
-ipcMain.handle('broadcast-consultation-updated', async (event) => {
-  const sender = event.sender;
-
-  // 메인 창에 전송
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents !== sender) {
-    mainWindow.webContents.send('consultation-updated');
-  }
-
-  // 다른 sticky 창들에 전송
-  Object.values(stickyWindows).forEach(window => {
-    if (window && !window.isDestroyed() && window.webContents !== sender) {
-      window.webContents.send('consultation-updated');
+// Sticky 창 동기화를 위한 IPC 리스너 유지 (Sticky → Main 네비게이션용)
+// onMemoCreated, onMemoDeleted, onConsultationUpdated는 preload.js에서 계속 사용
     }
   });
   return { success: true };
@@ -1116,6 +1307,10 @@ app.whenReady().then(() => {
   initAutoUpdater();
 
   createWindow();
+
+  // WebSocket 연결 초기화
+  const config = loadConfig();
+  connectWebSocket(config);
 
   // 프로덕션 환경에서만 업데이트 확인
   if (autoUpdater) {

@@ -41,14 +41,8 @@ contextBridge.exposeInMainWorld('electron', {
   // API 호출 (Sticky 창에서 사용)
   createMemo: (memoData) => ipcRenderer.invoke('api-create-memo', memoData),
 
-  // 대시보드에서 메모 생성 시 다른 창들에게 브로드캐스트
-  broadcastMemoCreated: (memoData) => ipcRenderer.invoke('broadcast-memo-created', memoData),
-
-  // 대시보드에서 메모 삭제 시 다른 창들에게 브로드캐스트
-  broadcastMemoDeleted: (memoId) => ipcRenderer.invoke('broadcast-memo-deleted', memoId),
-
-  // 대시보드에서 상담 생성/수정/삭제 시 다른 창들에게 브로드캐스트
-  broadcastConsultationUpdated: () => ipcRenderer.invoke('broadcast-consultation-updated'),
+  // IPC 브로드캐스트 제거됨 - WebSocket 이벤트가 자동으로 전파됨
+  // broadcastMemoCreated, broadcastMemoDeleted, broadcastConsultationUpdated 제거
 
   // 메모 서브 윈도우 열기
   openMemoSubWindow: (mode, memoId) => ipcRenderer.invoke('open-memo-sub-window', { mode, memoId }),
@@ -136,4 +130,30 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 앱 재시작
   restartApp: () => ipcRenderer.invoke('restart-app'),
+
+  // ==================== Environment 설정 ====================
+  getEnvironment: () => ipcRenderer.invoke('get-environment'),
+  setEnvironment: (environment) => ipcRenderer.invoke('set-environment', environment),
+  getConfig: () => ipcRenderer.invoke('get-config'),
+
+  // 환경 변경 이벤트 리스너
+  onEnvironmentChanged: (callback) => {
+    ipcRenderer.on('environment-changed', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('environment-changed');
+  },
+
+  // ==================== WebSocket 상태 ====================
+  getWebSocketStatus: () => ipcRenderer.invoke('get-websocket-status'),
+
+  // WebSocket 연결 상태 이벤트
+  onWebSocketStatusChanged: (callback) => {
+    ipcRenderer.on('websocket-status-changed', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('websocket-status-changed');
+  },
+
+  // WebSocket 이벤트 리스너 (범용)
+  onWebSocketEvent: (eventName, callback) => {
+    ipcRenderer.on(eventName, (event, data) => callback(data));
+    return () => ipcRenderer.removeListener(eventName, callback);
+  },
 });

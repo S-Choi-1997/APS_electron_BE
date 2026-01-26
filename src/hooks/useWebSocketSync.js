@@ -1,328 +1,208 @@
 /**
  * useWebSocketSync.js - WebSocket 실시간 동기화 Custom Hook
  *
- * AppRouter.jsx와 Dashboard.jsx에 중복되어 있던
- * WebSocket 이벤트 리스너 로직을 통합한 Hook
+ * Main Process에서 전달되는 WebSocket 이벤트를 React Query 캐시와 동기화
  *
- * 기능:
- * - WebSocket 연결 관리
- * - 메모/일정/상담 실시간 동기화
- * - Toast 알림 표시
- * - 재연결 처리
- *
- * @param {Object} user - 현재 로그인 사용자
- * @param {Object} handlers - 이벤트 핸들러 함수들
- * @param {Function} handlers.onConsultationCreated - 신규 상담 생성 시
- * @param {Function} handlers.onConsultationUpdated - 상담 업데이트 시
- * @param {Function} handlers.onConsultationDeleted - 상담 삭제 시
- * @param {Function} handlers.onMemoCreated - 메모 생성 시
- * @param {Function} handlers.onMemoDeleted - 메모 삭제 시
- * @param {Function} handlers.onScheduleCreated - 일정 생성 시
- * @param {Function} handlers.onScheduleUpdated - 일정 업데이트 시
- * @param {Function} handlers.onScheduleDeleted - 일정 삭제 시
- * @param {Function} handlers.loadStats - 통계 새로고침 (선택)
+ * 리팩토링 날짜: 2026-01-20
+ * 변경사항:
+ * - WebSocket 직접 연결 제거
+ * - IPC 이벤트 리스너로 전환 (window.electron.onWebSocketEvent)
+ * - React Query 기반 상태 관리 유지
+ * - Optimistic Updates 패턴 유지
  */
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { connectWebSocket, disconnectWebSocket, getSocket } from '../services/websocketService';
-import { showToastNotification } from '../utils/notificationHelper';
 
-function useWebSocketSync(user, handlers = {}) {
+export function useWebSocketSync() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user) {
-      disconnectWebSocket();
+    if (!window.electron) {
+      console.warn('[WebSocketSync] Electron context not available');
       return;
     }
 
-    const socket = connectWebSocket();
-    if (!socket) return;
+    console.log('[WebSocketSync] Setting up event listeners');
 
-    // ========== 상담 관련 이벤트 ==========
+    const cleanups = [];
 
-    // 신규 상담 생성
-    if (handlers.onConsultationCreated) {
-      socket.on('consultation:created', (newConsultation) => {
-        console.log('[WebSocket] New consultation received:', newConsultation);
-        handlers.onConsultationCreated(newConsultation);
+    // ============================================
+    // 상담 이벤트
+    // ============================================
+    cleanups.push(
+      window.electron.onWebSocketEvent('consultation:created', (newConsultation) => {
+        console.log('[WebSocketSync] Consultation created:', newConsultation.id);
 
-        // 통계 갱신
-        if (handlers.loadStats) {
-          handlers.loadStats();
-        }
+        // 캐시 무효화
+        queryClient.invalidateQueries({ queryKey: ['consultations'] });
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
 
-        // Toast 알림
-        showToastNotification('consultation', `신규 문의: ${newConsultation.name}님`);
-      });
-    }
+    cleanups.push(
+      window.electron.onWebSocketEvent('consultation:updated', (updatedConsultation) => {
+        console.log('[WebSocketSync] Consultation updated:', updatedConsultation.id);
 
-    // 상담 업데이트
-    if (handlers.onConsultationUpdated) {
-      socket.on('consultation:updated', (data) => {
-        console.log('[WebSocket] Consultation updated:', data);
-        handlers.onConsultationUpdated(data);
+        // Optimistic update
+        queryClient.setQueryData(['consultations'], (oldData) => {
+          if (!oldData?.pages) return oldData;
 
-        // 통계 갱신
-        if (handlers.loadStats) {
-          handlers.loadStats();
-        }
-
-        // Toast 알림 (확인 또는 응신 처리된 경우)
-        if (data.updates) {
-          const status = data.updates.status || (data.updates.check ? 'responded' : null);
-          if (status === 'read') {
-            showToastNotification('consultation', `${data.updates.name || ''}님 문의가 확인되었습니다.`);
-          } else if (status === 'responded') {
-            showToastNotification('consultation', `${data.updates.name || ''}님 문의에 응신하였습니다.`);
-          }
-        }
-      });
-    }
-
-    // 상담 삭제
-    if (handlers.onConsultationDeleted) {
-      socket.on('consultation:deleted', (data) => {
-        console.log('[WebSocket] Consultation deleted:', data.id);
-        handlers.onConsultationDeleted(data);
-
-        // 통계 갱신
-        if (handlers.loadStats) {
-          handlers.loadStats();
-        }
-      });
-    }
-
-    // ========== 메모 관련 이벤트 ==========
-
-    // 메모 생성
-    if (handlers.onMemoCreated) {
-      socket.on('memo:created', (newMemo) => {
-        console.log('[WebSocket] Memo created:', newMemo);
-        handlers.onMemoCreated(newMemo);
-
-        // 알림 메시지: 제목 + 내용(50자) + 작성자
-        const memoContent = newMemo.content.length > 50
-          ? newMemo.content.substring(0, 50) + '...'
-          : newMemo.content;
-
-        showToastNotification('memo',
-          `${newMemo.title}\n${memoContent}\n\n${newMemo.author_name || '사용자'}`
-        );
-      });
-    }
-
-    // 메모 삭제
-    if (handlers.onMemoDeleted) {
-      socket.on('memo:deleted', (data) => {
-        console.log('[WebSocket] Memo deleted:', data.id);
-        handlers.onMemoDeleted(data);
-      });
-    }
-
-    // ========== 일정 관련 이벤트 ==========
-
-    // 일정 생성
-    if (handlers.onScheduleCreated) {
-      socket.on('schedule:created', (newSchedule) => {
-        console.log('[WebSocket] Schedule created:', newSchedule);
-        handlers.onScheduleCreated(newSchedule);
-
-        const isPersonal = newSchedule.type === 'personal';
-
-        // 알림 메시지: 제목 + 날짜+시간 + 작성자(개인 일정만)
-        const timeInfo = newSchedule.time || '시간 미정';
-        const dateInfo = new Date(newSchedule.start_date).toLocaleDateString('ko-KR', {
-          month: 'long',
-          day: 'numeric'
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              data: page.data.map(c =>
+                c.id === updatedConsultation.id ? { ...c, ...updatedConsultation } : c
+              )
+            }))
+          };
         });
 
-        const authorInfo = isPersonal
-          ? newSchedule.author_name || '사용자'
-          : '';
+        // 통계 갱신
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
 
-        showToastNotification(
-          isPersonal ? 'personalSchedule' : 'teamSchedule',
-          authorInfo
-            ? `${newSchedule.title}\n${dateInfo} ${timeInfo}\n\n${authorInfo}`
-            : `${newSchedule.title}\n${dateInfo} ${timeInfo}`
-        );
-      });
-    }
+    cleanups.push(
+      window.electron.onWebSocketEvent('consultation:deleted', (deletedConsultation) => {
+        console.log('[WebSocketSync] Consultation deleted:', deletedConsultation.id);
 
-    // 일정 수정
-    if (handlers.onScheduleUpdated) {
-      socket.on('schedule:updated', (data) => {
-        console.log('[WebSocket] Schedule updated:', data);
-        handlers.onScheduleUpdated(data);
-      });
-    }
+        // 캐시에서 제거
+        queryClient.setQueryData(['consultations'], (oldData) => {
+          if (!oldData?.pages) return oldData;
 
-    // 일정 삭제
-    if (handlers.onScheduleDeleted) {
-      socket.on('schedule:deleted', (data) => {
-        console.log('[WebSocket] Schedule deleted:', data.id);
-        handlers.onScheduleDeleted(data);
-      });
-    }
-
-    // ========== 이메일 관련 이벤트 ==========
-
-    // 신규 이메일 생성 (ZOHO Webhook 또는 수동 동기화)
-    socket.on('email:created', (newEmail) => {
-      console.log('[WebSocket] New email received:', newEmail);
-
-      // 보낸 메일은 목록에 추가하지 않음 (스레드에서만 표시)
-      if (newEmail.isOutgoing) {
-        console.log('[WebSocket] Outgoing email - skip adding to list');
-
-        // 통계만 갱신 (보낸 메일도 responded 상태로 카운트)
-        queryClient.invalidateQueries({ queryKey: ['emailInquiries', 'stats'] });
-
-        // 스레드 데이터는 갱신 (모달에서 보낸 메일 보기 위해)
-        queryClient.invalidateQueries({
-          queryKey: ['emailInquiries', 'list', { includeOutgoing: true }]
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              data: page.data.filter(c => c.id !== deletedConsultation.id)
+            }))
+          };
         });
 
-        return;  // 여기서 종료
-      }
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
 
-      // 받은 메일만 캐시에 추가
-      // Optimistic Update: 캐시에 직접 추가 (순서 유지)
-      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
-        if (!oldData) return [newEmail];
-        // 최신 이메일을 맨 앞에 추가
-        return [newEmail, ...oldData];
-      });
+    // ============================================
+    // 메모 이벤트
+    // ============================================
+    cleanups.push(
+      window.electron.onWebSocketEvent('memo:created', (newMemo) => {
+        console.log('[WebSocketSync] Memo created:', newMemo.id);
+        queryClient.invalidateQueries({ queryKey: ['memos'] });
+      })
+    );
 
-      // 통계 업데이트
-      queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
-        if (!oldStats) return oldStats;
-        return {
-          ...oldStats,
-          total: oldStats.total + 1,
-          unread: oldStats.unread + 1,
-          [newEmail.source]: (oldStats[newEmail.source] || 0) + 1
-        };
-      });
+    cleanups.push(
+      window.electron.onWebSocketEvent('memo:deleted', (deletedMemo) => {
+        console.log('[WebSocketSync] Memo deleted:', deletedMemo.id);
+        queryClient.invalidateQueries({ queryKey: ['memos'] });
+      })
+    );
 
-      // Toast 알림 (받은 메일만)
-      const fromName = newEmail.fromName || newEmail.from || '발신자';
-      const subject = newEmail.subject || '(제목 없음)';
-      showToastNotification('email', `새 이메일: ${fromName}\n${subject}`);
+    // ============================================
+    // 일정 이벤트
+    // ============================================
+    cleanups.push(
+      window.electron.onWebSocketEvent('schedule:created', () => {
+        console.log('[WebSocketSync] Schedule created');
+        queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      })
+    );
 
-      // 커스텀 핸들러 호출 (옵션)
-      if (handlers.onEmailCreated) {
-        handlers.onEmailCreated(newEmail);
-      }
-    });
+    cleanups.push(
+      window.electron.onWebSocketEvent('schedule:updated', () => {
+        console.log('[WebSocketSync] Schedule updated');
+        queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      })
+    );
 
-    // 이메일 업데이트 (읽음 처리 등)
-    socket.on('email:updated', (data) => {
-      console.log('[WebSocket] Email updated:', data);
+    cleanups.push(
+      window.electron.onWebSocketEvent('schedule:deleted', () => {
+        console.log('[WebSocketSync] Schedule deleted');
+        queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      })
+    );
 
-      const listQueryKey = ['emailInquiries', 'list', {}];
+    // ============================================
+    // 이메일 이벤트
+    // ============================================
+    cleanups.push(
+      window.electron.onWebSocketEvent('email:created', (newEmail) => {
+        console.log('[WebSocketSync] Email created:', newEmail.id);
 
-      // 캐시에서 해당 항목 수정 (순서 유지) 및 통계 업데이트
-      queryClient.setQueryData(listQueryKey, (oldData) => {
-        if (!oldData) return oldData;
+        // 이메일 캐시에 추가
+        queryClient.setQueryData(['emails'], (oldData) => {
+          if (!oldData) return { data: [newEmail] };
+          return { ...oldData, data: [newEmail, ...oldData.data] };
+        });
 
-        const oldItem = oldData.find(item => item.id === data.id);
+        // 통계 갱신
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
 
-        // 상태 변경이 있는 경우 통계도 업데이트
-        if (oldItem && data.updates?.status && oldItem.status !== data.updates.status) {
-          queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
-            if (!oldStats) return oldStats;
+    cleanups.push(
+      window.electron.onWebSocketEvent('email:updated', (updatedEmail) => {
+        console.log('[WebSocketSync] Email updated:', updatedEmail.id);
 
-            const newStats = { ...oldStats };
+        queryClient.setQueryData(['emails'], (oldData) => {
+          if (!oldData?.data) return oldData;
 
-            // 이전 상태 카운트 감소
-            if (oldItem.status === 'unread') newStats.unread = Math.max(0, newStats.unread - 1);
-            else if (oldItem.status === 'read') newStats.read = Math.max(0, newStats.read - 1);
-            else if (oldItem.status === 'responded') newStats.responded = Math.max(0, newStats.responded - 1);
+          return {
+            ...oldData,
+            data: oldData.data.map(e =>
+              e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e
+            )
+          };
+        });
 
-            // 새 상태 카운트 증가
-            if (data.updates.status === 'unread') newStats.unread = (newStats.unread || 0) + 1;
-            else if (data.updates.status === 'read') newStats.read = (newStats.read || 0) + 1;
-            else if (data.updates.status === 'responded') newStats.responded = (newStats.responded || 0) + 1;
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
 
-            console.log('[WebSocket] Stats updated:', { old: oldStats, new: newStats });
-            return newStats;
-          });
+    cleanups.push(
+      window.electron.onWebSocketEvent('email:deleted', (deletedEmail) => {
+        console.log('[WebSocketSync] Email deleted:', deletedEmail.id);
+
+        queryClient.setQueryData(['emails'], (oldData) => {
+          if (!oldData?.data) return oldData;
+
+          return {
+            ...oldData,
+            data: oldData.data.filter(e => e.id !== deletedEmail.id)
+          };
+        });
+
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+      })
+    );
+
+    // ============================================
+    // WebSocket 연결 상태 모니터링
+    // ============================================
+    cleanups.push(
+      window.electron.onWebSocketStatusChanged((status) => {
+        console.log('[WebSocketSync] WebSocket status changed:', status);
+
+        if (status.connected) {
+          console.log(`[WebSocketSync] Connected to ${status.environment} environment`);
+
+          // 재연결 시 모든 캐시 갱신
+          queryClient.invalidateQueries();
+        } else {
+          console.warn('[WebSocketSync] Disconnected from relay server');
         }
-
-        return oldData.map(item =>
-          item.id === data.id ? { ...item, ...data.updates } : item
-        );
-      });
-
-      // 커스텀 핸들러 호출 (옵션)
-      if (handlers.onEmailUpdated) {
-        handlers.onEmailUpdated(data);
-      }
-    });
-
-    // 이메일 삭제
-    socket.on('email:deleted', (data) => {
-      console.log('[WebSocket] Email deleted:', data.id);
-
-      // Optimistic Update: 캐시에서 제거 (순서 유지)
-      queryClient.setQueryData(['emailInquiries', 'list', {}], (oldData) => {
-        if (!oldData) return oldData;
-        const deleted = oldData.find(item => item.id === data.id);
-        const newData = oldData.filter(item => item.id !== data.id);
-
-        // 통계 업데이트
-        if (deleted) {
-          queryClient.setQueryData(['emailInquiries', 'stats'], (oldStats) => {
-            if (!oldStats) return oldStats;
-            return {
-              ...oldStats,
-              total: oldStats.total - 1,
-              unread: deleted.check ? oldStats.unread : oldStats.unread - 1,
-              [deleted.source]: (oldStats[deleted.source] || 1) - 1
-            };
-          });
-        }
-
-        return newData;
-      });
-
-      // 커스텀 핸들러 호출 (옵션)
-      if (handlers.onEmailDeleted) {
-        handlers.onEmailDeleted(data);
-      }
-    });
-
-    // ========== 재연결 처리 ==========
-
-    socket.on('connect', async () => {
-      console.log('[WebSocket] Connected/Reconnected');
-
-      // 재연결 시 데이터 동기화 (핸들러가 있는 경우)
-      if (handlers.onReconnect) {
-        handlers.onReconnect();
-      }
-    });
-
-    // ========== Cleanup ==========
+      })
+    );
 
     return () => {
-      socket.off('consultation:created');
-      socket.off('consultation:updated');
-      socket.off('consultation:deleted');
-      socket.off('memo:created');
-      socket.off('memo:deleted');
-      socket.off('schedule:created');
-      socket.off('schedule:updated');
-      socket.off('schedule:deleted');
-      socket.off('email:created');
-      socket.off('email:updated');
-      socket.off('email:deleted');
-      socket.off('connect');
+      console.log('[WebSocketSync] Cleaning up event listeners');
+      cleanups.forEach(cleanup => cleanup?.());
     };
-  }, [user, handlers, queryClient]);
+  }, [queryClient]);
 }
 
 export default useWebSocketSync;

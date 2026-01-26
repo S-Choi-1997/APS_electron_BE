@@ -15,7 +15,6 @@ import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
 import { fetchSchedules, createSchedule, updateSchedule, deleteSchedule } from '../services/scheduleService';
 import { showToastNotification } from '../utils/notificationHelper';
-import { getSocket } from '../services/websocketService';
 import './Dashboard.css';
 import './css/PageLayout.css';
 import './css/DashboardLayout.css';
@@ -95,10 +94,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       // 서버에서 최신 데이터 가져오기
       queryClient.invalidateQueries({ queryKey: ['memos'] });
 
-      // IPC 브로드캐스트 (Sticky 창 동기화)
-      if (window.electron?.broadcastMemoDeleted) {
-        window.electron.broadcastMemoDeleted(memoId);
-      }
+      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
     },
     // 실패 시: 캐시를 백업 데이터로 롤백
     onError: (error, memoId, context) => {
@@ -234,10 +230,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       // 캐시 무효화하여 서버에서 최신 데이터 가져오기
       queryClient.invalidateQueries({ queryKey: ['memos'] });
 
-      // 다른 창들에게 메모 생성 알림 (알림창 등)
-      if (window.electron?.broadcastMemoCreated) {
-        window.electron.broadcastMemoCreated(createdMemo);
-      }
+      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
 
       // 폼 초기화 및 모달 닫기
       setMemoForm({ title: '', content: '', important: false, expire_date: '' });
@@ -388,10 +381,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       setScheduleForm({ title: '', time: '', start_date: '', end_date: '', type: '회사', author: '', multiDay: false, hasTime: false });
       setShowScheduleCreateModal(false);
 
-      // 다른 창들에게 상담 업데이트 브로드캐스트 (일정도 상담 데이터)
-      if (window.electron && window.electron.broadcastConsultationUpdated) {
-        await window.electron.broadcastConsultationUpdated();
-      }
+      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
     } catch (error) {
       console.error('일정 생성 실패:', error);
       alert('일정 생성에 실패했습니다: ' + error.message);
@@ -445,10 +435,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       setShowScheduleEditModal(false);
       setSelectedSchedule(null);
 
-      // 다른 창들에게 상담 업데이트 브로드캐스트 (일정도 상담 데이터)
-      if (window.electron && window.electron.broadcastConsultationUpdated) {
-        await window.electron.broadcastConsultationUpdated();
-      }
+      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
     } catch (error) {
       console.error('일정 수정 실패:', error);
       alert('일정 수정에 실패했습니다: ' + error.message);
@@ -466,10 +453,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         setShowDeleteConfirmModal(false);
         setDeleteTarget(null);
 
-        // 다른 창들에게 상담 업데이트 브로드캐스트 (일정도 상담 데이터)
-        if (window.electron && window.electron.broadcastConsultationUpdated) {
-          await window.electron.broadcastConsultationUpdated();
-        }
+        // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
       } catch (error) {
         console.error('일정 삭제 실패:', error);
         alert('일정 삭제에 실패했습니다: ' + error.message);
@@ -567,56 +551,9 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     }
   }, [queryClient]);
 
-  // WebSocket 이벤트 리스너 - 메모/일정 실시간 동기화
-  // NOTE: AppRouter에서 useWebSocketSync로 중앙 관리됨
-  // Dashboard는 React Query 캐시 업데이트만 수행
-  useEffect(() => {
-    if (!user) return;
-
-    const socket = getSocket();
-    if (!socket) return;
-
-    // 메모 생성 이벤트 - React Query 캐시 무효화
-    socket.on('memo:created', (newMemo) => {
-      console.log('[Dashboard] Memo created event received:', newMemo.id);
-      queryClient.invalidateQueries({ queryKey: ['memos'] });
-    });
-
-    // 메모 삭제 이벤트 - React Query 캐시에서 즉시 제거
-    socket.on('memo:deleted', (data) => {
-      console.log('[Dashboard] Memo deleted event received:', data.id);
-      queryClient.setQueryData(['memos'], (old) => {
-        if (!old) return [];
-        return old.filter(m => m.id !== data.id);
-      });
-    });
-
-    // 일정 생성 이벤트 - 데이터 새로고침
-    socket.on('schedule:created', (newSchedule) => {
-      console.log('[Dashboard] Schedule created event received:', newSchedule.id);
-      loadSchedules();
-    });
-
-    // 일정 수정 이벤트 - 데이터 새로고침
-    socket.on('schedule:updated', (data) => {
-      console.log('[Dashboard] Schedule updated event received:', data.id);
-      loadSchedules();
-    });
-
-    // 일정 삭제 이벤트 - 즉시 state에서 제거
-    socket.on('schedule:deleted', (data) => {
-      console.log('[Dashboard] Schedule deleted event received:', data.id);
-      setSchedules(prev => prev.filter(s => s.id !== data.id));
-    });
-
-    return () => {
-      socket.off('memo:created');
-      socket.off('memo:deleted');
-      socket.off('schedule:created');
-      socket.off('schedule:updated');
-      socket.off('schedule:deleted');
-    };
-  }, [user, queryClient]);
+  // WebSocket 이벤트 리스너 제거됨
+  // NOTE: useWebSocketSync Hook이 Main Process의 WebSocket 이벤트를 처리
+  // Dashboard는 React Query만 사용하여 상태 관리
 
   // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
   useEffect(() => {
