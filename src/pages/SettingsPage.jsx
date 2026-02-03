@@ -12,6 +12,7 @@ import './SettingsPage.css';
 function SettingsPage() {
   const [user, setUser] = useState(getCurrentUser());
   const [autoLogin, setAutoLogin] = useState(false);
+  const [startupEnabled, setStartupEnabled] = useState(false);
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [notificationSound, setNotificationSound] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -34,6 +35,21 @@ function SettingsPage() {
   useEffect(() => {
     const savedAutoLogin = localStorage.getItem('aps-auto-login') === 'true';
     setAutoLogin(savedAutoLogin);
+  }, []);
+
+  // 시작프로그램 설정 불러오기
+  useEffect(() => {
+    if (window.electron?.getStartupEnabled) {
+      window.electron.getStartupEnabled()
+        .then(result => {
+          if (result.success) {
+            setStartupEnabled(result.enabled);
+          }
+        })
+        .catch(error => {
+          console.error('[Settings] Failed to get startup setting:', error);
+        });
+    }
   }, []);
 
   // 알림 설정 불러오기
@@ -98,6 +114,24 @@ function SettingsPage() {
       console.error('Update check failed:', error);
       setUpdateStatus('error');
       setIsCheckingUpdate(false);
+    }
+  };
+
+  // 시작프로그램 설정 변경 핸들러
+  const handleStartupChange = async (enabled) => {
+    if (!window.electron?.setStartupEnabled) {
+      return;
+    }
+
+    try {
+      const result = await window.electron.setStartupEnabled(enabled);
+      if (result.success) {
+        setStartupEnabled(enabled);
+      } else {
+        console.error('[Settings] Failed to set startup:', result.error);
+      }
+    } catch (error) {
+      console.error('[Settings] Failed to set startup:', error);
     }
   };
 
@@ -219,6 +253,22 @@ function SettingsPage() {
                 <span className="toggle-slider"></span>
               </label>
             </div>
+            {window.electron?.platform === 'win32' && (
+              <div className="setting-item">
+                <div className="setting-info">
+                  <div className="setting-label">Windows 시작 시 자동 실행</div>
+                  <div className="setting-description">컴퓨터 시작 시 APS Admin을 자동으로 실행합니다</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={startupEnabled}
+                    onChange={(e) => handleStartupChange(e.target.checked)}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+            )}
             <div className="setting-item">
               <div className="setting-info">
                 <div className="setting-label">데스크톱 알림</div>

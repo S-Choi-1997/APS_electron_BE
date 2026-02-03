@@ -2,7 +2,7 @@
 ; Features:
 ; 1. Skip false-positive running app check (Issue #894)
 ; 2. Force kill existing app process before install/uninstall
-; 3. Add to Windows startup on install, remove on uninstall
+; 3. Auto-add to Windows startup (user can toggle in app settings)
 ; Reference: https://github.com/electron-userland/electron-builder/issues/894
 
 ; Registry key for startup
@@ -23,18 +23,11 @@
   Pop $0
 !macroend
 
-; After install: add to Windows startup
+; After install: add to startup (default behavior)
+; User can disable this later in app settings
 !macro customInstall
-  ; Check if already registered
-  ReadRegStr $0 HKCU "${STARTUP_REG_KEY}" "${APP_NAME}"
-
-  ${If} $0 == ""
-    ; Not registered - add to startup
-    WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
-  ${Else}
-    ; Already registered - update path (in case install location changed)
-    WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
-  ${EndIf}
+  ; Add/update startup registry entry
+  WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
 !macroend
 
 ; Before uninstall: force kill any existing app process

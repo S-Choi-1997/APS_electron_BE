@@ -155,6 +155,10 @@ contextBridge.exposeInMainWorld('electron', {
   // 앱 완전 종료
   quitApp: () => ipcRenderer.invoke('quit-app'),
 
+  // ==================== 시작프로그램 설정 ====================
+  getStartupEnabled: () => ipcRenderer.invoke('get-startup-enabled'),
+  setStartupEnabled: (enabled) => ipcRenderer.invoke('set-startup-enabled', enabled),
+
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),
   setEnvironment: (environment) => ipcRenderer.invoke('set-environment', environment),

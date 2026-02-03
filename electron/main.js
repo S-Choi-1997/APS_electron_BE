@@ -1361,6 +1361,66 @@ ipcMain.handle('download-update', async () => {
   }
 });
 
+// ==================== 시작프로그램 설정 ====================
+const STARTUP_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const APP_NAME = 'APS Admin';
+
+// 시작프로그램 등록 여부 확인
+ipcMain.handle('get-startup-enabled', async () => {
+  try {
+    // Windows 전용
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'Windows only feature' };
+    }
+
+    const { execSync } = require('child_process');
+    const result = execSync(`reg query "${STARTUP_REG_KEY}" /v "${APP_NAME}" 2>nul`, {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+
+    // 레지스트리 값이 존재하면 enabled
+    return { success: true, enabled: result.includes(APP_NAME) };
+  } catch (error) {
+    // 레지스트리 키가 없으면 disabled
+    return { success: true, enabled: false };
+  }
+});
+
+// 시작프로그램 등록/해제
+ipcMain.handle('set-startup-enabled', async (event, enabled) => {
+  try {
+    // Windows 전용
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'Windows only feature' };
+    }
+
+    const { execSync } = require('child_process');
+    const exePath = app.getPath('exe');
+
+    if (enabled) {
+      // 시작프로그램에 등록
+      execSync(`reg add "${STARTUP_REG_KEY}" /v "${APP_NAME}" /t REG_SZ /d "\\"${exePath}\\"" /f`, {
+        encoding: 'utf8',
+        windowsHide: true
+      });
+      console.log('[Startup] Added to startup');
+    } else {
+      // 시작프로그램에서 제거
+      execSync(`reg delete "${STARTUP_REG_KEY}" /v "${APP_NAME}" /f 2>nul`, {
+        encoding: 'utf8',
+        windowsHide: true
+      });
+      console.log('[Startup] Removed from startup');
+    }
+
+    return { success: true, enabled };
+  } catch (error) {
+    console.error('[Startup] Failed to set startup:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 app.whenReady().then(() => {
   // AutoUpdater 초기화 (app.isPackaged 접근 가능)
   initAutoUpdater();
