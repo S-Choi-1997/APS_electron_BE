@@ -84,6 +84,12 @@
   font-weight: bold;
 }
 
+.update-icon.error {
+  background-color: #fee2e2;
+  color: #dc2626;
+  font-weight: bold;
+}
+
 .release-notes {
   margin-top: 16px;
   padding: 12px;

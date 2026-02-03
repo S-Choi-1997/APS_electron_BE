@@ -16,6 +16,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false); // 다운로드 시작 여부
   const [estimatedTimeLeft, setEstimatedTimeLeft] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null); // 에러 메시지
 
   useEffect(() => {
     if (!window.electron) return;
@@ -49,28 +50,75 @@ function UpdateProgressModal({ isVisible, onClose }) {
       setIsDownloaded(true);
       setIsDownloading(false);
       setDownloadProgress({ percent: 100, transferred: 0, total: 0 });
+      setErrorMessage(null);
+    });
+
+    // 업데이트 에러 이벤트
+    const cleanupError = window.electron.onUpdateError?.((error) => {
+      console.error('[UpdateModal] Update error:', error);
+      setErrorMessage(error?.message || '업데이트 중 오류가 발생했습니다.');
+      setIsDownloading(false);
     });
 
     return () => {
       cleanupAvailable?.();
       cleanupProgress?.();
       cleanupDownloaded?.();
+      cleanupError?.();
     };
   }, []);
 
   // 다운로드 시작 핸들러
   const handleStartDownload = async () => {
     setIsDownloading(true);
+    setErrorMessage(null);
     try {
       await window.electron?.downloadUpdate?.();
     } catch (error) {
       console.error('[UpdateModal] Download failed:', error);
       setIsDownloading(false);
+      setErrorMessage(error?.message || '다운로드 시작에 실패했습니다.');
     }
+  };
+
+  // 다시 시도 핸들러
+  const handleRetry = () => {
+    setErrorMessage(null);
+    handleStartDownload();
   };
 
   if (!isVisible || !updateInfo) {
     return null;
+  }
+
+  // 에러 상태
+  if (errorMessage) {
+    return (
+      <div className="update-modal-overlay">
+        <div className="update-modal">
+          <div className="update-modal-header">
+            <h2>업데이트 오류</h2>
+          </div>
+          <div className="update-modal-body">
+            <div className="update-icon error">✕</div>
+            <p className="update-message">
+              업데이트 중 오류가 발생했습니다.
+            </p>
+            <p className="update-submessage">
+              {errorMessage}
+            </p>
+          </div>
+          <div className="update-modal-footer">
+            <button className="btn-secondary" onClick={onClose}>
+              닫기
+            </button>
+            <button className="btn-primary" onClick={handleRetry}>
+              다시 시도
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // 다운로드 완료 상태

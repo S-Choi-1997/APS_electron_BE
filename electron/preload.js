@@ -38,8 +38,7 @@ contextBridge.exposeInMainWorld('electron', {
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
 
-  // API 호출 (Sticky 창에서 사용)
-  createMemo: (memoData) => ipcRenderer.invoke('api-create-memo', memoData),
+  // NOTE: createMemo API 제거됨 - memoService.js의 API 호출 사용
 
   // IPC 브로드캐스트 제거됨 - WebSocket 이벤트가 자동으로 전파됨
   // broadcastMemoCreated, broadcastMemoDeleted, broadcastConsultationUpdated 제거
@@ -60,28 +59,25 @@ contextBridge.exposeInMainWorld('electron', {
   focusMainWindow: (route) => ipcRenderer.invoke('focus-main-window', route),
 
   // 이벤트 리스너 (메인 프로세스 → 렌더러)
+  // NOTE: WebSocket 이벤트는 콜론(:) 구분자 사용 (memo:created, memo:deleted 등)
   onMemoCreated: (callback) => {
-    ipcRenderer.on('memo-created', (event, data) => callback(data));
-    // 정리 함수 반환
-    return () => ipcRenderer.removeAllListeners('memo-created');
+    ipcRenderer.on('memo:created', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('memo:created');
   },
 
   onMemoDeleted: (callback) => {
-    ipcRenderer.on('memo-deleted', (event, memoId) => callback(memoId));
-    // 정리 함수 반환
-    return () => ipcRenderer.removeAllListeners('memo-deleted');
+    ipcRenderer.on('memo:deleted', (event, data) => callback(data?.id || data));
+    return () => ipcRenderer.removeAllListeners('memo:deleted');
   },
 
   onNavigateToRoute: (callback) => {
     ipcRenderer.on('navigate-to-route', (event, route) => callback(route));
-    // 정리 함수 반환
     return () => ipcRenderer.removeAllListeners('navigate-to-route');
   },
 
   onConsultationUpdated: (callback) => {
-    ipcRenderer.on('consultation-updated', () => callback());
-    // 정리 함수 반환
-    return () => ipcRenderer.removeAllListeners('consultation-updated');
+    ipcRenderer.on('consultation:updated', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('consultation:updated');
   },
 
   // Toast 알림 관련 API
