@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import './UpdateProgressModal.css';
 
 function UpdateProgressModal({ isVisible, onClose }) {
@@ -259,9 +260,12 @@ function UpdateProgressModal({ isVisible, onClose }) {
             지금 다운로드하시겠습니까?
           </p>
           {updateInfo.releaseNotes && (
-            <div className="release-notes">
-              <p>{updateInfo.releaseNotes}</p>
-            </div>
+            <div
+              className="release-notes"
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(updateInfo.releaseNotes)
+              }}
+            />
           )}
         </div>
         <div className="update-modal-footer">

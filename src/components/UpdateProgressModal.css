@@ -97,8 +97,36 @@
   border-radius: 8px;
   font-size: 13px;
   color: #6b7280;
-  max-height: 100px;
+  max-height: 150px;
   overflow-y: auto;
+  text-align: left;
+}
+
+.release-notes h2,
+.release-notes h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 8px 0 4px;
+}
+
+.release-notes h2:first-child,
+.release-notes h3:first-child {
+  margin-top: 0;
+}
+
+.release-notes ul {
+  margin: 4px 0;
+  padding-left: 16px;
+}
+
+.release-notes li {
+  margin: 2px 0;
+  line-height: 1.4;
+}
+
+.release-notes p {
+  margin: 4px 0;
 }
 
 .update-message {
