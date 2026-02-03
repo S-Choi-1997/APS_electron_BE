@@ -1321,11 +1321,17 @@ ipcMain.handle('install-update', async () => {
   }
 
   logUpdate('User requested update installation');
-  await gracefulShutdown();
 
+  // NOTE: gracefulShutdown() 호출하면 안 됨!
+  // quitAndInstall()이 앱 종료와 설치를 직접 처리함
+  // gracefulShutdown()이 먼저 실행되면 autoUpdater가 제대로 작동하지 않음
+
+  // 약간의 지연 후 설치 시작 (UI 응답 시간 확보)
   setTimeout(() => {
+    // autoInstallOnAppQuit가 false이므로 직접 호출 필요
+    // isSilent=false (설치 UI 표시), isForceRunAfter=true (설치 후 앱 재실행)
     autoUpdater.quitAndInstall(false, true);
-  }, 100);
+  }, 500);
 
   return { success: true };
 });
