@@ -572,12 +572,9 @@
           }),
         });
         const newMemo = response.data;
+        console.log('[MemoDetail] Memo created:', newMemo.id);
 
-        // 메모 생성 이벤트 브로드캐스트
-        if (window.electron && window.electron.broadcastMemoCreated) {
-          await window.electron.broadcastMemoCreated(newMemo);
-        }
-
+        // NOTE: 브로드캐스트 제거됨 - WebSocket이 자동으로 memo:created 이벤트 전파
         window.close();
       } catch (error) {
         console.error('메모 저장 실패:', error);
@@ -603,12 +600,9 @@
         await apiRequest(`/memos/${memoId}`, {
           method: 'DELETE',
         });
+        console.log('[MemoDetail] Memo deleted:', memoId);
 
-        // 메모 삭제 이벤트 브로드캐스트
-        if (window.electron && window.electron.broadcastMemoDeleted) {
-          await window.electron.broadcastMemoDeleted(parseInt(memoId));
-        }
-
+        // NOTE: 브로드캐스트 제거됨 - WebSocket이 자동으로 memo:deleted 이벤트 전파
         window.close();
       } catch (error) {
         console.error('메모 삭제 실패:', error);

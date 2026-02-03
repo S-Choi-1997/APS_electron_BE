@@ -4,7 +4,7 @@
  * App.jsx의 기존 로직을 유지하면서 라우팅 기능 추가
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { auth, onAuthStateChanged } from './auth/authManager';
@@ -186,74 +186,9 @@ function AppContent() {
     };
   }, []);
 
-  // WebSocket 실시간 동기화 (Custom Hook으로 간소화)
-  useWebSocketSync(user, {
-    // 상담 생성
-    onConsultationCreated: useCallback((newConsultation) => {
-      setConsultations(prev => [newConsultation, ...prev]);
-    }, []),
-
-    // 상담 업데이트
-    onConsultationUpdated: useCallback((data) => {
-      setConsultations(prev => {
-        const existing = prev.find(c => c.id === data.id);
-        // 이미 같은 상태면 업데이트 스킵 (리렌더링 방지)
-        if (existing && data.updates) {
-          const existingStatus = existing.status || (existing.check ? 'responded' : 'unread');
-          const newStatus = data.updates.status || (data.updates.check ? 'responded' : 'unread');
-          if (existingStatus === newStatus) {
-            return prev;
-          }
-        }
-        return prev.map(c => c.id === data.id ? { ...c, ...data.updates } : c);
-      });
-    }, []),
-
-    // 상담 삭제
-    onConsultationDeleted: useCallback((data) => {
-      setConsultations(prev => prev.filter(c => c.id !== data.id));
-    }, []),
-
-    // 메모 생성 (Dashboard에서 자동 새로고침을 위해 필요)
-    onMemoCreated: useCallback((newMemo) => {
-      console.log('[AppRouter] Memo created:', newMemo.id);
-      // Dashboard 컴포넌트가 자체적으로 메모를 관리하므로 여기서는 로그만 출력
-    }, []),
-
-    // 메모 삭제
-    onMemoDeleted: useCallback((data) => {
-      console.log('[AppRouter] Memo deleted:', data.id);
-    }, []),
-
-    // 일정 생성
-    onScheduleCreated: useCallback((newSchedule) => {
-      console.log('[AppRouter] Schedule created:', newSchedule.id);
-    }, []),
-
-    // 일정 수정
-    onScheduleUpdated: useCallback((data) => {
-      console.log('[AppRouter] Schedule updated:', data.id);
-    }, []),
-
-    // 일정 삭제
-    onScheduleDeleted: useCallback((data) => {
-      console.log('[AppRouter] Schedule deleted:', data.id);
-    }, []),
-
-    // 통계 새로고침
-    loadStats: loadStats,
-
-    // 재연결 시 데이터 동기화
-    onReconnect: useCallback(async () => {
-      try {
-        const data = await fetchInquiries(auth);
-        setConsultations(data);
-        await loadStats();
-      } catch (error) {
-        console.error('[WebSocket] Failed to reload data on reconnect:', error);
-      }
-    }, []),
-  });
+  // WebSocket 실시간 동기화 (React Query 캐시 자동 갱신)
+  // NOTE: useWebSocketSync는 파라미터를 받지 않음 - React Query만 사용
+  useWebSocketSync();
 
   // 로딩 중
   if (authLoading) {

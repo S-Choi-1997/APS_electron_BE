@@ -29,6 +29,9 @@ let heartbeatInterval = null;
 let _stickySettingsPath = null;
 let _updateLogPath = null;
 
+// 업데이트 다운로드 상태 (중복 방지)
+let isUpdateDownloading = false;
+
 /**
  * Graceful Shutdown - 모든 리소스를 정리하고 앱을 종료하는 함수
  * NSIS 설치기 호환성을 위해 필수
@@ -195,32 +198,12 @@ function setupWebSocketEventListeners() {
     'email:deleted'
   ];
 
+  // 비즈니스 이벤트만 등록 (connect/disconnect는 connectWebSocket에서 처리)
   RELAY_EVENTS.forEach((eventName) => {
     socket.on(eventName, (eventData) => {
       console.log(`[WebSocket] Event received: ${eventName}`);
       broadcastToAllWindows(eventName, eventData);
     });
-  });
-
-  // 연결 상태 이벤트
-  socket.on('connect', () => {
-    console.log('[WebSocket] Connected to relay server');
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: true,
-      environment: currentConfig.environment
-    });
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log('[WebSocket] Disconnected:', reason);
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: false,
-      environment: currentConfig.environment
-    });
-  });
-
-  socket.on('connect_error', (error) => {
-    console.error('[WebSocket] Connection error:', error.message);
   });
 }
 
@@ -272,6 +255,12 @@ function connectWebSocket(config) {
   socket.on('connect', () => {
     console.log('[WebSocket] Connected to relay server');
 
+    // 연결 상태 브로드캐스트
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: true,
+      environment: config.environment
+    });
+
     const user = getAuthTokenFromMainWindow();
 
     socket.emit('handshake', {
@@ -292,6 +281,12 @@ function connectWebSocket(config) {
 
   socket.on('disconnect', (reason) => {
     console.log('[WebSocket] Disconnected:', reason);
+
+    // 연결 해제 상태 브로드캐스트
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: false,
+      environment: config.environment
+    });
   });
 
   socket.on('connect_error', (error) => {
@@ -356,6 +351,7 @@ function initAutoUpdater() {
 
   autoUpdater.on('error', (error) => {
     logUpdate(`Update error: ${error.message}`);
+    isUpdateDownloading = false;  // 다운로드 상태 리셋
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-error', { message: error.message });
@@ -377,6 +373,7 @@ function initAutoUpdater() {
   autoUpdater.on('update-downloaded', (info) => {
     const version = info?.version || 'unknown';
     logUpdate(`Update downloaded: ${version}`);
+    isUpdateDownloading = false;  // 다운로드 완료
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-downloaded', { version });
@@ -1080,11 +1077,13 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   });
 
   // 부모 윈도우 닫힐 때 서브 윈도우도 닫기
-  parentWindow.on('closed', () => {
+  // NOTE: .once() 사용하여 리스너 누적 방지
+  const onParentClosed = () => {
     if (memoSubWindows[parentType] && !memoSubWindows[parentType].isDestroyed()) {
       memoSubWindows[parentType].close();
     }
-  });
+  };
+  parentWindow.once('closed', onParentClosed);
 
   return { success: true, alreadyOpen: false };
 });
@@ -1339,11 +1338,20 @@ ipcMain.handle('download-update', async () => {
     return { success: false, error: 'AutoUpdater not available' };
   }
 
+  // 중복 다운로드 방지
+  if (isUpdateDownloading) {
+    logUpdate('Download already in progress, ignoring duplicate request');
+    return { success: false, error: 'Download already in progress' };
+  }
+
   logUpdate('Manual download triggered by user');
+  isUpdateDownloading = true;
+
   try {
     await autoUpdater.downloadUpdate();
     return { success: true };
   } catch (error) {
+    isUpdateDownloading = false;
     logUpdate(`Download error: ${error.message}`);
     return { success: false, error: error.message };
   }
