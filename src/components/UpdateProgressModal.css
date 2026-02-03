@@ -78,6 +78,23 @@
   color: #059669;
 }
 
+.update-icon.info {
+  background-color: #dbeafe;
+  color: #2563eb;
+  font-weight: bold;
+}
+
+.release-notes {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #6b7280;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
 .update-message {
   text-align: center;
   font-size: 16px;

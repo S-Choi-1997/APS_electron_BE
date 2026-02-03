@@ -2,7 +2,7 @@
  * UpdateProgressModal.jsx - 업데이트 다운로드 진행 모달
  *
  * Main Process에서 전달되는 업데이트 관련 이벤트를 표시
- * - update-available: 업데이트 발견
+ * - update-available: 업데이트 발견 (확인 화면)
  * - update-download-progress: 다운로드 진행 중
  * - update-downloaded: 다운로드 완료
  */
@@ -14,6 +14,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
   const [updateInfo, setUpdateInfo] = useState(null); // { version, releaseNotes }
   const [downloadProgress, setDownloadProgress] = useState(null); // { percent, bytesPerSecond, transferred, total }
   const [isDownloaded, setIsDownloaded] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false); // 다운로드 시작 여부
   const [estimatedTimeLeft, setEstimatedTimeLeft] = useState(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
       console.log('[UpdateModal] Update available:', info);
       setUpdateInfo(info);
       setIsDownloaded(false);
+      setIsDownloading(false);
       setDownloadProgress(null);
     });
 
@@ -31,6 +33,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
     const cleanupProgress = window.electron.onUpdateDownloadProgress?.((progress) => {
       console.log('[UpdateModal] Download progress:', progress.percent);
       setDownloadProgress(progress);
+      setIsDownloading(true);
 
       // 남은 시간 계산
       if (progress.bytesPerSecond && progress.total && progress.transferred) {
@@ -44,6 +47,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
     const cleanupDownloaded = window.electron.onUpdateDownloaded?.((info) => {
       console.log('[UpdateModal] Update downloaded:', info);
       setIsDownloaded(true);
+      setIsDownloading(false);
       setDownloadProgress({ percent: 100, transferred: 0, total: 0 });
     });
 
@@ -53,6 +57,17 @@ function UpdateProgressModal({ isVisible, onClose }) {
       cleanupDownloaded?.();
     };
   }, []);
+
+  // 다운로드 시작 핸들러
+  const handleStartDownload = async () => {
+    setIsDownloading(true);
+    try {
+      await window.electron?.downloadUpdate?.();
+    } catch (error) {
+      console.error('[UpdateModal] Download failed:', error);
+      setIsDownloading(false);
+    }
+  };
 
   if (!isVisible || !updateInfo) {
     return null;
@@ -94,7 +109,7 @@ function UpdateProgressModal({ isVisible, onClose }) {
   }
 
   // 다운로드 중 상태
-  if (downloadProgress) {
+  if (isDownloading && downloadProgress) {
     const percent = Math.floor(downloadProgress.percent || 0);
     const transferred = formatBytes(downloadProgress.transferred || 0);
     const total = formatBytes(downloadProgress.total || 0);
@@ -151,27 +166,62 @@ function UpdateProgressModal({ isVisible, onClose }) {
     );
   }
 
-  // 다운로드 준비 중 (update-available 받았지만 progress 아직 없음)
+  // 다운로드 준비 중 (다운로드 시작했지만 progress 아직 없음)
+  if (isDownloading && !downloadProgress) {
+    return (
+      <div className="update-modal-overlay">
+        <div className="update-modal">
+          <div className="update-modal-header">
+            <h2>다운로드 준비 중...</h2>
+          </div>
+          <div className="update-modal-body">
+            <div className="update-version">
+              v{updateInfo.version}
+            </div>
+            <div className="update-message">
+              다운로드를 시작하고 있습니다...
+            </div>
+            <div className="loading-spinner-container">
+              <div className="loading-spinner"></div>
+            </div>
+          </div>
+          <div className="update-modal-footer">
+            <button className="btn-secondary" onClick={onClose}>
+              백그라운드에서 계속
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 업데이트 발견 - 다운로드 확인 화면 (NEW!)
   return (
     <div className="update-modal-overlay">
       <div className="update-modal">
         <div className="update-modal-header">
-          <h2>업데이트 다운로드 준비 중...</h2>
+          <h2>새 업데이트 발견</h2>
         </div>
         <div className="update-modal-body">
-          <div className="update-version">
-            v{updateInfo.version}
-          </div>
-          <div className="update-message">
-            다운로드를 시작하고 있습니다...
-          </div>
-          <div className="loading-spinner-container">
-            <div className="loading-spinner"></div>
-          </div>
+          <div className="update-icon info">!</div>
+          <p className="update-message">
+            새 버전 <strong>v{updateInfo.version}</strong>을 사용할 수 있습니다.
+          </p>
+          <p className="update-submessage">
+            지금 다운로드하시겠습니까?
+          </p>
+          {updateInfo.releaseNotes && (
+            <div className="release-notes">
+              <p>{updateInfo.releaseNotes}</p>
+            </div>
+          )}
         </div>
         <div className="update-modal-footer">
           <button className="btn-secondary" onClick={onClose}>
-            백그라운드에서 계속
+            나중에
+          </button>
+          <button className="btn-primary" onClick={handleStartDownload}>
+            다운로드
           </button>
         </div>
       </div>

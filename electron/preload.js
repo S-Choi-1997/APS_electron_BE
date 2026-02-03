@@ -146,6 +146,12 @@ contextBridge.exposeInMainWorld('electron', {
   // 업데이트 설치 및 재시작
   installUpdate: () => ipcRenderer.invoke('install-update'),
 
+  // 업데이트 다운로드 (사용자 확인 후)
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+
+  // 앱 완전 종료
+  quitApp: () => ipcRenderer.invoke('quit-app'),
+
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),
   setEnvironment: (environment) => ipcRenderer.invoke('set-environment', environment),

@@ -3,6 +3,14 @@ const path = require('path');
 const fs = require('fs');
 const io = require('socket.io-client');
 
+// 단일 인스턴스 잠금 (설치기가 새 인스턴스 실행 시 기존 앱 종료 유도)
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // 이미 실행 중인 인스턴스가 있으면 즉시 종료
+  app.quit();
+}
+
 // electron-updater는 app.whenReady() 이후에 로드 (개발 모드에서는 에러 발생하므로)
 let autoUpdater = null;
 
@@ -20,6 +28,67 @@ let heartbeatInterval = null;
 // Lazy getters for paths (app.getPath는 app ready 이후에만 사용 가능)
 let _stickySettingsPath = null;
 let _updateLogPath = null;
+
+/**
+ * Graceful Shutdown - 모든 리소스를 정리하고 앱을 종료하는 함수
+ * NSIS 설치기 호환성을 위해 필수
+ */
+async function gracefulShutdown() {
+  console.log('[Shutdown] Starting graceful shutdown...');
+  app.isQuitting = true;
+
+  // 1. Heartbeat 정리
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+    console.log('[Shutdown] Heartbeat cleared');
+  }
+
+  // 2. WebSocket 정리
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+    console.log('[Shutdown] WebSocket disconnected');
+  }
+
+  // 3. Toast 알림 정리
+  toastNotifications.forEach(win => {
+    if (win && !win.isDestroyed()) win.destroy();
+  });
+  toastNotifications = [];
+  console.log('[Shutdown] Toast notifications closed');
+
+  // 4. Memo sub windows 정리
+  Object.values(memoSubWindows).forEach(win => {
+    if (win && !win.isDestroyed()) win.destroy();
+  });
+  memoSubWindows = {};
+  console.log('[Shutdown] Memo sub windows closed');
+
+  // 5. Sticky windows 정리
+  Object.values(stickyWindows).forEach(win => {
+    if (win && !win.isDestroyed()) win.destroy();
+  });
+  stickyWindows = {};
+  console.log('[Shutdown] Sticky windows closed');
+
+  // 6. Tray 정리
+  if (tray) {
+    tray.destroy();
+    tray = null;
+    console.log('[Shutdown] Tray destroyed');
+  }
+
+  // 7. Main window 정리
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+    mainWindow = null;
+    console.log('[Shutdown] Main window destroyed');
+  }
+
+  console.log('[Shutdown] Graceful shutdown complete');
+}
 
 function getStickySettingsPath() {
   if (!_stickySettingsPath) {
@@ -259,8 +328,8 @@ function initAutoUpdater() {
     return;
   }
 
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = false;  // 사용자가 확인 후 다운로드
+  autoUpdater.autoInstallOnAppQuit = false;  // 수동 설치 제어
 
   autoUpdater.on('checking-for-update', () => {
     logUpdate('Checking for update...');
@@ -273,10 +342,7 @@ function initAutoUpdater() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-available', { version, releaseNotes: info?.releaseNotes || '' });
     }
-
-    // 자동으로 다운로드 시작 (모달에서 진행 상황 표시)
-    logUpdate('Starting automatic download');
-    autoUpdater.downloadUpdate();
+    // 자동 다운로드 제거 - UI에서 사용자가 결정
   });
 
   autoUpdater.on('update-not-available', () => {
@@ -405,6 +471,17 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // 네이티브 close 이벤트 처리 (X 버튼, Alt+F4, NSIS 설치기 등)
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting) {
+      // 종료 요청이 아니면 숨김 (트레이 모드)
+      event.preventDefault();
+      mainWindow.hide();
+      console.log('[Main] Window hidden to tray');
+    }
+    // app.isQuitting이 true면 정상 종료 허용
   });
 
   // 새 창 열기 요청 가로채기 (외부 링크 클릭 시)
@@ -761,19 +838,6 @@ ipcMain.handle('close-all-sticky-windows', async () => {
     console.error('[Sticky Windows] Failed to close all windows:', error);
     return { success: false, error: error.message };
   }
-});
-
-// 메모 생성 브로드캐스트
-// ============================================
-// IPC 브로드캐스트 핸들러 제거됨
-// WebSocket 이벤트가 Main Process를 통해 자동으로 모든 창에 전달됨
-// ============================================
-
-// Sticky 창 동기화를 위한 IPC 리스너 유지 (Sticky → Main 네비게이션용)
-// onMemoCreated, onMemoDeleted, onConsultationUpdated는 preload.js에서 계속 사용
-    }
-  });
-  return { success: true };
 });
 
 // 메인 창 포커스 및 특정 경로로 이동
@@ -1242,57 +1306,47 @@ ipcMain.handle('check-for-updates', async () => {
 
 // 앱 재시작
 ipcMain.handle('restart-app', async () => {
+  await gracefulShutdown();
   app.relaunch();
-  app.exit(0);
+  app.quit();
 });
 
 // 업데이트 설치 및 재시작
 ipcMain.handle('install-update', async () => {
-  if (autoUpdater) {
-    logUpdate('User requested update installation');
-
-    // 업데이트 설치 전 모든 리소스 정리
-    app.isQuitting = true;
-
-    // 모든 Sticky 윈도우 닫기
-    Object.values(stickyWindows).forEach(win => {
-      if (win && !win.isDestroyed()) win.close();
-    });
-    stickyWindows = {};
-
-    // 메모 서브 윈도우 닫기
-    Object.values(memoSubWindows).forEach(win => {
-      if (win && !win.isDestroyed()) win.close();
-    });
-    memoSubWindows = {};
-
-    // Toast 알림 닫기
-    toastNotifications.forEach(win => {
-      if (win && !win.isDestroyed()) win.close();
-    });
-    toastNotifications = [];
-
-    // 트레이 제거
-    if (tray) {
-      tray.destroy();
-      tray = null;
-    }
-
-    // 메인 윈도우는 마지막에 닫기 (약간의 딜레이)
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.close();
-      }
-    }, 200);
-
-    // 약간의 딜레이 후 설치 시작 (윈도우 정리 완료 대기)
-    setTimeout(() => {
-      autoUpdater.quitAndInstall(false, true);
-    }, 500);
-
-    return { success: true };
+  if (!autoUpdater) {
+    return { success: false, error: 'AutoUpdater not available' };
   }
-  return { success: false, error: 'AutoUpdater not available' };
+
+  logUpdate('User requested update installation');
+  await gracefulShutdown();
+
+  setTimeout(() => {
+    autoUpdater.quitAndInstall(false, true);
+  }, 100);
+
+  return { success: true };
+});
+
+// 앱 완전 종료 (트레이 메뉴 또는 다른 곳에서 호출)
+ipcMain.handle('quit-app', async () => {
+  await gracefulShutdown();
+  app.quit();
+});
+
+// 수동 업데이트 다운로드 (사용자 확인 후)
+ipcMain.handle('download-update', async () => {
+  if (!autoUpdater) {
+    return { success: false, error: 'AutoUpdater not available' };
+  }
+
+  logUpdate('Manual download triggered by user');
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error) {
+    logUpdate(`Download error: ${error.message}`);
+    return { success: false, error: error.message };
+  }
 });
 
 app.whenReady().then(() => {
@@ -1311,6 +1365,48 @@ app.whenReady().then(() => {
       logUpdate('Auto-checking for updates...');
       autoUpdater.checkForUpdates();
     }, 3000);
+  }
+});
+
+// 외부(설치기/OS)에서 앱 종료 요청 시
+app.on('before-quit', async (event) => {
+  if (!app.isQuitting) {
+    event.preventDefault();
+    await gracefulShutdown();
+    app.quit();
+  }
+});
+
+// 최종 정리 (will-quit)
+app.on('will-quit', () => {
+  console.log('[App] will-quit: Final cleanup');
+  // 혹시 남아있는 리소스 정리
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (socket) socket.disconnect();
+  if (tray) tray.destroy();
+});
+
+// 두 번째 인스턴스 실행 시 (설치기가 새 인스턴스 시도)
+app.on('second-instance', (event, commandLine) => {
+  // 설치기/업데이트 요청 감지
+  const isInstallerRequest = commandLine.some(arg =>
+    arg.includes('--installer') ||
+    arg.includes('--update') ||
+    arg.includes('_iu') ||  // NSIS uninstall flag
+    arg.includes('/S')      // Silent install flag
+  );
+
+  if (isInstallerRequest) {
+    console.log('[App] Installer request detected, shutting down...');
+    gracefulShutdown().then(() => app.quit());
+    return;
+  }
+
+  // 일반적인 두 번째 인스턴스 - 기존 창 포커스
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   }
 });
 
