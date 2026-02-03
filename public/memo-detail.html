@@ -458,8 +458,9 @@
 
       try {
         const response = await apiRequest('/memos');
-        const memos = response.data || [];
-        const memo = memos.find(m => m.id === parseInt(memoId));
+        // 배열 타입 검증
+        const memos = Array.isArray(response?.data) ? response.data : [];
+        const memo = memos.find(m => m && m.id === parseInt(memoId));
 
         if (!memo) {
           document.getElementById('content').innerHTML = '<p style="padding: 20px; text-align: center; color: #999;">메모를 찾을 수 없습니다.</p>';

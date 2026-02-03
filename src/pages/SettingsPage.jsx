@@ -46,9 +46,13 @@ function SettingsPage() {
   // 앱 버전 가져오기
   useEffect(() => {
     if (window.electron?.getAppVersion) {
-      window.electron.getAppVersion().then(version => {
-        setAppVersion(version);
-      });
+      window.electron.getAppVersion()
+        .then(version => {
+          setAppVersion(version);
+        })
+        .catch(error => {
+          console.error('[Settings] Failed to get app version:', error);
+        });
     }
   }, []);
 

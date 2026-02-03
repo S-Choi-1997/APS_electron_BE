@@ -1182,6 +1182,10 @@ function createToastNotification(data) {
 
         // toast-container의 실제 높이 측정 (box-shadow, padding 포함)
         const container = document.querySelector('.toast-container');
+        if (!container) {
+          // 컨테이너가 없으면 기본 높이 반환
+          return ${NOTIFICATION_MIN_HEIGHT};
+        }
         const rect = container.getBoundingClientRect();
 
         // 추가 여유 공간 (box-shadow 등)

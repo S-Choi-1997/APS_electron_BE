@@ -909,12 +909,16 @@
     }
 
     // 외부 링크를 기본 브라우저에서 열기 (data-clickable 속성 체크)
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
       if (e.target.tagName === 'A' && e.target.dataset.clickable === 'true') {
         e.preventDefault();
         const href = e.target.getAttribute('href');
-        if (window.electron && window.electron.openExternal) {
-          window.electron.openExternal(href);
+        if (window.electron && window.electron.openExternal && href) {
+          try {
+            await window.electron.openExternal(href);
+          } catch (error) {
+            console.error('[Sticky] Failed to open external link:', error);
+          }
         }
       }
     });
@@ -1382,7 +1386,7 @@
           timeout: 10000
         });
 
-        socket.on('connect', () => {
+        socket.on('connect', async () => {
           console.log('[Sticky WebSocket] Connected to server');
           isConnecting = false;
 
@@ -1396,6 +1400,18 @@
               connectedAt: new Date().toISOString()
             }
           });
+
+          // 재연결 시 데이터 동기화
+          console.log('[Sticky WebSocket] Reloading data after connect...');
+          try {
+            await Promise.all([
+              loadMemos(),
+              loadConsultationStats(),
+              loadSchedules()
+            ]);
+          } catch (error) {
+            console.error('[Sticky WebSocket] Failed to reload data on connect:', error);
+          }
         });
 
         socket.on('handshake:success', (data) => {
@@ -1490,19 +1506,7 @@
           loadSchedules();
         });
 
-        // 재연결 시 데이터 동기화
-        socket.on('connect', async () => {
-          console.log('[Sticky WebSocket] Connected, reloading data...');
-          try {
-            await Promise.all([
-              loadMemos(),
-              loadConsultationStats(),
-              loadSchedules()
-            ]);
-          } catch (error) {
-            console.error('[Sticky WebSocket] Failed to reload data on reconnect:', error);
-          }
-        });
+        // NOTE: 재연결 시 데이터 동기화는 위의 connect 핸들러에서 처리
 
         // 주기적인 재연결 체크 시작
         startReconnectMonitor();
@@ -1615,8 +1619,14 @@
 
       if (!authData) {
         console.error('[Sticky] No auth token found!');
-        document.getElementById('memoBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다. 메인 창에서 로그인해주세요.</div>';
-        document.getElementById('scheduleBody').innerHTML = '<div class="empty-state">인증 정보가 없습니다.</div>';
+        const memoBody = document.getElementById('memoBody');
+        const scheduleBody = document.getElementById('scheduleBody');
+        if (memoBody) {
+          memoBody.innerHTML = '<div class="empty-state">인증 정보가 없습니다. 메인 창에서 로그인해주세요.</div>';
+        }
+        if (scheduleBody) {
+          scheduleBody.innerHTML = '<div class="empty-state">인증 정보가 없습니다.</div>';
+        }
         return;
       }
 
@@ -1636,23 +1646,29 @@
       }
 
       // 백그라운드에서 API로 최신 데이터 가져오기
-      try {
-        console.log('[Sticky] Fetching fresh data from API in background...');
-        await Promise.all([
-          loadMemos(),
-          loadConsultationStats(),
-          loadSchedules()
-        ]);
-        console.log('[Sticky] Fresh data loaded:', { memos: memos.length, schedules: schedules.length, stats });
+      // NOTE: Promise.allSettled 사용하여 일부 실패해도 다른 요청은 계속 진행
+      console.log('[Sticky] Fetching fresh data from API in background...');
+      const results = await Promise.allSettled([
+        loadMemos(),
+        loadConsultationStats(),
+        loadSchedules()
+      ]);
 
-        // 내용 업데이트 후 윈도우 높이 재조정
-        adjustWindowHeight();
+      // 개별 결과 로깅
+      results.forEach((result, index) => {
+        const names = ['loadMemos', 'loadConsultationStats', 'loadSchedules'];
+        if (result.status === 'rejected') {
+          console.error(`[Sticky] ${names[index]} failed:`, result.reason);
+        }
+      });
 
-        // WebSocket 연결
-        connectWebSocket();
-      } catch (error) {
-        console.error('[Sticky] Failed to load fresh data:', error);
-      }
+      console.log('[Sticky] Fresh data loaded:', { memos: memos.length, schedules: schedules.length, stats });
+
+      // 내용 업데이트 후 윈도우 높이 재조정
+      adjustWindowHeight();
+
+      // WebSocket 연결 (데이터 로드 실패와 관계없이 연결)
+      connectWebSocket();
     });
 
     // 윈도우 높이 자동 조정 함수

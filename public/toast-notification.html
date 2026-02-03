@@ -160,18 +160,40 @@
 
     // URL 파라미터에서 알림 데이터 읽기
     const params = new URLSearchParams(window.location.search);
+
+    // 메시지 디코딩 (실패 시 기본값 사용)
+    let decodedMessage = '새로운 알림이 도착했습니다.';
+    try {
+      const rawMessage = params.get('message');
+      if (rawMessage) {
+        decodedMessage = decodeURIComponent(rawMessage);
+      }
+    } catch (e) {
+      console.warn('[Toast] Failed to decode message:', e);
+    }
+
+    // duration 파싱 (NaN 체크)
+    let parsedDuration = parseInt(params.get('duration') || '5000', 10);
+    if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      parsedDuration = 5000;
+    }
+
     const notificationData = {
       icon: params.get('icon') || '🔔',
       title: params.get('title') || '알림',
-      message: decodeURIComponent(params.get('message') || '새로운 알림이 도착했습니다.'),
+      message: decodedMessage,
       route: params.get('route') || null,
-      duration: parseInt(params.get('duration') || '5000', 10)
+      duration: parsedDuration
     };
 
-    // UI 업데이트
-    document.getElementById('toastIcon').textContent = notificationData.icon;
-    document.getElementById('toastTitle').textContent = notificationData.title;
-    document.getElementById('toastMessage').textContent = notificationData.message;
+    // UI 업데이트 (null 체크 포함)
+    const iconEl = document.getElementById('toastIcon');
+    const titleEl = document.getElementById('toastTitle');
+    const messageEl = document.getElementById('toastMessage');
+
+    if (iconEl) iconEl.textContent = notificationData.icon;
+    if (titleEl) titleEl.textContent = notificationData.title;
+    if (messageEl) messageEl.textContent = notificationData.message;
 
     // 자동 닫기 타이머 시작
     function startCloseTimer() {

@@ -94,6 +94,11 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
         loaded[file.downloadUrl] = true;
         setPreloadedImages((prev) => ({ ...prev, [file.downloadUrl]: true }));
       };
+      img.onerror = () => {
+        console.warn('[ConsultationModal] Failed to preload image:', file.downloadUrl);
+        // 로드 실패해도 상태 업데이트 (에러 표시용)
+        setPreloadedImages((prev) => ({ ...prev, [file.downloadUrl]: false }));
+      };
     });
   }, [imageAttachments]);
 

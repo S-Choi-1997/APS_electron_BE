@@ -700,12 +700,16 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
   // 외부 링크를 기본 브라우저에서 열기
   useEffect(() => {
-    const handleLinkClick = (e) => {
+    const handleLinkClick = async (e) => {
       if (e.target.tagName === 'A' && e.target.dataset.clickable === 'true') {
         e.preventDefault();
         const href = e.target.getAttribute('href');
         if (window.electron && window.electron.openExternal) {
-          window.electron.openExternal(href);
+          try {
+            await window.electron.openExternal(href);
+          } catch (error) {
+            console.error('[Dashboard] Failed to open external link:', error);
+          }
         }
       }
     };
@@ -723,16 +727,20 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
               className="add-btn"
               onClick={async () => {
                 if (!window.electron) return;
-                // 이미 열려있는지 확인
-                const isOpen = await window.electron.isStickyWindowOpen('dashboard');
-                // 캐시 데이터: 메모, 일정, 미확인 상담
-                const cachedData = {
-                  memos,
-                  schedules,
-                  consultations: uncheckedConsultations
-                };
-                // 열려있으면 포커스, 아니면 열기
-                await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+                try {
+                  // 이미 열려있는지 확인
+                  const isOpen = await window.electron.isStickyWindowOpen('dashboard');
+                  // 캐시 데이터: 메모, 일정, 미확인 상담
+                  const cachedData = {
+                    memos,
+                    schedules,
+                    consultations: uncheckedConsultations
+                  };
+                  // 열려있으면 포커스, 아니면 열기
+                  await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+                } catch (error) {
+                  console.error('[Dashboard] Failed to open sticky window:', error);
+                }
               }}
               title="알림창 띄우기"
             >
@@ -742,14 +750,18 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
               className="add-btn"
               onClick={async () => {
                 if (!window.electron) return;
-                // 캐시 데이터: 메모, 일정, 미확인 상담
-                const cachedData = {
-                  memos,
-                  schedules,
-                  consultations: uncheckedConsultations
-                };
-                // 리셋 모드로 열기
-                await window.electron.openStickyWindow('dashboard', '알림창', cachedData, true);
+                try {
+                  // 캐시 데이터: 메모, 일정, 미확인 상담
+                  const cachedData = {
+                    memos,
+                    schedules,
+                    consultations: uncheckedConsultations
+                  };
+                  // 리셋 모드로 열기
+                  await window.electron.openStickyWindow('dashboard', '알림창', cachedData, true);
+                } catch (error) {
+                  console.error('[Dashboard] Failed to reset sticky window:', error);
+                }
               }}
               title="알림창 위치 초기화"
             >

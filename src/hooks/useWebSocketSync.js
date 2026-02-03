@@ -187,11 +187,21 @@ export function useWebSocketSync() {
       window.electron.onWebSocketStatusChanged((status) => {
         console.log('[WebSocketSync] WebSocket status changed:', status);
 
+        // status 객체 null 체크
+        if (!status) {
+          console.warn('[WebSocketSync] Received null status');
+          return;
+        }
+
         if (status.connected) {
-          console.log(`[WebSocketSync] Connected to ${status.environment} environment`);
+          console.log(`[WebSocketSync] Connected to ${status.environment || 'unknown'} environment`);
 
           // 재연결 시 모든 캐시 갱신
-          queryClient.invalidateQueries();
+          try {
+            queryClient.invalidateQueries();
+          } catch (error) {
+            console.error('[WebSocketSync] Failed to invalidate queries:', error);
+          }
         } else {
           console.warn('[WebSocketSync] Disconnected from relay server');
         }

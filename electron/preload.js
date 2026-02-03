@@ -60,24 +60,29 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 이벤트 리스너 (메인 프로세스 → 렌더러)
   // NOTE: WebSocket 이벤트는 콜론(:) 구분자 사용 (memo:created, memo:deleted 등)
+  // NOTE: removeListener 사용하여 해당 콜백만 제거 (다른 리스너 유지)
   onMemoCreated: (callback) => {
-    ipcRenderer.on('memo:created', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('memo:created');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('memo:created', handler);
+    return () => ipcRenderer.removeListener('memo:created', handler);
   },
 
   onMemoDeleted: (callback) => {
-    ipcRenderer.on('memo:deleted', (event, data) => callback(data?.id || data));
-    return () => ipcRenderer.removeAllListeners('memo:deleted');
+    const handler = (event, data) => callback(data?.id || data);
+    ipcRenderer.on('memo:deleted', handler);
+    return () => ipcRenderer.removeListener('memo:deleted', handler);
   },
 
   onNavigateToRoute: (callback) => {
-    ipcRenderer.on('navigate-to-route', (event, route) => callback(route));
-    return () => ipcRenderer.removeAllListeners('navigate-to-route');
+    const handler = (event, route) => callback(route);
+    ipcRenderer.on('navigate-to-route', handler);
+    return () => ipcRenderer.removeListener('navigate-to-route', handler);
   },
 
   onConsultationUpdated: (callback) => {
-    ipcRenderer.on('consultation:updated', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('consultation:updated');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('consultation:updated', handler);
+    return () => ipcRenderer.removeListener('consultation:updated', handler);
   },
 
   // Toast 알림 관련 API
@@ -89,8 +94,9 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 메인 창에서 네비게이션 이벤트 수신
   onNavigateTo: (callback) => {
-    ipcRenderer.on('navigate-to', (event, route) => callback(route));
-    return () => ipcRenderer.removeAllListeners('navigate-to');
+    const handler = (event, route) => callback(route);
+    ipcRenderer.on('navigate-to', handler);
+    return () => ipcRenderer.removeListener('navigate-to', handler);
   },
 
   // Electron 환경 확인
@@ -100,34 +106,35 @@ contextBridge.exposeInMainWorld('electron', {
   getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
 
   // ==================== Auto Update 관련 ====================
-  // 업데이트 가능 이벤트 수신
+  // NOTE: removeListener 사용하여 해당 콜백만 제거 (여러 컴포넌트에서 동시 사용 가능)
   onUpdateAvailable: (callback) => {
-    ipcRenderer.on('update-available', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('update-available');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-available', handler);
+    return () => ipcRenderer.removeListener('update-available', handler);
   },
 
-  // 다운로드 진행률 이벤트 수신
   onUpdateDownloadProgress: (callback) => {
-    ipcRenderer.on('update-download-progress', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('update-download-progress');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-download-progress', handler);
+    return () => ipcRenderer.removeListener('update-download-progress', handler);
   },
 
-  // 업데이트 다운로드 완료 이벤트 수신
   onUpdateDownloaded: (callback) => {
-    ipcRenderer.on('update-downloaded', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('update-downloaded');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-downloaded', handler);
+    return () => ipcRenderer.removeListener('update-downloaded', handler);
   },
 
-  // 업데이트 없음 이벤트 수신
   onUpdateNotAvailable: (callback) => {
-    ipcRenderer.on('update-not-available', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('update-not-available');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-not-available', handler);
+    return () => ipcRenderer.removeListener('update-not-available', handler);
   },
 
-  // 업데이트 에러 이벤트 수신
   onUpdateError: (callback) => {
-    ipcRenderer.on('update-error', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('update-error');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-error', handler);
+    return () => ipcRenderer.removeListener('update-error', handler);
   },
 
   // 앱 버전 가져오기
@@ -154,23 +161,29 @@ contextBridge.exposeInMainWorld('electron', {
   getConfig: () => ipcRenderer.invoke('get-config'),
 
   // 환경 변경 이벤트 리스너
+  // NOTE: removeListener 사용하여 해당 콜백만 제거 (다른 리스너 유지)
   onEnvironmentChanged: (callback) => {
-    ipcRenderer.on('environment-changed', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('environment-changed');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('environment-changed', handler);
+    return () => ipcRenderer.removeListener('environment-changed', handler);
   },
 
   // ==================== WebSocket 상태 ====================
   getWebSocketStatus: () => ipcRenderer.invoke('get-websocket-status'),
 
   // WebSocket 연결 상태 이벤트
+  // NOTE: removeListener 사용하여 해당 콜백만 제거 (다른 리스너 유지)
   onWebSocketStatusChanged: (callback) => {
-    ipcRenderer.on('websocket-status-changed', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('websocket-status-changed');
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('websocket-status-changed', handler);
+    return () => ipcRenderer.removeListener('websocket-status-changed', handler);
   },
 
   // WebSocket 이벤트 리스너 (범용)
+  // NOTE: handler를 저장하여 removeListener에서 올바른 참조 사용
   onWebSocketEvent: (eventName, callback) => {
-    ipcRenderer.on(eventName, (event, data) => callback(data));
-    return () => ipcRenderer.removeListener(eventName, callback);
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on(eventName, handler);
+    return () => ipcRenderer.removeListener(eventName, handler);
   },
 });
