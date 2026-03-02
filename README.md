@@ -146,11 +146,16 @@ APS_APP/                          # 모노레포 루트
 │   ├── package.json             # 의존성 및 빌드 설정
 │   └── vite.config.js           # Vite 번들러 설정
 │
-├── backend/                      # 백엔드 서버 (NAS Docker 배포)
+├── backend/                      # 백엔드 소스 (NAS Docker 배포)
 │   ├── server.js                # Express 서버 메인
-│   ├── auth.js                  # JWT 인증 미들웨어
-│   └── docker-compose.yml       # Docker 배포 설정
+│   └── auth.js                  # JWT 인증 미들웨어
 │
+├── nas-deploy/                   # NAS 배포 키트 (소스 없음, 배포용)
+│   ├── docker-compose.yml       # Docker Hub 이미지 실행 설정
+│   └── init-db.sql              # PostgreSQL DB 초기화
+│
+├── relay/                        # WebSocket 릴레이 서버 (GCP4 VM)
+├── power-state/                  # ON/OFF 상태 서비스 (GCP4 VM)
 ├── sms-relay/                    # SMS 릴레이 (GCP3 VM)
 ├── customer-api/                 # 고객 문의 접수 API (Cloud Run)
 ├── cleanup/                      # 자동삭제 Cloud Function
@@ -250,13 +255,13 @@ VITE_WS_RELAY_URL=ws://136.113.67.193:8080
 
 ### 백엔드 배포
 
-NAS 서버에 배포:
-1. `backend/` 폴더를 NAS로 복사
-2. `.env` 파일 설정
-3. `npm install` 실행
-4. systemd 서비스로 등록 및 실행
+NAS 서버에 Docker로 배포:
+1. `nas-deploy/` 폴더를 NAS로 복사
+2. `.env` 파일 생성 (`backend/.env.example` 참고)
+3. `service-account.json` 복사
+4. `docker-compose up -d` 실행
 
-자세한 내용은 [docs/ELECTRON_MIGRATION.md](docs/ELECTRON_MIGRATION.md) 참고
+자세한 내용은 [backend/scripts/배포가이드.txt](backend/scripts/배포가이드.txt) 참고
 
 ---
 

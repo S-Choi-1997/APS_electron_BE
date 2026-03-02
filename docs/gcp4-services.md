@@ -87,6 +87,6 @@ VITE_RELAY_ENVIRONMENT=development  # ← production 또는 development
 
 ## 상세 문서
 
-- [GCP VM 정보](./GCP_VM_INFO.md)
-- [ws-relay 배포 가이드](./ws-relay/DEPLOY.md)
-- [power-state 사용법](./power-state/README.md)
+- [GCP VM 정보](./gcp4-vm-info.md)
+- [relay 배포 가이드](../relay/DEPLOY.md)
+- [power-state 사용법](../power-state/README.md)

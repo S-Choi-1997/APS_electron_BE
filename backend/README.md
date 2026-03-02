@@ -144,21 +144,13 @@ ALIGO_SENDER_PHONE=01012345678
 ```
 
 **중요**: `GOOGLE_APPLICATION_CREDENTIALS`는 환경에 맞게 설정:
-- **로컬 개발**: 절대 경로 (예: `E:/Projects/APS/APS_APP/backend/service-account.json`)
-- **도커 환경**: `/app/service-account.json` (docker-compose.yml이 자동 설정)
+- **로컬 개발**: 절대 경로 (예: `/path/to/backend/service-account.json`)
+- **도커 환경**: `/app/service-account.json` (docker run -v 옵션으로 마운트)
 
 ### 3. Docker 실행
 
-```bash
-# 컨테이너 빌드 및 시작
-docker-compose up -d
-
-# 로그 확인
-docker-compose logs -f
-
-# 상태 확인
-docker-compose ps
-```
+NAS 배포는 `nas-deploy/` 폴더의 docker-compose를 사용합니다.
+로컬 테스트는 `방법 2` (docker run 직접 실행)를 참고하세요.
 
 ### 4. 테스트
 
@@ -177,7 +169,6 @@ backend/
 ├── server.js                      # 백엔드 서버 코드 (GCP2 이식)
 ├── package.json                   # Node.js 의존성
 ├── Dockerfile                     # Docker 이미지 정의
-├── docker-compose.yml             # Docker Compose 설정
 ├── .env.example                   # 환경 변수 템플릿
 ├── .env                           # 실제 환경 변수 (생성 필요, Git 무시)
 ├── service-account.json           # GCP 서비스 계정 키 (생성 필요, Git 무시)
@@ -205,6 +196,7 @@ backend/service-account.json.backup.*
 
 ### 서버 시작/중지
 
+NAS 배포 환경(`nas-deploy/`에서 실행):
 ```bash
 # 시작
 docker-compose up -d
@@ -216,29 +208,28 @@ docker-compose down
 docker-compose restart
 
 # 로그 실시간 보기
-docker-compose logs -f
+docker logs aps-admin-backend -f
 ```
 
 ### 컨테이너 내부 접근
 
 ```bash
-docker-compose exec aps-backend sh
+docker exec -it aps-admin-backend sh
 ```
 
-### 코드 수정 시 재배포
+### 코드 수정 후 새 이미지 배포
 
 ```bash
-# 컨테이너 중지 및 삭제
-docker-compose down
-
-# 이미지 재빌드 및 시작
-docker-compose up -d --build
+# 1. GitHub에 push → GitHub Actions가 자동으로 Docker Hub에 이미지 빌드
+# 2. NAS에서 새 이미지 pull 및 재시작 (nas-deploy/ 에서)
+docker-compose pull
+docker-compose up -d
 ```
 
 ### 환경 변수 변경
 
 ```bash
-# .env 파일 수정 후 재시작
+# nas-deploy/.env 파일 수정 후 재시작
 docker-compose restart
 ```
 
@@ -278,7 +269,7 @@ cat service-account.json | grep project_id
 netstat -ano | findstr :3001  # Windows
 lsof -i :3001                 # Linux/Mac
 
-# docker-compose.yml에서 포트 변경
+# nas-deploy/docker-compose.yml에서 포트 변경
 ports:
   - "3002:3001"  # 호스트:컨테이너
 ```
@@ -326,23 +317,27 @@ VITE_API_URL=http://192.168.0.100:3001  # 로컬 백엔드 주소
 
 ### OMV NAS에 배포
 
-1. **파일 전송** (SCP/Samba)
+NAS에는 소스 코드가 아닌 **배포 키트**(`nas-deploy/`)를 사용합니다.
+Docker Hub에서 이미지를 pull하여 실행합니다.
+
+1. **`nas-deploy/` 폴더를 NAS로 복사** (SCP/Samba)
    ```bash
-   # 로컬 PC에서
-   scp -r backend/* user@nas-ip:/path/to/backend/
+   scp -r nas-deploy/ user@nas-ip:/opt/aps-deploy/
    ```
 
-2. **NAS에서 실행**
+2. **NAS에서 `.env` 및 `service-account.json` 생성**
    ```bash
-   cd /path/to/backend
+   cd /opt/aps-deploy
+   # .env 파일 생성 (.env.example 참고)
+   # service-account.json 복사
+   ```
+
+3. **컨테이너 실행**
+   ```bash
    docker-compose up -d
    ```
 
-3. **자동 시작 설정**
-   ```bash
-   # docker-compose.yml에 이미 설정됨
-   restart: unless-stopped
-   ```
+자세한 내용은 [배포가이드](./scripts/배포가이드.txt) 참고.
 
 ### 방화벽 설정
 
@@ -359,19 +354,19 @@ sudo ufw allow 3001/tcp
 | 비용 | 사용량 기반 (유료) | 하드웨어 비용 (초기) |
 | URL | https://inquiryapi-... | http://192.168.0.x:3001 |
 | 인증 | 자동 (GCP IAM) | service-account.json |
-| 로그 | Cloud Logging | docker-compose logs |
+| 로그 | Cloud Logging | docker logs aps-admin-backend |
 | 스케일링 | 자동 | 수동 |
 
 ## 📝 참고 문서
 
 - [CLAUDE.md](../CLAUDE.md) - 프로젝트 전체 구조
-- [ELECTRON_MIGRATION.md](../ELECTRON_MIGRATION.md) - 마이그레이션 가이드
-- [GCP2 원본 코드](../legacy/GCP2/) - 원본 Cloud Run 코드
+- [docs/services.md](../docs/services.md) - 전체 서비스 구성
+- [legacy/gcp2/](../legacy/gcp2/) - 원본 Cloud Run 코드 (참고용)
 
 ## 🆘 지원
 
 문제가 발생하면:
-1. 로그 확인: `docker-compose logs -f`
+1. 로그 확인: `docker logs aps-admin-backend -f`
 2. GCP Console에서 서비스 계정 권한 확인
 3. `.env` 파일 설정 재확인
-4. [ELECTRON_MIGRATION.md](../ELECTRON_MIGRATION.md) 참고
+4. [배포가이드](./scripts/배포가이드.txt) 참고
