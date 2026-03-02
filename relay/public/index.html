@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APS WebSocket Relay - Dashboard</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    header {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #667eea;
+      margin-bottom: 8px;
+    }
+
+    .status {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      max-height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card .card-title {
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 24px 24px 16px 24px;
+      margin: 0;
+      z-index: 10;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .card-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px 24px 24px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .badge {
+      background: #667eea;
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .item {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .item:hover {
+      border-color: #667eea;
+    }
+
+    .item-active {
+      background: #ede9fe;
+      border-color: #667eea;
+    }
+
+    .item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .item-id {
+      font-weight: 600;
+      color: #667eea;
+      font-size: 14px;
+    }
+
+    .item-details {
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    .btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: #5568d3;
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .log-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      max-height: 500px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .log-container .card-title {
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 24px 24px 16px 24px;
+      margin: 0;
+      z-index: 10;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .log-list-wrapper {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px 24px 24px;
+    }
+
+    .log-item {
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      border-left: 3px solid #667eea;
+      background: #f9fafb;
+    }
+
+    .log-time {
+      color: #6b7280;
+      margin-right: 8px;
+    }
+
+    .log-type {
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .log-type-backend { color: #10b981; }
+    .log-type-client { color: #3b82f6; }
+    .log-type-event { color: #f59e0b; }
+    .log-type-relay { color: #8b5cf6; }
+    .log-type-dashboard { color: #ec4899; }
+    .log-type-auth { color: #ef4444; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #9ca3af;
+    }
+
+    .connecting {
+      text-align: center;
+      padding: 40px;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Development Section Styles */
+    .dev-section {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    .dev-section-header {
+      padding: 20px 24px;
+      background: #fef3c7;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #fbbf24;
+      transition: background 0.2s;
+    }
+
+    .dev-section-header:hover {
+      background: #fde68a;
+    }
+
+    .dev-section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #92400e;
+      margin: 0;
+    }
+
+    .toggle-icon {
+      font-size: 14px;
+      color: #92400e;
+      transition: transform 0.3s;
+    }
+
+    .toggle-icon.collapsed {
+      transform: rotate(-90deg);
+    }
+
+    .dev-section-content {
+      padding: 20px;
+      transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+      max-height: 1000px;
+    }
+
+    .dev-section-content.collapsed {
+      max-height: 0;
+      padding: 0 20px;
+      overflow: hidden;
+    }
+
+    .badge-dev {
+      background: #f59e0b;
+    }
+
+    .item-dev {
+      background: #fef3c7;
+    }
+
+    .item-dev .item-id {
+      color: #d97706;
+    }
+
+    .item-dev.item-active {
+      background: #fef3c7;
+      border-color: #f59e0b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔗 APS WebSocket Relay Dashboard</h1>
+      <p style="color: #6b7280; margin-top: 4px;">Real-time monitoring and control</p>
+      <div class="status">
+        <div class="status-item">
+          <div class="status-dot"></div>
+          <span id="relay-status">Connecting...</span>
+        </div>
+        <div class="status-item">
+          <span>Uptime: <strong id="uptime">--</strong></span>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Production Backends Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>🖥️ Backend Servers (Production)</span>
+          <span class="badge" id="backend-count">0</span>
+        </div>
+        <div class="card-content">
+          <div id="backends-list" class="connecting">
+            Waiting for backends to connect...
+          </div>
+        </div>
+      </div>
+
+      <!-- Production Clients Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>📱 Connected Clients (Production)</span>
+          <span class="badge" id="client-count">0</span>
+        </div>
+        <div class="card-content">
+          <div id="clients-list" class="connecting">
+            Waiting for clients to connect...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Development Environment -->
+    <div class="dev-section">
+      <div class="dev-section-header" onclick="toggleDevSection()">
+        <h2>🛠️ Development Environment</h2>
+        <span class="toggle-icon">▼</span>
+      </div>
+
+      <div class="dev-section-content" id="dev-section">
+        <div class="grid">
+          <!-- Development Backends Card -->
+          <div class="card">
+            <div class="card-title">
+              <span>🖥️ Backend Servers (Dev)</span>
+              <span class="badge badge-dev" id="dev-backend-count">0</span>
+            </div>
+            <div class="card-content">
+              <div id="dev-backends-list" class="empty-state">
+                No development backends connected
+              </div>
+            </div>
+          </div>
+
+          <!-- Development Clients Card -->
+          <div class="card">
+            <div class="card-title">
+              <span>📱 Connected Clients (Dev)</span>
+              <span class="badge badge-dev" id="dev-client-count">0</span>
+            </div>
+            <div class="card-content">
+              <div id="dev-clients-list" class="empty-state">
+                No development clients connected
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Log Card -->
+    <div class="log-container">
+      <div class="card-title">
+        <span>📝 Event Log</span>
+        <span class="badge" id="log-count">0</span>
+      </div>
+      <div class="log-list-wrapper">
+        <div id="log-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Connect to relay server
+    const socket = io({
+      transports: ['websocket', 'polling']
+    });
+
+    let startTime = Date.now();
+
+    // Update uptime
+    setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const hours = Math.floor(elapsed / 3600);
+      const minutes = Math.floor((elapsed % 3600) / 60);
+      const seconds = elapsed % 60;
+      document.getElementById('uptime').textContent =
+        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }, 1000);
+
+    // Connection events
+    socket.on('connect', () => {
+      console.log('[Dashboard] Connected to relay server');
+      document.getElementById('relay-status').textContent = 'Connected to Relay';
+
+      // Clear existing logs on reconnect to avoid duplicates
+      document.getElementById('log-list').innerHTML = '';
+
+      // Send handshake
+      socket.emit('handshake', {
+        type: 'dashboard',
+        metadata: {
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString()
+        }
+      });
+    });
+
+    socket.on('disconnect', () => {
+      console.log('[Dashboard] Disconnected from relay server');
+      document.getElementById('relay-status').textContent = 'Disconnected';
+    });
+
+    socket.on('handshake:success', (data) => {
+      console.log('[Dashboard] Handshake successful:', data);
+    });
+
+    // Stats update
+    socket.on('stats:update', (stats) => {
+      console.log('[Dashboard] Stats update:', stats);
+
+      // Production과 Development 분리
+      const prodBackends = stats.backends.filter(b => b.environment === 'production');
+      const devBackends = stats.backends.filter(b => b.environment === 'development');
+
+      const prodClients = stats.clients.filter(c => c.environment === 'production');
+      const devClients = stats.clients.filter(c => c.environment === 'development');
+
+      // Render
+      renderBackends(prodBackends, 'backends-list', 'production');
+      renderBackends(devBackends, 'dev-backends-list', 'development');
+
+      renderClients(prodClients, 'clients-list', 'production');
+      renderClients(devClients, 'dev-clients-list', 'development');
+
+      // Update counts
+      document.getElementById('backend-count').textContent = prodBackends.length;
+      document.getElementById('client-count').textContent = prodClients.length;
+      document.getElementById('dev-backend-count').textContent = devBackends.length;
+      document.getElementById('dev-client-count').textContent = devClients.length;
+    });
+
+    // Log updates
+    socket.on('log:init', (logs) => {
+      console.log('[Dashboard] Initial logs:', logs.length);
+      // Reverse iteration to maintain correct order (newest at top)
+      for (let i = logs.length - 1; i >= 0; i--) {
+        addLogItem(logs[i]);
+      }
+      updateLogCount();
+    });
+
+    socket.on('log:update', (log) => {
+      console.log('[Dashboard] New log:', log);
+      addLogItem(log);
+      updateLogCount();
+    });
+
+    // Render backends (environment 매개변수 추가)
+    function renderBackends(backends, containerId, environment) {
+      const container = document.getElementById(containerId);
+
+      if (backends.length === 0) {
+        container.innerHTML = `<div class="empty-state">No ${environment} backends connected</div>`;
+        return;
+      }
+
+      container.innerHTML = backends.map(backend => `
+        <div class="item ${backend.active ? 'item-active' : ''} ${environment === 'development' ? 'item-dev' : ''}">
+          <div class="item-header">
+            <div class="item-id">
+              ${backend.active ? '⭐ ' : ''}${backend.id}
+            </div>
+            <button
+              class="btn"
+              onclick="setActiveBackend('${backend.id}', '${environment}')"
+              ${backend.active ? 'disabled' : ''}
+            >
+              ${backend.active ? 'Active' : 'Activate'}
+            </button>
+          </div>
+          <div class="item-details">
+            Version: ${backend.metadata?.version || 'N/A'}<br>
+            Instance: ${backend.metadata?.instanceId || 'N/A'}<br>
+            Environment: ${backend.environment || 'N/A'}<br>
+            Status: ${backend.connected ? '🟢 Connected' : '🔴 Disconnected'}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Render clients (environment 매개변수 추가)
+    function renderClients(clients, containerId, environment) {
+      const container = document.getElementById(containerId);
+
+      if (clients.length === 0) {
+        container.innerHTML = `<div class="empty-state">No ${environment} clients connected</div>`;
+        return;
+      }
+
+      container.innerHTML = clients.map(client => `
+        <div class="item ${environment === 'development' ? 'item-dev' : ''}">
+          <div class="item-header">
+            <div class="item-id">
+              ${client.metadata?.displayName || client.metadata?.email || client.id}
+            </div>
+          </div>
+          <div class="item-details">
+            ${client.metadata?.email ? `Email: ${client.metadata.email}<br>` : ''}
+            ${client.metadata?.provider ? `Provider: ${client.metadata.provider}<br>` : ''}
+            Environment: ${client.environment || 'N/A'}<br>
+            Status: ${client.connected ? '🟢 Connected' : '🔴 Disconnected'}<br>
+            Last seen: ${new Date(client.lastHeartbeat).toLocaleTimeString()}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Add log item
+    function addLogItem(log) {
+      const container = document.getElementById('log-list');
+      const date = new Date(log.timestamp);
+      const dateStr = date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+      const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const fullTime = `${dateStr} ${timeStr}`;
+
+      let logClass = 'log-type-event';
+      if (log.type.includes('backend')) logClass = 'log-type-backend';
+      if (log.type.includes('client')) logClass = 'log-type-client';
+      if (log.type.includes('relay')) logClass = 'log-type-relay';
+      if (log.type.includes('dashboard')) logClass = 'log-type-dashboard';
+      if (log.type.includes('auth')) logClass = 'log-type-auth';
+
+      const logHTML = `
+        <div class="log-item">
+          <span class="log-time">${fullTime}</span>
+          <span class="log-type ${logClass}">${log.type}</span>
+          <span>${JSON.stringify(log.data)}</span>
+        </div>
+      `;
+
+      container.insertAdjacentHTML('afterbegin', logHTML); // 최신 로그를 맨 위에 추가
+
+      // Keep only last 100 logs in DOM
+      const logs = container.querySelectorAll('.log-item');
+      if (logs.length > 100) {
+        logs[logs.length - 1].remove(); // 가장 오래된 로그 제거
+      }
+    }
+
+    // Update log count
+    function updateLogCount() {
+      const count = document.querySelectorAll('.log-item').length;
+      document.getElementById('log-count').textContent = count;
+    }
+
+    // Set active backend (environment 매개변수 추가)
+    function setActiveBackend(backendId, environment) {
+      console.log(`[Dashboard] Setting active ${environment} backend:`, backendId);
+      socket.emit('dashboard:setActiveBackend', { backendId, environment });
+    }
+
+    // Toggle development section
+    function toggleDevSection() {
+      const content = document.getElementById('dev-section');
+      const icon = document.querySelector('.toggle-icon');
+
+      content.classList.toggle('collapsed');
+      icon.classList.toggle('collapsed');
+    }
+
+    // 초기 상태: 개발 섹션 접혀있음
+    document.addEventListener('DOMContentLoaded', () => {
+      const content = document.getElementById('dev-section');
+      const icon = document.querySelector('.toggle-icon');
+      if (content && icon) {
+        content.classList.add('collapsed');
+        icon.classList.add('collapsed');
+      }
+    });
+  </script>
+</body>
+</html>

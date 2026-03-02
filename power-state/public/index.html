@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Power State Manager</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: #333;
+      font-size: 28px;
+    }
+    .state-display {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .state-text {
+      font-size: 72px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      transition: color 0.3s;
+    }
+    .state-text.on { color: #48bb78; }
+    .state-text.off { color: #e53e3e; }
+    .last-updated {
+      color: #666;
+      font-size: 14px;
+    }
+    .switch-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .switch {
+      position: relative;
+      width: 120px;
+      height: 60px;
+      background: #e2e8f0;
+      border-radius: 30px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .switch.on { background: #48bb78; }
+    .switch.off { background: #e2e8f0; }
+    .switch-knob {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 50px;
+      height: 50px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .switch.on .switch-knob { transform: translateX(60px); }
+    .api-info {
+      background: #f7fafc;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+    .api-info h3 {
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 18px;
+    }
+    .api-info code {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      word-break: break-all;
+    }
+    .api-info p {
+      margin-bottom: 8px;
+      color: #555;
+      line-height: 1.6;
+    }
+    .logout-btn {
+      background: #e53e3e;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      float: right;
+      margin-top: 20px;
+      transition: background 0.3s;
+    }
+    .logout-btn:hover { background: #c53030; }
+    .loading {
+      text-align: center;
+      color: #999;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚡ Power State Manager</h1>
+
+    <div class="state-display">
+      <div class="state-text" id="stateText">OFF</div>
+      <div class="last-updated">마지막 업데이트: <span id="lastUpdated">-</span></div>
+    </div>
+
+    <div class="switch-container">
+      <div class="switch off" id="switch">
+        <div class="switch-knob"></div>
+      </div>
+    </div>
+
+    <div class="api-info">
+      <h3>📡 API 정보</h3>
+      <p><strong>공개 상태 조회 (인증 불필요):</strong></p>
+      <p><code>GET http://136.113.67.193:3001/api/public/state</code></p>
+      <p>→ 외부 PC에서 이 주소로 현재 상태를 확인할 수 있습니다.</p>
+      <p style="margin-top: 10px;"><strong>응답 예시:</strong></p>
+      <p><code>{ "state": "ON" }</code> 또는 <code>{ "state": "OFF" }</code></p>
+
+      <p style="margin-top: 15px;"><strong>사용 예시 (Python):</strong></p>
+      <p><code>import requests<br>
+response = requests.get('http://136.113.67.193:3001/api/public/state')<br>
+state = response.json()['state']<br>
+if state == 'ON': print("PC 켜두기")</code></p>
+    </div>
+
+    <button class="logout-btn" id="logoutBtn">로그아웃</button>
+  </div>
+
+  <script>
+    const switchEl = document.getElementById('switch');
+    const stateTextEl = document.getElementById('stateText');
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    let currentState = 'OFF';
+    let isUpdating = false;
+
+    // 상태 로드
+    async function loadState() {
+      try {
+        const res = await fetch('/api/state');
+        if (res.status === 401) {
+          window.location.href = '/login.html';
+          return;
+        }
+        const data = await res.json();
+        updateUI(data.state, data.lastUpdated);
+      } catch (err) {
+        console.error('Failed to load state:', err);
+      }
+    }
+
+    // 상태 변경
+    async function toggleState() {
+      if (isUpdating) return;
+
+      const newState = currentState === 'ON' ? 'OFF' : 'ON';
+      isUpdating = true;
+
+      try {
+        const res = await fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: newState })
+        });
+
+        if (res.status === 401) {
+          window.location.href = '/login.html';
+          return;
+        }
+
+        const data = await res.json();
+        updateUI(data.state, data.lastUpdated);
+      } catch (err) {
+        console.error('Failed to update state:', err);
+      } finally {
+        isUpdating = false;
+      }
+    }
+
+    // UI 업데이트
+    function updateUI(state, lastUpdated) {
+      currentState = state;
+      stateTextEl.textContent = state;
+      stateTextEl.className = 'state-text ' + state.toLowerCase();
+      switchEl.className = 'switch ' + state.toLowerCase();
+
+      const date = new Date(lastUpdated);
+      lastUpdatedEl.textContent = date.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+
+    // 로그아웃
+    async function logout() {
+      try {
+        await fetch('/api/logout', { method: 'POST' });
+        window.location.href = '/login.html';
+      } catch (err) {
+        console.error('Logout failed:', err);
+        window.location.href = '/login.html';
+      }
+    }
+
+    // 이벤트 리스너
+    switchEl.addEventListener('click', toggleState);
+    logoutBtn.addEventListener('click', logout);
+
+    // 초기 로드
+    loadState();
+
+    // 5초마다 자동 새로고침
+    setInterval(loadState, 5000);
+  </script>
+</body>
+</html>

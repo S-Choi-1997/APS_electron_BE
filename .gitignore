@@ -41,6 +41,11 @@ backend/service-account.json
 backend/service-account.json.backup.*
 backend/node_modules/
 
+# NAS 배포 키트 (민감 정보 및 DB 데이터 제외)
+nas-deploy/.env
+nas-deploy/service-account.json
+nas-deploy/postgres-data/
+
 # 환경별 설정 파일 (민감 정보 포함)
 .env.development
 .env.production
