@@ -21,8 +21,8 @@ docker exec aps-postgres pg_dump -U apsuser aps_admin > backup.sql
 
 ## 2. 배포 PC에 필요한 파일
 
-backend-local/
-├── docker-compose.prod.yml   (Git에서 받음)
+nas-deploy/
+├── docker-compose.yml        (Git에서 받음)
 ├── init-db.sql               (Git에서 받음)
 ├── .env                      (수동 작성 - 아래 참고)
 └── service-account.json      (개발 PC에서 복사)
@@ -56,9 +56,9 @@ RELAY_URL=http://136.113.67.193:3000
 
 ### Docker 컨테이너 실행
 ```
-cd backend-local
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d
+cd nas-deploy
+docker-compose pull
+docker-compose up -d
 ```
 
 ### 로그 확인
