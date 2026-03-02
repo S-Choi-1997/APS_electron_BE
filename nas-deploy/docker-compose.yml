@@ -27,7 +27,7 @@ services:
 
   aps-backend:
     # Docker Hub 이미지 사용
-    image: choho97/aps-admin-backend:dev
+    image: choho97/aps-admin-backend:latest
     container_name: aps-admin-backend
     restart: unless-stopped
     ports:

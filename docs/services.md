@@ -1,6 +1,6 @@
 # 서비스 구성
 
-이 레포지토리는 5개의 서비스를 하나의 모노레포로 관리합니다.
+이 레포지토리는 8개의 서비스를 하나의 모노레포로 관리합니다.
 
 ## app/ (Electron 앱)
 
@@ -22,6 +22,33 @@ NAS에 Docker로 배포되는 Express 백엔드.
 - **인증**: JWT (Access 1h + Refresh 30d)
 - **실시간**: Socket.IO (클라이언트로 Relay에 연결)
 - **Docker Hub**: `choho97/aps-admin-backend`
+
+## relay/
+
+GCP4 VM에서 실행되는 WebSocket 릴레이 서버 (HTTP-over-WebSocket 터널).
+
+- **VM**: GCP Compute Engine `aligo-proxy` (us-central1-a)
+- **IP**: `136.113.67.193:8080`
+- **역할**: Electron ↔ backend 간 HTTP 요청을 WebSocket 이벤트로 변환하여 중계
+- **실시간**: 백엔드 이벤트를 모든 클라이언트에 브로드캐스트
+- **배포**: `relay/DEPLOY.md` 참조 (Docker Hub 푸시 → gcloud pull)
+- **대시보드**: `http://136.113.67.193:8080` (production/development 상태 확인)
+
+## power-state/
+
+NAS PC를 꺼도 되는지 외부에서 확인하는 경량 ON/OFF 상태 서비스.
+
+- **VM**: 동일 `aligo-proxy`, 포트 **3001**
+- **공개 API**: `GET http://136.113.67.193:3001/api/public/state` (인증 불필요)
+- **배포**: `power-state/README.md` 참조 (Docker Hub 푸시 → docker run)
+
+## nas-deploy/
+
+NAS에 복사해서 백엔드를 실행하기 위한 배포 키트 (소스 아님).
+
+- **포함**: `docker-compose.yml` (Docker Hub 이미지 pull), `init-db.sql` (DB 초기화)
+- **제외(gitignored)**: `.env`, `service-account.json`, `postgres-data/`
+- `docker-compose up -d` 한 줄로 백엔드 + PostgreSQL 실행
 
 ## sms-relay/
 
