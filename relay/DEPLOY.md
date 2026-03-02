@@ -12,9 +12,27 @@ docker build -t choho97/aps-websocket-relay:latest .
 docker push choho97/aps-websocket-relay:latest
 ```
 
-### 2. GCP VM에 배포
+### 2. GCP VM에 .env 파일 준비 (최초 1회)
+
+.env 파일은 이미지에 포함되지 않으므로 VM에 직접 생성해야 합니다.
+
 ```bash
-gcloud compute ssh aligo-proxy --zone=us-central1-a --command="docker pull choho97/aps-websocket-relay:latest && docker stop ws-relay 2>/dev/null || true && docker rm ws-relay 2>/dev/null || true && mkdir -p ~/ws-relay-logs && docker run -d -p 8080:8080 -v ~/ws-relay-logs:/app/logs --name ws-relay --restart unless-stopped choho97/aps-websocket-relay:latest && sleep 3 && docker ps | grep ws-relay && docker logs ws-relay --tail 20"
+gcloud compute ssh aligo-proxy --zone=us-central1-a
+# VM 접속 후:
+mkdir -p ~/ws-relay
+cat > ~/ws-relay/.env << 'EOF'
+PORT=8080
+MIN_BACKEND_VERSION=1.0.0
+HEARTBEAT_INTERVAL=30000
+CONNECTION_TIMEOUT=90000
+DASHBOARD_PASSWORD=실제비밀번호입력
+SESSION_SECRET=랜덤문자열입력
+EOF
+```
+
+### 3. GCP VM에 배포
+```bash
+gcloud compute ssh aligo-proxy --zone=us-central1-a --command="docker pull choho97/aps-websocket-relay:latest && docker stop ws-relay 2>/dev/null || true && docker rm ws-relay 2>/dev/null || true && mkdir -p ~/ws-relay-logs && docker run -d -p 8080:8080 --env-file ~/ws-relay/.env -v ~/ws-relay-logs:/app/logs --name ws-relay --restart unless-stopped choho97/aps-websocket-relay:latest && sleep 3 && docker ps | grep ws-relay && docker logs ws-relay --tail 20"
 ```
 
 ## 로그 확인

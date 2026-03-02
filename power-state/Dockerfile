@@ -8,7 +8,6 @@ RUN npm install --production
 
 # 애플리케이션 복사
 COPY server.js .
-COPY .env .
 COPY public/ ./public/
 
 # 데이터 디렉토리 생성

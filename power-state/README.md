@@ -69,11 +69,20 @@ docker pull choho97/power-state-manager:latest
 docker stop power-state 2>/dev/null || true
 docker rm power-state 2>/dev/null || true
 
+# .env 파일 준비 (최초 1회, VM에서 직접 생성)
+mkdir -p /opt/power-state
+cat > /opt/power-state/.env << 'EOF'
+PORT=3001
+PASSWORD=실제비밀번호입력
+SESSION_SECRET=랜덤문자열입력
+EOF
+
 # 새 컨테이너 실행
 docker run -d \
   --name power-state \
   --restart unless-stopped \
   -p 3001:3001 \
+  --env-file /opt/power-state/.env \
   -v /opt/power-state/data:/app/data \
   choho97/power-state-manager:latest
 

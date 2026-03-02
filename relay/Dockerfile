@@ -12,7 +12,6 @@ RUN npm install --production
 
 # Copy application files
 COPY server.js .
-COPY .env .
 COPY public/ ./public/
 
 # Create logs directory for persistent storage
