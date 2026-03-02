@@ -95,7 +95,20 @@
       "Bash(gcloud compute project-info describe:*)",
       "Bash(gcloud compute os-login describe-profile:*)",
       "Bash(ping:*)",
-      "Bash(gcloud compute instances reset:*)"
+      "Bash(gcloud compute instances reset:*)",
+      "Bash(cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder:*)",
+      "Bash(npx cross-env:*)",
+      "Bash(del /f \"e:\\\\Projects\\\\APS\\\\APS_APP\\\\dist\\\\APS-Admin-Setup-1.2.0.exe\")",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" status)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" diff --stat)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" log --oneline -5)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" add electron/main.js electron/preload.js package.json src/components/UpdateProgressModal.css src/components/UpdateProgressModal.jsx)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" commit -m \"$\\(cat <<''EOF''\n1.3.1: Fix NSIS installation and improve update UX\n\n- Add gracefulShutdown function for centralized resource cleanup\n- Fix native close event handling \\(X button, Alt+F4, NSIS installer\\)\n- Improve app lifecycle events \\(before-quit, will-quit, second-instance\\)\n- Change auto-update to user-confirmed download flow\n- Add NSIS configuration for better installer behavior\n- Add downloadUpdate and quitApp preload APIs\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" status --short)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" add electron/preload.js src/components/UpdateProgressModal.css src/components/UpdateProgressModal.jsx)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" commit -m \"$\\(cat <<''EOF''\nFix IPC event name mismatch and add update error handling\n\n- Fix WebSocket event names: memo-created → memo:created, memo-deleted → memo:deleted, consultation-updated → consultation:updated\n- Add update-error event handling in UpdateProgressModal\n- Add error UI with retry button\n- Remove unused api-create-memo preload API\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" add electron/main.js public/memo-detail.html src/AppRouter.jsx)",
+      "Bash(git -C \"e:/Projects/APS/APS_APP\" commit -m \"$\\(cat <<''EOF''\nFix critical bugs: dead code, duplicate listeners, memory leaks\n\n- Fix useWebSocketSync signature mismatch \\(removed dead callback code from AppRouter\\)\n- Remove broken broadcastMemoCreated/Deleted calls in memo-detail.html\n- Fix duplicate WebSocket connect/disconnect handlers in main.js\n- Fix parent window listener accumulation \\(use .once\\(\\) instead of .on\\(\\)\\)\n- Add download-in-progress guard to prevent concurrent updates\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
