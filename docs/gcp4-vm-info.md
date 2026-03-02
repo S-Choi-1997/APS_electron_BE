@@ -72,7 +72,7 @@ SESSION_SECRET=aps-relay-session-secret-change-this-to-random-string
 #### 배포 명령어
 ```bash
 # 1. Docker 이미지 빌드 & 푸시
-cd E:/Projects/APS/GCP4/ws-relay
+cd E:/Projects/APS/APS_APP/relay
 docker build -t choho97/aps-websocket-relay:latest .
 docker push choho97/aps-websocket-relay:latest
 

@@ -7,7 +7,7 @@ GCP VM(aligo-proxy)에서 실행되는 WebSocket 중계 서버
 
 ### 1. Docker 이미지 빌드 & 푸시
 ```bash
-cd ../GCP4/ws-relay
+cd relay  # 모노레포 루트에서 실행
 docker build -t choho97/aps-websocket-relay:latest .
 docker push choho97/aps-websocket-relay:latest
 ```
