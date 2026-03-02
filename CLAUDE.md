@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 수정한 함수를 **호출하는 모든 위치** 검색 후, 시그니처 변경이 전파됐는지 확인
 - IPC 채널명 변경 시 `main.js`의 `ipcMain.handle`과 `preload.js`의 `ipcRenderer.invoke` **양쪽 모두** 확인
-- API 엔드포인트 변경 시 `src/config/api.js`의 `API_ENDPOINTS`와 백엔드(`backend-local/server.js`) 라우트 **양쪽** 확인
+- API 엔드포인트 변경 시 `src/config/api.js`의 `API_ENDPOINTS`와 백엔드(`backend/server.js`) 라우트 **양쪽** 확인
 - `window.electron.xxx` 호출부가 preload에 실제로 노출돼 있는지 확인
 
 ### 3단계 — 런타임 위험 요소 검토
@@ -88,7 +88,7 @@ GCP Firestore (상담 데이터) + GCP Storage (첨부파일)
 
 - **개발 환경**: 프론트엔드가 GCP Cloud Run을 가리킴 (`.env.development`의 `VITE_API_URL`)
 - **프로덕션**: 로컬 NAS를 가리킴 (`.env.production`의 `http://192.168.0.100:3001`)
-- `backend-local/`에 NAS 백엔드 소스 포함 (Docker 기반). `APSmanager/` 디렉터리는 레거시 참고용 코드 — 수정 금지.
+- `backend/`에 NAS 백엔드 소스 포함 (Docker 기반). `legacy/` 디렉터리는 레거시 참고용 코드 — 수정 금지.
 
 ### Electron 프로세스 분리
 
@@ -188,7 +188,7 @@ if (window.electron) {
 
 ## 릴리스 프로세스
 
-자세한 내용은 `docs/RELEASE_GUIDE.md` 참고. 요약:
+자세한 내용은 `docs/release.md` 참고. 요약:
 1. `package.json`의 버전 업데이트
 2. `npm run release` 실행 — 설치 파일 빌드 후 GitHub Releases에 게시
 3. 실행 중인 앱은 `electron-updater`를 통해 자동 업데이트
