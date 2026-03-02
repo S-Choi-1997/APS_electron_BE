@@ -17,13 +17,13 @@ echo ""
 echo "Image: ${FULL_IMAGE_NAME}:${VERSION}"
 echo ""
 
-# backend-local 디렉토리로 이동
+# backend 디렉토리로 이동
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BACKEND_DIR="${PROJECT_ROOT}/backend-local"
+BACKEND_DIR="${PROJECT_ROOT}/backend"
 
 if [ ! -d "$BACKEND_DIR" ]; then
-    echo "Error: backend-local 디렉토리를 찾을 수 없습니다."
+    echo "Error: backend 디렉토리를 찾을 수 없습니다."
     exit 1
 fi
 

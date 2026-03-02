@@ -111,7 +111,7 @@ docker logs aps-admin-backend
 ### 1. GCP 서비스 계정 생성 (자동화)
 
 ```bash
-cd backend-local
+cd backend
 
 # 스크립트 실행 권한 부여
 chmod +x setup-gcp-service-account.sh
@@ -144,7 +144,7 @@ ALIGO_SENDER_PHONE=01012345678
 ```
 
 **중요**: `GOOGLE_APPLICATION_CREDENTIALS`는 환경에 맞게 설정:
-- **로컬 개발**: 절대 경로 (예: `E:/Projects/APS/APS_APP/backend-local/service-account.json`)
+- **로컬 개발**: 절대 경로 (예: `E:/Projects/APS/APS_APP/backend/service-account.json`)
 - **도커 환경**: `/app/service-account.json` (docker-compose.yml이 자동 설정)
 
 ### 3. Docker 실행
@@ -173,7 +173,7 @@ curl http://localhost:3001/
 ## 📁 디렉토리 구조
 
 ```
-backend-local/
+backend/
 ├── server.js                      # 백엔드 서버 코드 (GCP2 이식)
 ├── package.json                   # Node.js 의존성
 ├── Dockerfile                     # Docker 이미지 정의
@@ -190,9 +190,9 @@ backend-local/
 ### Git에서 제외해야 할 파일 (.gitignore에 추가)
 
 ```
-backend-local/.env
-backend-local/service-account.json
-backend-local/service-account.json.backup.*
+backend/.env
+backend/service-account.json
+backend/service-account.json.backup.*
 ```
 
 ### 환경 변수 보안
@@ -329,7 +329,7 @@ VITE_API_URL=http://192.168.0.100:3001  # 로컬 백엔드 주소
 1. **파일 전송** (SCP/Samba)
    ```bash
    # 로컬 PC에서
-   scp -r backend-local/* user@nas-ip:/path/to/backend/
+   scp -r backend/* user@nas-ip:/path/to/backend/
    ```
 
 2. **NAS에서 실행**
@@ -366,7 +366,7 @@ sudo ufw allow 3001/tcp
 
 - [CLAUDE.md](../CLAUDE.md) - 프로젝트 전체 구조
 - [ELECTRON_MIGRATION.md](../ELECTRON_MIGRATION.md) - 마이그레이션 가이드
-- [GCP2 원본 코드](../APSmanager/GCP2/) - 원본 Cloud Run 코드
+- [GCP2 원본 코드](../legacy/GCP2/) - 원본 Cloud Run 코드
 
 ## 🆘 지원
 

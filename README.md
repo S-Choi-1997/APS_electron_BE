@@ -178,7 +178,7 @@ APS_APP/
 │   └── utils/                    # 유틸리티 함수
 │       └── notificationHelper.js # 데스크톱 알림 헬퍼
 │
-├── backend-local/                # 백엔드 서버 (NAS 배포용)
+├── backend/                      # 백엔드 서버 (NAS 배포용)
 │   ├── server.js                # Express 서버 메인
 │   ├── auth.js                  # JWT 인증 미들웨어
 │   ├── firestore-admin.js       # Firestore Admin SDK
@@ -257,7 +257,7 @@ VITE_API_URL=http://136.113.67.193:8080/proxy
 VITE_WS_RELAY_URL=ws://136.113.67.193:8080
 ```
 
-### 백엔드 (`backend-local/.env`)
+### 백엔드 (`backend/.env`)
 
 주요 설정:
 - `GOOGLE_APPLICATION_CREDENTIALS`: GCP 서비스 계정 키 경로
@@ -266,7 +266,7 @@ VITE_WS_RELAY_URL=ws://136.113.67.193:8080
 - `ALIGO_API_KEY`: SMS 발송 API 키
 - `RELAY_WS_URL`: WebSocket 릴레이 서버 URL
 
-자세한 내용은 [backend-local/README.md](backend-local/README.md) 참고
+자세한 내용은 [backend/README.md](backend/README.md) 참고
 
 ---
 
@@ -282,12 +282,12 @@ VITE_WS_RELAY_URL=ws://136.113.67.193:8080
    ```
 3. GitHub Actions가 자동으로 빌드하여 Releases에 업로드
 
-자세한 내용은 [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md) 참고
+자세한 내용은 [docs/release.md](docs/release.md) 참고
 
 ### 백엔드 배포
 
 NAS 서버에 배포:
-1. `backend-local/` 폴더를 NAS로 복사
+1. `backend/` 폴더를 NAS로 복사
 2. `.env` 파일 설정
 3. `npm install` 실행
 4. systemd 서비스로 등록 및 실행

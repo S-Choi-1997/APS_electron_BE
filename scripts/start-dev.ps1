@@ -11,7 +11,7 @@ $rootDir = $PSScriptRoot
 
 # 백엔드 서버 시작
 Write-Host "[1/3] Starting Local Backend Server..." -ForegroundColor Yellow
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir\backend-local'; Write-Host '🏠 Local Backend Server' -ForegroundColor Green; npm start"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir\..\backend'; Write-Host '🏠 Local Backend Server' -ForegroundColor Green; npm start"
 
 # 2초 대기
 Start-Sleep -Seconds 2

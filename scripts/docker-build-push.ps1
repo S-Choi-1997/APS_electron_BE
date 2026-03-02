@@ -22,11 +22,11 @@ Write-Host ""
 # 프로젝트 루트로 이동
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
-$backendDir = Join-Path $projectRoot "backend-local"
+$backendDir = Join-Path $projectRoot "backend"
 
-# backend-local 디렉토리 확인
+# backend 디렉토리 확인
 if (-not (Test-Path $backendDir)) {
-    Write-Host "Error: backend-local 디렉토리를 찾을 수 없습니다." -ForegroundColor Red
+    Write-Host "Error: backend 디렉토리를 찾을 수 없습니다." -ForegroundColor Red
     exit 1
 }
 

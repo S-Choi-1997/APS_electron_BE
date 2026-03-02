@@ -5,7 +5,7 @@
  * - check === false → status: 'unread'
  * - check === true → status: 'responded' (SMS 발송되었으므로)
  *
- * 실행: node backend-local/migrations/migrate-inquiry-status.js
+ * 실행: node backend/migrations/migrate-inquiry-status.js
  */
 
 const { Firestore, FieldValue } = require('@google-cloud/firestore');
