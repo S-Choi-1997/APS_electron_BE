@@ -18,7 +18,7 @@ Start-Sleep -Seconds 2
 
 # Vite 개발 서버 시작
 Write-Host "[2/3] Starting Vite Dev Server..." -ForegroundColor Yellow
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir'; Write-Host '⚡ Vite Dev Server' -ForegroundColor Blue; npm run dev"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir\..\app'; Write-Host '⚡ Vite Dev Server' -ForegroundColor Blue; npm run dev"
 
 # Vite 서버가 준비될 때까지 대기
 Write-Host "[3/3] Waiting for Vite server (http://localhost:5173)..." -ForegroundColor Yellow
@@ -47,7 +47,7 @@ if ($viteReady) {
     Write-Host "Starting Electron..." -ForegroundColor Yellow
 
     # Electron 시작
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir'; Write-Host '🖥️  Electron App' -ForegroundColor Magenta; npm run electron"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir\..\app'; Write-Host '🖥️  Electron App' -ForegroundColor Magenta; npm run electron"
 
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green

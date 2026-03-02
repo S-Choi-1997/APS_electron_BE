@@ -23,15 +23,17 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+        working-directory: app
 
       - name: Create .env file
         run: |
-          echo "VITE_API_URL=http://136.113.67.193:8080/proxy" > .env
-          echo "VITE_WS_RELAY_URL=ws://136.113.67.193:8080" >> .env
-          echo "VITE_RELAY_ENVIRONMENT=production" >> .env
+          echo "VITE_API_URL=http://136.113.67.193:8080/proxy" > app/.env
+          echo "VITE_WS_RELAY_URL=ws://136.113.67.193:8080" >> app/.env
+          echo "VITE_RELAY_ENVIRONMENT=production" >> app/.env
 
       - name: Build Electron app
         run: npm run electron:build
+        working-directory: app
         env:
           CI: true
           ELECTRON_BUILDER_CACHE: ~/.cache/electron-builder
@@ -42,7 +44,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist/*.exe
+          path: app/dist/*.exe
 
   release:
     needs: build

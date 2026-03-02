@@ -6,9 +6,11 @@
 - Docker Desktop (backend/ 로컬 실행 시)
 - Git
 
-## Electron 앱 (루트)
+## Electron 앱 (`app/`)
 
 ```bash
+cd app
+
 npm install
 
 # 개발 모드 (Vite + Electron + HMR)
@@ -21,7 +23,7 @@ npm run electron:build
 npm run release
 ```
 
-### 환경 변수 (`.env.development`)
+### 환경 변수 (`app/.env.development`)
 
 ```
 VITE_API_URL=https://inquiryapi-mbi34yrklq-uc.a.run.app   # GCP2 개발용 API
@@ -31,7 +33,7 @@ VITE_NAVER_REDIRECT_URI=http://localhost:5173/naver-callback.html
 VITE_RELAY_ENVIRONMENT=development
 ```
 
-### 환경 변수 (`.env.production`)
+### 환경 변수 (`app/.env.production`)
 
 ```
 VITE_API_URL=http://136.113.67.193:8080/proxy   # GCP4 Relay

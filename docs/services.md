@@ -2,16 +2,16 @@
 
 이 레포지토리는 5개의 서비스를 하나의 모노레포로 관리합니다.
 
-## 루트 (Electron 앱)
+## app/ (Electron 앱)
 
 | 폴더 | 역할 |
 |------|------|
-| `src/` | React 18 프론트엔드 (Vite) |
-| `electron/` | Electron 메인 프로세스, IPC, 자동업데이트 |
-| `public/` | 정적 파일 |
-| `scripts/` | 개발용 보조 스크립트 |
+| `app/src/` | React 18 프론트엔드 (Vite) |
+| `app/electron/` | Electron 메인 프로세스, IPC, 자동업데이트 |
+| `app/public/` | 정적 파일 |
+| `scripts/` | 개발용 보조 스크립트 (레포 루트) |
 
-빌드: `npm run electron:build` → `dist/` (NSIS 설치파일)
+빌드: `cd app && npm run electron:build` → `app/dist/` (NSIS 설치파일)
 
 ## backend/
 

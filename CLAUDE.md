@@ -61,13 +61,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 개발 명령어
 
 ```bash
+cd app                       # Electron 앱 디렉토리로 이동 (모든 명령 여기서 실행)
 npm install                  # 의존성 설치
 npm run electron:dev         # 개발 모드: Vite(localhost:5173) + Electron + DevTools + 핫 리로드
-npm run electron:build       # 빌드 및 NSIS 설치 파일 패키징 → dist/
+npm run electron:build       # 빌드 및 NSIS 설치 파일 패키징 → app/dist/
 npm run release              # 빌드 + GitHub Release 생성 및 설치 파일 업로드
 npm run dev                  # Vite 개발 서버만 실행 (Electron 없음)
-npm run build                # Vite 빌드만 실행 (dist/ 생성)
-npm run electron             # 기존 dist/를 사용해 Electron 실행
+npm run build                # Vite 빌드만 실행 (app/dist/ 생성)
+npm run electron             # 기존 app/dist/를 사용해 Electron 실행
 ```
 
 자동화된 테스트 없음 — 수동 테스트만 진행. 테스트 시 Google/Naver OAuth 흐름 모두 확인하고, 개발 모드(Vite)와 프로덕션 모드(빌드된 앱) 양쪽에서 검증할 것.
@@ -77,52 +78,52 @@ npm run electron             # 기존 dist/를 사용해 Electron 실행
 ### 3계층 구조
 
 ```
-Electron + React (src/)
+app/src/ (React) + app/electron/ (Node.js 메인 프로세스)
     │ IPC
-electron/main.js (Node.js 메인 프로세스)
     │ HTTP/WebSocket
-백엔드 API: OMV NAS의 Node.js Express (포트 3001)
+백엔드 API: OMV NAS의 Node.js Express (backend/, 포트 3001)
     │ GCP SDKs
 GCP Firestore (상담 데이터) + GCP Storage (첨부파일)
 ```
 
-- **개발 환경**: 프론트엔드가 GCP Cloud Run을 가리킴 (`.env.development`의 `VITE_API_URL`)
-- **프로덕션**: 로컬 NAS를 가리킴 (`.env.production`의 `http://192.168.0.100:3001`)
+- **Electron 앱 루트**: `app/` (package.json, vite.config.js, src/, electron/ 모두 여기)
+- **개발 환경**: 프론트엔드가 GCP Cloud Run을 가리킴 (`app/.env.development`의 `VITE_API_URL`)
+- **프로덕션**: 릴레이 서버를 가리킴 (`app/.env`의 `VITE_API_URL`)
 - `backend/`에 NAS 백엔드 소스 포함 (Docker 기반). `legacy/` 디렉터리는 레거시 참고용 코드 — 수정 금지.
 
 ### Electron 프로세스 분리
 
-**메인 프로세스** (`electron/main.js`): 윈도우 생명주기, IPC 핸들러, WebSocket 클라이언트, 자동 업데이트(`electron-updater`), 고정 플로팅 윈도우, 토스트 알림, OAuth 팝업 관리.
+**메인 프로세스** (`app/electron/main.js`): 윈도우 생명주기, IPC 핸들러, WebSocket 클라이언트, 자동 업데이트(`electron-updater`), 고정 플로팅 윈도우, 토스트 알림, OAuth 팝업 관리.
 
-**렌더러 프로세스** (`src/`): React 18 UI, React Router 7, TanStack React Query 5, Socket.IO 클라이언트. Node.js API에 직접 접근 불가 — 모든 크로스 프로세스 호출은 IPC 브릿지를 통해야 함.
+**렌더러 프로세스** (`app/src/`): React 18 UI, React Router 7, TanStack React Query 5, Socket.IO 클라이언트. Node.js API에 직접 접근 불가 — 모든 크로스 프로세스 호출은 IPC 브릿지를 통해야 함.
 
-**IPC 브릿지** (`electron/preload.js`): `contextIsolation: true`와 함께 `contextBridge`를 통해 렌더러에 `window.electron`을 노출.
+**IPC 브릿지** (`app/electron/preload.js`): `contextIsolation: true`와 함께 `contextBridge`를 통해 렌더러에 `window.electron`을 노출.
 
 ### 인증 (핵심 패턴)
 
-이 앱은 **Google Identity Services**를 직접 사용함 — `package.json`의 `firebase` 패키지는 사용하지 않음. `src/firebase/config.js`는 `null`을 export하는 플레이스홀더임.
+이 앱은 **Google Identity Services**를 직접 사용함 — `app/package.json`의 `firebase` 패키지는 사용하지 않음. `app/src/firebase/config.js`는 `null`을 export하는 플레이스홀더임.
 
-**로컬 인증** (`src/auth/localAuth.js`): 이메일/비밀번호 → JWT를 localStorage + authManager 상태에 저장.
+**로컬 인증** (`app/src/auth/localAuth.js`): 이메일/비밀번호 → JWT를 localStorage + authManager 상태에 저장.
 
-**Google OAuth** (`src/auth/googleAuth.js`): Google Identity Services (`accounts.google.com/gsi/client`) → Google ID 토큰 → authManager에 저장.
+**Google OAuth** (`app/src/auth/googleAuth.js`): Google Identity Services (`accounts.google.com/gsi/client`) → Google ID 토큰 → authManager에 저장.
 
-**Naver OAuth** (`src/auth/naverAuth.js`): Electron 전용 IPC 흐름:
+**Naver OAuth** (`app/src/auth/naverAuth.js`): Electron 전용 IPC 흐름:
 1. 렌더러가 `window.electron.openOAuthWindow(authUrl)` 호출
 2. 메인 프로세스가 팝업 `BrowserWindow`를 열고 리다이렉트 감지
 3. 리다이렉트 URL에서 `code` + `state` 추출 후 IPC로 렌더러에 반환
 4. 렌더러가 `{ code, state }`를 백엔드 `/auth/naver/token`으로 교환
 
-**인증 상태**: `src/auth/authManager.js`가 모듈 레벨 변수 + 리스너/구독자 패턴으로 전역 `currentUser`를 관리 (Redux/Zustand 없음).
+**인증 상태**: `app/src/auth/authManager.js`가 모듈 레벨 변수 + 리스너/구독자 패턴으로 전역 `currentUser`를 관리 (Redux/Zustand 없음).
 
 ### API 요청 패턴
 
-모든 백엔드 호출은 `src/config/api.js`의 `apiRequest()`를 통해 처리:
+모든 백엔드 호출은 `app/src/config/api.js`의 `apiRequest()`를 통해 처리:
 - `Authorization: Bearer <token>` 및 `X-Provider: google|naver|local` 헤더 자동 추가
 - 401 토큰 만료 시 자동 갱신 처리
 - 콘솔에 성능 지표 로깅
 
 ```javascript
-import { apiRequest, API_ENDPOINTS } from '../config/api.js';
+import { apiRequest, API_ENDPOINTS } from '../config/api.js';  // app/src/ 기준 상대경로
 import { getCurrentUser } from '../auth/authManager.js';
 
 const result = await apiRequest(API_ENDPOINTS.SOME_ENDPOINT, {
@@ -159,22 +160,26 @@ if (window.electron) {
 
 | 파일 | 역할 |
 |------|------|
-| `electron/main.js` | 메인 프로세스: 윈도우, IPC 핸들러, WebSocket, 자동 업데이트 |
-| `electron/preload.js` | `window.electron`을 렌더러에 노출하는 IPC 브릿지 |
-| `electron/installer.nsh` | NSIS 설치 스크립트 커스터마이징 (시작 프로그램 등록) |
-| `src/config/api.js` | API 기본 URL, `API_ENDPOINTS`, `apiRequest()` 래퍼 |
-| `src/auth/authManager.js` | 전역 인증 상태, `getCurrentUser()`, 리스너 패턴 |
-| `src/AppRouter.jsx` | 인증 가드 및 라우트 정의가 포함된 HashRouter |
-| `src/services/websocketService.js` | Socket.IO 클라이언트, 재연결 로직 |
-| `src/hooks/useWebSocketSync.js` | 컴포넌트용 실시간 데이터 동기화 훅 |
+| `app/electron/main.js` | 메인 프로세스: 윈도우, IPC 핸들러, WebSocket, 자동 업데이트 |
+| `app/electron/preload.js` | `window.electron`을 렌더러에 노출하는 IPC 브릿지 |
+| `app/electron/installer.nsh` | NSIS 설치 스크립트 커스터마이징 (시작 프로그램 등록) |
+| `app/src/config/api.js` | API 기본 URL, `API_ENDPOINTS`, `apiRequest()` 래퍼 |
+| `app/src/auth/authManager.js` | 전역 인증 상태, `getCurrentUser()`, 리스너 패턴 |
+| `app/src/AppRouter.jsx` | 인증 가드 및 라우트 정의가 포함된 HashRouter |
+| `app/src/services/websocketService.js` | Socket.IO 클라이언트, 재연결 로직 |
+| `app/src/hooks/useWebSocketSync.js` | 컴포넌트용 실시간 데이터 동기화 훅 |
 
 ## 환경 변수
 
 프론트엔드에서 접근하려면 모든 환경 변수에 `VITE_` 접두사가 필요함.
 
+환경 파일 위치: `app/.env`, `app/.env.development`, `app/.env.production`
+
 | 변수 | 개발 | 프로덕션 |
 |------|------|---------|
-| `VITE_API_URL` | GCP Cloud Run URL | `http://192.168.0.100:3001` |
+| `VITE_API_URL` | GCP Cloud Run URL | `http://136.113.67.193:8080/proxy` (릴레이) |
+| `VITE_WS_RELAY_URL` | `ws://136.113.67.193:8080` | 동일 |
+| `VITE_RELAY_ENVIRONMENT` | `development` | `production` |
 | `VITE_GOOGLE_CLIENT_ID` | GCP OAuth 클라이언트 ID | 동일 |
 | `VITE_NAVER_CLIENT_ID` | 네이버 앱 클라이언트 ID | 동일 |
 | `VITE_NAVER_REDIRECT_URI` | `http://localhost:5173/naver-callback.html` | `app://aps-admin/naver-callback` |

@@ -35,11 +35,11 @@ release/
 .firebase/
 firebase-debug.log
 
-# Backend local (중요: 민감 정보 절대 커밋 금지!)
-backend-local/.env
-backend-local/service-account.json
-backend-local/service-account.json.backup.*
-backend-local/node_modules/
+# Backend (중요: 민감 정보 절대 커밋 금지!)
+backend/.env
+backend/service-account.json
+backend/service-account.json.backup.*
+backend/node_modules/
 
 # 환경별 설정 파일 (민감 정보 포함)
 .env.development
