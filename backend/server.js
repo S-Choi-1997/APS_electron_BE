@@ -902,7 +902,7 @@ app.get("/inquiries", async (req, res) => {
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString(),
         // Add status field if missing (backward compatibility)
-        status: data.status || (data.check ? 'responded' : 'unread'),
+        status: data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')),
       };
     });
 
@@ -932,7 +932,7 @@ app.get("/inquiries/stats", async (req, res) => {
 
     snapshot.docs.forEach((doc) => {
       const data = doc.data();
-      const status = data.status || (data.check ? 'responded' : 'unread'); // Fallback for old data
+      const status = data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')); // Fallback for old data + 'new' → 'unread' migration
 
       if (status === 'unread') unreadCount++;
       else if (status === 'read') readCount++;
@@ -977,6 +977,7 @@ app.get("/inquiries/:id", async (req, res) => {
       data: {
         id: doc.id,
         ...data,
+        status: data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')),
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString(),
       },
@@ -1285,9 +1286,9 @@ app.get("/memos", auth.authenticateJWT, async (req, res) => {
       SELECT m.id, m.title, m.content, m.important, m.author,
              m.created_at, m.updated_at, m.expire_date,
              COALESCE(u.display_name, m.author) as author_name
-      FROM active_memos m
+      FROM memos m
       LEFT JOIN users u ON m.author = u.email
-      WHERE 1=1
+      WHERE m.deleted_at IS NULL
     `;
     const params = [];
     let paramIndex = 1;

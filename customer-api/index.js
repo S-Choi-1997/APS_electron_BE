@@ -194,7 +194,7 @@ app.post("/contact", async (req, res) => {
     ip, recaptchaScore: score,
     createdAt: now,
     deleteAt: deleteDate,
-    status: "new"
+    status: "unread"
   });
 
   res.json({ status: "ok", message: "submitted" });

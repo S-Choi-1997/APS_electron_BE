@@ -99,6 +99,13 @@ contextBridge.exposeInMainWorld('electron', {
     return () => ipcRenderer.removeListener('navigate-to', handler);
   },
 
+  // Sticky 윈도우: 캐시 데이터 수신 (IPC로 전달받음)
+  onStickyData: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('sticky-cached-data', handler);
+    return () => ipcRenderer.removeListener('sticky-cached-data', handler);
+  },
+
   // Electron 환경 확인
   isElectron: true,
 

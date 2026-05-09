@@ -109,48 +109,76 @@ export async function restoreSession() {
     return null;
   }
 
-  try {
-    // Call backend to refresh access token
-    const response = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refreshToken: stored.refreshToken }),
-    });
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [2000, 4000, 8000]; // 2초, 4초, 8초
 
-    if (!response.ok) {
-      console.log('[Local Auth] Refresh token expired or invalid');
-      clearPersistedUser();
-      return null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.log(`[Local Auth] Retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAYS[attempt - 1]}ms...`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt - 1]));
     }
 
-    const data = await response.json();
-    const { accessToken, refreshToken: newRefreshToken, user } = data;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    // Update user with new access token AND new refresh token (rolling refresh)
-    currentUser = {
-      ...stored,
-      email: user.email,
-      displayName: user.displayName || user.email,
-      name: user.displayName || user.email,
-      role: user.role,
-      idToken: accessToken,
-      accessToken,
-      refreshToken: newRefreshToken || stored.refreshToken, // 🎯 Use new refresh token!
-      provider: 'local',
-    };
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken: stored.refreshToken }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    persistUser(currentUser);
-    notifyAuthListeners(currentUser);
+      if (!response.ok) {
+        // 서버가 응답함 → 인증 오류 (토큰 만료/무효) → 토큰 삭제 (재시도 불필요)
+        console.log('[Local Auth] Refresh token expired or invalid, status:', response.status);
+        clearPersistedUser();
+        return null;
+      }
 
-    console.log('[Local Auth] Session restored successfully:', currentUser.email);
-    return currentUser;
-  } catch (error) {
-    console.error('[Local Auth] Failed to restore session:', error);
-    clearPersistedUser();
-    return null;
+      const data = await response.json();
+      const { accessToken, refreshToken: newRefreshToken, user } = data;
+
+      // Update user with new access token AND new refresh token (rolling refresh)
+      currentUser = {
+        ...stored,
+        email: user.email,
+        displayName: user.displayName || user.email,
+        name: user.displayName || user.email,
+        role: user.role,
+        idToken: accessToken,
+        accessToken,
+        refreshToken: newRefreshToken || stored.refreshToken,
+        provider: 'local',
+      };
+
+      persistUser(currentUser);
+      notifyAuthListeners(currentUser);
+
+      console.log('[Local Auth] Session restored successfully:', currentUser.email);
+      return currentUser;
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      // 네트워크 오류 → 재시도 (마지막이 아니면)
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[Local Auth] Network error (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, error.message);
+        continue;
+      }
+
+      // 모든 재시도 실패 → 저장된 토큰으로 오프라인 복원 (토큰 삭제하지 않음)
+      console.warn('[Local Auth] All retries failed, restoring with stored credentials');
+      currentUser = { ...stored, provider: 'local' };
+      persistUser(currentUser);
+      notifyAuthListeners(currentUser);
+      return currentUser;
+    }
   }
+
+  return null;
 }
 
 /**

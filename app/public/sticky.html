@@ -245,9 +245,10 @@
       max-height: 150px;
     }
 
-    /* 오늘 일정 body - 3개 정도 높이까지, 넘으면 스크롤 */
+    /* 오늘 일정 body - 전부 표시 (제한 없음) */
     #scheduleBody {
-      max-height: 180px;
+      max-height: none;
+      overflow-y: visible;
     }
 
     /* 미처리 상담 요약 바 */
@@ -1630,19 +1631,16 @@
         return;
       }
 
-      // URL 파라미터에서 전달받은 캐시 데이터 확인
-      const urlParams = new URLSearchParams(window.location.search);
-      const cachedDataParam = urlParams.get('cachedData');
-
-      if (cachedDataParam) {
-        try {
-          // URLSearchParams.get()은 자동으로 디코딩하므로 decodeURIComponent 불필요
-          const cachedData = JSON.parse(cachedDataParam);
-          console.log('[Sticky] Found cached data in URL params');
-          initializeWithCachedData(cachedData);
-        } catch (error) {
-          console.error('[Sticky] Failed to parse cached data:', error);
-        }
+      // IPC로 전달받은 캐시 데이터 수신 (URL 파라미터 대신 IPC 사용 — 431 에러 방지)
+      if (window.electron && window.electron.onStickyData) {
+        window.electron.onStickyData((cachedData) => {
+          try {
+            console.log('[Sticky] Received cached data via IPC');
+            initializeWithCachedData(cachedData);
+          } catch (error) {
+            console.error('[Sticky] Failed to process cached data:', error);
+          }
+        });
       }
 
       // 백그라운드에서 API로 최신 데이터 가져오기

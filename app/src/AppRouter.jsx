@@ -4,7 +4,7 @@
  * App.jsx의 기존 로직을 유지하면서 라우팅 기능 추가
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { auth, onAuthStateChanged } from './auth/authManager';
@@ -88,7 +88,7 @@ function AppContent() {
   }, []);
 
   // 통계 불러오기
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       // 홈페이지 통계
       const websiteResponse = await apiRequest('/inquiries/stats', {
@@ -109,8 +109,37 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     }
-  };
+  }, []);
 
+  // WebSocket 이벤트 수신 시 stats 갱신 (debounce 적용)
+  const statsDebounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!window.electron || !user) return;
+
+    // updated 이벤트는 카운트를 변경하지 않으므로 제외
+    const STATS_EVENTS = ['consultation:created', 'consultation:deleted',
+                          'email:created', 'email:deleted'];
+
+    const cleanups = STATS_EVENTS.map(eventName =>
+      window.electron.onWebSocketEvent(eventName, () => {
+        console.log(`[AppRouter] Stats refresh triggered by ${eventName}`);
+        if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
+        statsDebounceRef.current = setTimeout(() => {
+          loadStats();
+          statsDebounceRef.current = null;
+        }, 500);
+      })
+    );
+
+    return () => {
+      cleanups.forEach(cleanup => cleanup?.());
+      if (statsDebounceRef.current) {
+        clearTimeout(statsDebounceRef.current);
+        statsDebounceRef.current = null;
+      }
+    };
+  }, [user, loadStats]);
 
   // 문의 목록 불러오기
   useEffect(() => {

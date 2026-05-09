@@ -203,6 +203,25 @@ function setupWebSocketEventListeners() {
     socket.on(eventName, (eventData) => {
       console.log(`[WebSocket] Event received: ${eventName}`);
       broadcastToAllWindows(eventName, eventData);
+
+      // 특정 이벤트에 대해 토스트 알림 생성 (메인 윈도우가 포커스 상태가 아닐 때만)
+      if (eventName === 'consultation:created' && mainWindow && !mainWindow.isFocused()) {
+        createToastNotification({
+          icon: '📋',
+          title: '새 홈페이지 상담',
+          message: '새 홈페이지 상담이 접수되었습니다.',
+          route: '/consultations/website',
+          duration: 5000
+        });
+      } else if (eventName === 'email:created' && mainWindow && !mainWindow.isFocused()) {
+        createToastNotification({
+          icon: '📧',
+          title: '새 이메일',
+          message: '새 이메일이 도착했습니다.',
+          route: '/consultations/email',
+          duration: 5000
+        });
+      }
     });
   });
 }
@@ -707,10 +726,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     saveStickySettings(type, { x, y, opacity });
   });
 
-  // 캐시 데이터를 URL 파라미터로 인코딩
-  const cachedDataParam = data ? `cachedData=${encodeURIComponent(JSON.stringify(data))}` : '';
-  const typeParam = `type=${type}`;
-  const queryParams = cachedDataParam ? `${typeParam}&${cachedDataParam}` : typeParam;
+  // type만 URL 파라미터로 전달 (cachedData는 IPC로 전달 — URL 431 에러 방지)
+  const queryParams = `type=${type}`;
 
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
@@ -718,7 +735,6 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     stickyWindow.loadURL(`http://localhost:5173/sticky.html?${queryParams}`);
     // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
   } else {
-    // 프로덕션에서는 file:// 프로토콜이므로 URL 파라미터 전달 방식 다름
     const stickyPath = path.join(__dirname, '../dist/sticky.html');
     console.log('[Sticky] 프로덕션 모드: 파일에서 로드');
     console.log('[Sticky] 파일 경로:', stickyPath);
@@ -739,7 +755,11 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
 
   stickyWindow.webContents.on('did-finish-load', () => {
     console.log(`[Sticky] Successfully loaded: ${type}`);
-    // 로드 완료 후 윈도우 표시
+    // 로드 완료 후 캐시 데이터를 IPC로 전달
+    if (data) {
+      stickyWindow.webContents.send('sticky-cached-data', data);
+      console.log(`[Sticky] Sent cached data via IPC: ${type}`);
+    }
     stickyWindow.show();
     console.log(`[Sticky] Window shown: ${type}`);
   });
