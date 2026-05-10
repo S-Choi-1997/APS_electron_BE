@@ -9,7 +9,7 @@
  * - Token management in localStorage
  */
 
-import { API_URL } from '../config/api';
+import { buildApiUrl } from '../config/api';
 
 const STORAGE_KEY = 'aps-local-auth-user';
 
@@ -53,7 +53,7 @@ const loadPersistedUser = () => {
  */
 export async function signInWithLocal(email, password) {
   try {
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetch(await buildApiUrl('/auth/login'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -122,7 +122,7 @@ export async function restoreSession() {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
+      const response = await fetch(await buildApiUrl('/auth/refresh'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -187,15 +187,17 @@ export async function restoreSession() {
 export function signOut() {
   if (currentUser && currentUser.refreshToken) {
     // Call backend to revoke refresh token
-    fetch(`${API_URL}/auth/logout`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refreshToken: currentUser.refreshToken }),
-    }).catch((err) => {
-      console.warn('[Local Auth] Logout API call failed:', err);
-    });
+    buildApiUrl('/auth/logout')
+      .then((url) => fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken: currentUser.refreshToken }),
+      }))
+      .catch((err) => {
+        console.warn('[Local Auth] Logout API call failed:', err);
+      });
   }
 
   currentUser = null;

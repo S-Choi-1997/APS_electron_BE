@@ -1,94 +1,159 @@
 /**
- * api.js - API 설정 및 공통 요청 헬퍼
+ * api.js - runtime backend configuration and common request helper.
  *
- * 백엔드 API와 통신하는 공통 설정 및 함수
+ * Electron main owns AppConfig. The renderer keeps a cached copy and all
+ * REST calls resolve their URL from that cache instead of build-time globals.
  */
 
-// API 기본 URL (환경 변수 또는 기본값)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const FALLBACK_REST_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_FALLBACK_URL || 'http://localhost:3001';
+const FALLBACK_ENVIRONMENT = import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
 
-// Relay environment for routing to correct backend
-export const RELAY_ENVIRONMENT = import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
+function normalizeBaseUrl(url, allowedProtocols, label) {
+  const parsedUrl = new URL(url);
+  if (!allowedProtocols.includes(parsedUrl.protocol)) {
+    throw new Error(`${label} must use ${allowedProtocols.join(', ')} protocol`);
+  }
 
-// Export for use in auth modules
-export const API_URL = API_BASE_URL;
+  return parsedUrl.toString().replace(/\/$/, '');
+}
 
-/**
- * API 엔드포인트 상수
- */
+function deriveWebSocketUrl(restBaseUrl) {
+  const url = new URL(restBaseUrl);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.pathname = '';
+  url.search = '';
+  url.hash = '';
+  return normalizeBaseUrl(url.toString(), ['ws:', 'wss:'], 'WebSocket URL');
+}
+
+function normalizeAppConfig(config = {}, source = 'renderer-fallback') {
+  const restBaseUrl = normalizeBaseUrl(
+    config.restBaseUrl || config.apiUrl || FALLBACK_REST_BASE_URL,
+    ['http:', 'https:'],
+    'API URL'
+  );
+  const wsBaseUrl = normalizeBaseUrl(
+    config.wsBaseUrl || config.wsRelayUrl || config.wsUrl || import.meta.env.VITE_WS_URL || import.meta.env.VITE_WS_RELAY_URL || import.meta.env.VITE_WS_FALLBACK_URL || deriveWebSocketUrl(restBaseUrl),
+    ['ws:', 'wss:', 'http:', 'https:'],
+    'WebSocket URL'
+  ).replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+
+  return {
+    version: 1,
+    mode: config.mode || 'direct',
+    environment: config.environment || FALLBACK_ENVIRONMENT,
+    restBaseUrl,
+    wsBaseUrl,
+    wsDerivedFromRest: !(config.wsBaseUrl || config.wsRelayUrl || config.wsUrl),
+    source: config.source || source,
+    // Backward-compatible aliases for existing consumers and windows.
+    apiUrl: restBaseUrl,
+    wsRelayUrl: wsBaseUrl,
+  };
+}
+
+let runtimeConfig = normalizeAppConfig();
+let configPromise = null;
+
 export const API_ENDPOINTS = {
-  // Users
   USERS_ME: '/users/me',
-
-  // Memos
   MEMOS: '/memos',
   MEMO_BY_ID: (id) => `/memos/${id}`,
-
-  // Schedules
   SCHEDULES: '/schedules',
   SCHEDULE_BY_ID: (id) => `/schedules/${id}`,
-
-  // Inquiries (Consultations)
   INQUIRIES: '/inquiries',
   INQUIRY_DETAIL: (id) => `/inquiries/${id}`,
   INQUIRY_UPDATE: (id) => `/inquiries/${id}`,
   INQUIRY_DELETE: (id) => `/inquiries/${id}`,
   ATTACHMENTS: (id) => `/inquiries/${id}/attachments/urls`,
-
-  // Email Inquiries (Gmail + ZOHO Mail)
   EMAIL_INQUIRIES: '/email-inquiries',
   EMAIL_INQUIRY_BY_ID: (id) => `/email-inquiries/${id}`,
   EMAIL_INQUIRIES_STATS: '/email-inquiries/stats',
-
-  // ZOHO Mail Integration
   ZOHO_AUTH_START: '/auth/zoho',
   ZOHO_AUTH_CALLBACK: '/auth/zoho/callback',
   ZOHO_WEBHOOK: '/api/zoho/webhook',
   ZOHO_SYNC: '/api/zoho/sync',
-
-  // SMS
   SMS_SEND: '/sms/send',
-
-  // Health Check
   HEALTH: '/',
 };
 
-/**
- * 인증된 API 요청 헬퍼
- * @param {string} endpoint - API 엔드포인트 (예: '/memos', '/schedules')
- * @param {Object} options - fetch 옵션 { method, body, headers }
- * @param {Object} auth - 인증 정보 { currentUser }
- * @returns {Promise<Object>} API 응답
- * @throws {Error} 인증 실패 또는 네트워크 오류
- */
+export function getAppConfigSnapshot() {
+  return runtimeConfig;
+}
+
+export function applyAppConfig(config) {
+  runtimeConfig = normalizeAppConfig(config, config?.source || 'renderer');
+  return runtimeConfig;
+}
+
+export async function initializeAppConfig({ force = false } = {}) {
+  if (!force && configPromise) return configPromise;
+
+  configPromise = (async () => {
+    try {
+      const electronConfig = await window.electron?.getAppConfig?.();
+      if (electronConfig) {
+        return applyAppConfig(electronConfig);
+      }
+
+      const legacyConfig = await window.electron?.getConfig?.();
+      if (legacyConfig) {
+        return applyAppConfig(legacyConfig);
+      }
+    } catch (error) {
+      console.warn('[API Config] Failed to load Electron AppConfig, using renderer fallback:', error);
+    }
+
+    return runtimeConfig;
+  })();
+
+  return configPromise;
+}
+
+export async function getAppConfig() {
+  return initializeAppConfig();
+}
+
+export async function getApiBaseUrl() {
+  const config = await getAppConfig();
+  return config.restBaseUrl;
+}
+
+export async function getRelayEnvironment() {
+  const config = await getAppConfig();
+  return config.environment;
+}
+
+export async function buildApiUrl(endpoint) {
+  const baseUrl = await getApiBaseUrl();
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${baseUrl}${normalizedEndpoint}`;
+}
+
 export async function apiRequest(endpoint, options = {}, auth = null) {
   const startTime = Date.now();
 
-  // 인증 정보 확인
   if (!auth || !auth.currentUser) {
     throw new Error('인증 정보가 필요합니다. 로그인해주세요.');
   }
 
   const { currentUser } = auth;
-
-  // ID 토큰 가져오기 (Google/Naver 모두 idToken 필드 사용)
   const idToken = currentUser.idToken;
 
   if (!idToken) {
     throw new Error('인증 토큰이 없습니다. 다시 로그인해주세요.');
   }
 
-  // 요청 헤더 구성
+  const environment = await getRelayEnvironment();
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${idToken}`,
-    'X-Provider': currentUser.provider, // 'google' | 'naver'
-    'X-Relay-Environment': RELAY_ENVIRONMENT, // 릴레이 서버 라우팅용
+    'X-Provider': currentUser.provider,
+    'X-Relay-Environment': environment,
     ...options.headers,
   };
 
-  // 요청 URL 구성
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = await buildApiUrl(endpoint);
 
   try {
     console.log(`[API Request] ${options.method || 'GET'} ${endpoint}`);
@@ -102,19 +167,16 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
 
     console.log(`[API Response] ${response.status} (${fetchTime}ms)`);
 
-    // 401 Unauthorized - 토큰 만료, 자동 갱신 시도
     if (response.status === 401) {
       console.log('[API] Access token expired, attempting refresh...');
 
       try {
-        // localAuth의 restoreSession을 사용하여 토큰 갱신
         const { restoreSession } = await import('../auth/localAuth.js');
         const refreshedUser = await restoreSession();
 
         if (refreshedUser) {
           console.log('[API] Token refreshed successfully, retrying request...');
 
-          // 갱신된 토큰으로 재시도
           const retryHeaders = {
             ...headers,
             'Authorization': `Bearer ${refreshedUser.idToken}`,
@@ -135,11 +197,9 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
         console.error('[API] Token refresh failed:', refreshError);
       }
 
-      // 갱신 실패 시 로그인 페이지로 리다이렉트
       throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.');
     }
 
-    // 기타 에러 응답 처리
     if (!response.ok) {
       let errorMessage = `API 요청 실패: ${response.status}`;
 
@@ -147,25 +207,22 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
         const errorData = await response.json();
         errorMessage = errorData.error || errorMessage;
       } catch (parseError) {
-        // JSON 파싱 실패 시 기본 메시지 사용
+        // Use default message when response is not JSON.
       }
 
       throw new Error(errorMessage);
     }
 
-    // 성공 응답 파싱
     const data = await response.json();
     const totalTime = Date.now() - startTime;
 
     console.log(`[API Success] Total time: ${totalTime}ms`);
 
     return data;
-
   } catch (error) {
     const totalTime = Date.now() - startTime;
     console.error(`[API Error] ${endpoint} (${totalTime}ms):`, error);
 
-    // 네트워크 오류 처리
     if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
       throw new Error('백엔드 서버에 연결할 수 없습니다. Docker Compose가 실행 중인지 확인해주세요.');
     }
@@ -174,13 +231,9 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
   }
 }
 
-/**
- * API 서버 상태 확인
- * @returns {Promise<boolean>} 서버 정상 여부
- */
 export async function checkApiHealth() {
   try {
-    const response = await fetch(`${API_BASE_URL}/`);
+    const response = await fetch(await buildApiUrl('/'));
     const data = await response.json();
     return data.status === 'ok';
   } catch (error) {

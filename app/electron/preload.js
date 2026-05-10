@@ -169,7 +169,17 @@ contextBridge.exposeInMainWorld('electron', {
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),
   setEnvironment: (environment) => ipcRenderer.invoke('set-environment', environment),
+  getAppConfig: () => ipcRenderer.invoke('get-app-config'),
+  setAppConfig: (config) => ipcRenderer.invoke('set-app-config', config),
   getConfig: () => ipcRenderer.invoke('get-config'),
+  setBackendUrls: (urls) => ipcRenderer.invoke('set-backend-urls', urls),
+  setWebSocketUrl: (url) => ipcRenderer.invoke('set-websocket-url', url),
+
+  onAppConfigChanged: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('app-config-changed', handler);
+    return () => ipcRenderer.removeListener('app-config-changed', handler);
+  },
 
   // 환경 변경 이벤트 리스너
   // NOTE: removeListener 사용하여 해당 콜백만 제거 (다른 리스너 유지)

@@ -17,7 +17,6 @@ import {
   useSendEmailResponse
 } from '../hooks/queries/useEmailInquiries';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
-import useWebSocketSync from '../hooks/useWebSocketSync';
 import '../components/css/PageLayout.css';
 import './EmailConsultationsPage.css';
 

@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
+import { useQuery } from '@tanstack/react-query';
 import Modal from '../components/Modal';
 import { auth } from '../auth/authManager';
 import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
@@ -18,9 +19,6 @@ import './MemoPage.css';
 
 function MemoPage({ user }) {
   // 메모 데이터 (API 연동)
-  const [memos, setMemos] = useState([]);
-  const [memosLoading, setMemosLoading] = useState(true);
-
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -35,10 +33,25 @@ function MemoPage({ user }) {
     expire_date: '',
   });
 
-  // 컴포넌트 마운트 시 메모 로드
-  useEffect(() => {
-    loadMemos();
-  }, []);
+  const { data: memos = [], refetch: refetchMemos } = useQuery({
+    queryKey: ['memos'],
+    queryFn: async () => {
+      const data = await fetchMemos(auth);
+
+      return data.map(memo => ({
+        id: memo.id,
+        title: memo.title,
+        content: memo.content,
+        important: memo.important,
+        createdAt: new Date(memo.created_at),
+        author: memo.author,
+        author_name: memo.author_name,
+        expire_date: memo.expire_date,
+      }));
+    },
+    staleTime: 30000,
+    enabled: !!user,
+  });
 
   // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
   useEffect(() => {
@@ -71,29 +84,7 @@ function MemoPage({ user }) {
 
   // 메모 데이터 로드
   const loadMemos = async () => {
-    try {
-      setMemosLoading(true);
-      const data = await fetchMemos(auth);
-
-      // API 응답을 프론트엔드 형식으로 변환
-      const formattedMemos = data.map(memo => ({
-        id: memo.id,
-        title: memo.title,
-        content: memo.content,
-        important: memo.important,
-        createdAt: new Date(memo.created_at),
-        author: memo.author,
-        author_name: memo.author_name,
-        expire_date: memo.expire_date,
-      }));
-
-      setMemos(formattedMemos);
-    } catch (error) {
-      console.error('메모 로드 실패:', error);
-      setMemos([]);
-    } finally {
-      setMemosLoading(false);
-    }
+    await refetchMemos();
   };
 
   // URL 자동 링크 변환 함수 (XSS 방지)

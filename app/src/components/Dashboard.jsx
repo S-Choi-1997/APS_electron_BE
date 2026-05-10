@@ -28,9 +28,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   // 일정 데이터 (API 연동)
-  const [schedules, setSchedules] = useState([]);
-  const [schedulesLoading, setSchedulesLoading] = useState(true);
-
   // React Query - 메모 데이터 조회
   const { data: memos = [], isLoading: memosLoading } = useQuery({
     queryKey: ['memos'],
@@ -63,6 +60,26 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   });
 
   // React Query - 메모 삭제 Mutation
+  const { data: schedules = [], isLoading: schedulesLoading, refetch: refetchSchedules } = useQuery({
+    queryKey: ['schedules'],
+    queryFn: async () => {
+      const data = await fetchSchedules(auth);
+
+      return data.map(schedule => ({
+        id: schedule.id,
+        title: schedule.title,
+        time: schedule.time,
+        start_date: new Date(schedule.start_date),
+        end_date: new Date(schedule.end_date),
+        type: schedule.type === 'company' ? '회사' : '개인',
+        author: schedule.author,
+        author_name: schedule.author_name,
+      }));
+    },
+    staleTime: 30000,
+    enabled: !!user,
+  });
+
   const deleteMemoMutation = useMutation({
     mutationFn: async (memoId) => {
       await deleteMemo(memoId, auth);
@@ -517,40 +534,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;
   };
 
-  // 컴포넌트 마운트 시 데이터 로드 (메모는 React Query가 자동 처리)
-  useEffect(() => {
-    loadSchedules();
-  }, []);
-
-  // Electron IPC 이벤트 리스너 - 알림창에서 메모 생성 시 자동 새로고침
-  useEffect(() => {
-    if (window.electron?.onMemoCreated) {
-      const cleanup = window.electron.onMemoCreated((newMemo) => {
-        console.log('[Dashboard] 메모 생성 이벤트 수신:', newMemo);
-        // React Query 캐시 무효화
-        queryClient.invalidateQueries({ queryKey: ['memos'] });
-      });
-
-      return cleanup;
-    }
-  }, [queryClient]);
-
-  // Electron IPC 이벤트 리스너 - 알림창에서 메모 삭제 시 즉시 반영
-  useEffect(() => {
-    if (window.electron?.onMemoDeleted) {
-      const cleanup = window.electron.onMemoDeleted((memoId) => {
-        console.log('[Dashboard] 메모 삭제 이벤트 수신:', memoId);
-        // React Query 캐시에서 즉시 제거
-        queryClient.setQueryData(['memos'], (old) => {
-          if (!old) return [];
-          return old.filter(m => m.id !== memoId);
-        });
-      });
-
-      return cleanup;
-    }
-  }, [queryClient]);
-
   // WebSocket 이벤트 리스너 제거됨
   // NOTE: useWebSocketSync Hook이 Main Process의 WebSocket 이벤트를 처리
   // Dashboard는 React Query만 사용하여 상태 관리
@@ -627,30 +610,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
   // 일정 데이터 로드
   const loadSchedules = async () => {
-    try {
-      setSchedulesLoading(true);
-      const data = await fetchSchedules(auth);
-
-      // API 응답을 프론트엔드 형식으로 변환
-      const formattedSchedules = data.map(schedule => ({
-        id: schedule.id,
-        title: schedule.title,
-        time: schedule.time,
-        start_date: new Date(schedule.start_date),
-        end_date: new Date(schedule.end_date),
-        type: schedule.type === 'company' ? '회사' : '개인',
-        author: schedule.author,
-        author_name: schedule.author_name,
-      }));
-
-      setSchedules(formattedSchedules);
-    } catch (error) {
-      console.error('일정 로드 실패:', error);
-      // 에러 발생 시 빈 배열 유지
-      setSchedules([]);
-    } finally {
-      setSchedulesLoading(false);
-    }
+    await refetchSchedules();
   };
 
   // 메모 날짜별 그룹화 함수

@@ -143,8 +143,10 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "").split(",").filter(Bo
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+    // Allow non-browser origins used by the packaged Electron app.
+    if (!origin || origin === "null" || origin.startsWith("file://")) {
+      return callback(null, true);
+    }
 
     if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
       callback(null, true);
@@ -157,6 +159,84 @@ const corsOptions = {
 };
 
 // ============================================
+// Direct WebSocket Server (Electron App → Backend)
+// ============================================
+const DIRECT_WS_ENVIRONMENT = process.env.BACKEND_ENVIRONMENT || process.env.RELAY_ENVIRONMENT || 'production';
+const directClients = new Map();
+
+const io = new Server(server, {
+  cors: {
+    origin: corsOptions.origin,
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
+  transports: ['websocket', 'polling'],
+});
+
+function getDirectClientEnvironment(metadata = {}) {
+  return metadata.environment || DIRECT_WS_ENVIRONMENT;
+}
+
+io.on('connection', (socket) => {
+  console.log(`[Direct WebSocket] Client connected: ${socket.id}`);
+
+  socket.on('handshake', (data = {}) => {
+    if (data.type && data.type !== 'client') {
+      socket.emit('handshake:error', {
+        error: 'INVALID_CLIENT_TYPE',
+        message: 'Direct backend WebSocket accepts Electron clients only',
+      });
+      return;
+    }
+
+    const metadata = data.metadata || {};
+    const environment = getDirectClientEnvironment(metadata);
+
+    directClients.set(socket.id, {
+      socket,
+      metadata: { ...metadata, environment },
+      lastHeartbeat: Date.now(),
+    });
+
+    socket.emit('handshake:success', {
+      backendId: process.env.BACKEND_INSTANCE_ID || 'backend-direct',
+      environment,
+      direct: true,
+      message: `Connected directly to backend WebSocket (${environment})`,
+    });
+
+    console.log(`[Direct WebSocket] Handshake success: ${socket.id} (${environment})`);
+  });
+
+  socket.on('heartbeat', () => {
+    const client = directClients.get(socket.id);
+    if (client) {
+      client.lastHeartbeat = Date.now();
+    }
+  });
+
+  socket.on('disconnect', (reason) => {
+    directClients.delete(socket.id);
+    console.log(`[Direct WebSocket] Client disconnected: ${socket.id} (${reason})`);
+  });
+});
+
+function broadcastToDirectClients(eventType, data) {
+  let sentCount = 0;
+
+  for (const client of directClients.values()) {
+    client.socket.emit(eventType, data);
+    sentCount++;
+  }
+
+  if (sentCount > 0) {
+    console.log(`[Direct WebSocket] Sent event ${eventType} to ${sentCount} clients`);
+  }
+
+  return sentCount;
+}
+
+// ============================================
 // WebSocket Relay Client (Socket.IO Client to GCP4 Relay)
 // ============================================
 const { io: ioClient } = require('socket.io-client');
@@ -165,6 +245,7 @@ const RELAY_WS_URL = process.env.RELAY_WS_URL || 'ws://localhost:8080';
 const BACKEND_VERSION = process.env.BACKEND_VERSION || '1.0.0';
 const BACKEND_INSTANCE_ID = process.env.BACKEND_INSTANCE_ID || 'backend-local-001';
 const RELAY_ENVIRONMENT = process.env.RELAY_ENVIRONMENT || 'production';
+const RELAY_ENABLED = process.env.RELAY_ENABLED !== 'false' && process.env.ENABLE_RELAY !== 'false';
 
 let relaySocket = null;
 let isRelayConnected = false;
@@ -172,6 +253,11 @@ let isConnecting = false;
 const RECONNECT_CHECK_INTERVAL = 30000; // 30초마다 재연결 체크
 
 function connectToRelay() {
+  if (!RELAY_ENABLED) {
+    console.log('[WebSocket Relay] Disabled by environment');
+    return;
+  }
+
   if (isConnecting) {
     console.log('[WebSocket Relay] Already attempting to connect, skipping...');
     return;
@@ -541,6 +627,10 @@ function connectToRelay() {
 
 // 주기적인 재연결 체크 (30초마다)
 setInterval(() => {
+  if (!RELAY_ENABLED) {
+    return;
+  }
+
   if (!relaySocket || !relaySocket.connected) {
     console.log('[WebSocket Relay] Connection lost, attempting to reconnect...');
     connectToRelay();
@@ -549,8 +639,15 @@ setInterval(() => {
 
 // 전역 broadcast 함수 (CRUD 작업에서 사용)
 global.broadcastEvent = (eventType, data) => {
+  const directCount = broadcastToDirectClients(eventType, data);
+
   if (!relaySocket || !isRelayConnected) {
-    console.warn(`[WebSocket Relay] Not connected, cannot send event: ${eventType}`);
+    if (RELAY_ENABLED) {
+      console.warn(`[WebSocket Relay] Not connected, cannot send event: ${eventType}`);
+    }
+    if (directCount === 0) {
+      console.warn(`[Broadcast] No connected clients for event: ${eventType}`);
+    }
     return;
   }
 
@@ -559,9 +656,16 @@ global.broadcastEvent = (eventType, data) => {
 };
 
 // Connect to relay on startup
-connectToRelay();
+if (RELAY_ENABLED) {
+  connectToRelay();
+} else {
+  console.log('✓ WebSocket Relay Client disabled; direct WebSocket server is active');
+}
 
-console.log('✓ WebSocket Relay Client initialized');
+console.log('✓ Direct WebSocket server initialized');
+if (RELAY_ENABLED) {
+  console.log('✓ WebSocket Relay Client initialized');
+}
 
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -1428,6 +1532,11 @@ app.patch("/memos/:id", auth.authenticateJWT, async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "not_found", message: "Memo not found" });
+    }
+
+    // WebSocket broadcast
+    if (global.broadcastEvent) {
+      global.broadcastEvent('memo:updated', result.rows[0]);
     }
 
     res.json({

@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>알림창</title>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <style>
     @font-face {
       font-family: 'NanumSquareRound';
@@ -900,13 +898,22 @@
     }
 
     // URL 자동 링크 변환 함수 - 간단보기용 (클릭 불가)
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function linkifyContentSimple(text) {
       if (!text) return '';
       const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
-      const linkedText = text.replace(urlPattern, (url) => {
-        return `<span class="link-text" style="color: #667eea; text-decoration: underline; cursor: default;">${url}</span>`;
+      const linkedText = escapeHtml(text).replace(urlPattern, (url) => {
+        return `<span class="link-text" style="color: #667eea; text-decoration: underline; cursor: default;">${escapeHtml(url)}</span>`;
       });
-      return DOMPurify.sanitize(linkedText);
+      return linkedText;
     }
 
     // 외부 링크를 기본 브라우저에서 열기 (data-clickable 속성 체크)
@@ -927,10 +934,25 @@
     console.log('[Sticky] Script started!');
 
     // API 기본 URL - HTTP 요청은 릴레이 서버 프록시, WebSocket은 릴레이 서버
-    const API_BASE_URL = 'http://136.113.67.193:8080/proxy'; // HTTP API 요청용
-    const WEBSOCKET_URL = 'ws://136.113.67.193:8080'; // WebSocket 연결용 (메인 앱과 동일)
+    let API_BASE_URL = '';
     console.log('[Sticky] API_BASE_URL:', API_BASE_URL);
-    console.log('[Sticky] WEBSOCKET_URL:', WEBSOCKET_URL);
+
+    async function loadBackendConfig() {
+      try {
+        if (window.electron) {
+          const config = window.electron.getAppConfig
+            ? await window.electron.getAppConfig()
+            : await window.electron.getConfig?.();
+          if (config && (config.restBaseUrl || config.apiUrl)) {
+            API_BASE_URL = config.restBaseUrl || config.apiUrl || API_BASE_URL;
+          }
+        }
+      } catch (error) {
+        console.warn('[Sticky] Failed to load backend config, using defaults:', error);
+      }
+
+      console.log('[Sticky] Active API_BASE_URL:', API_BASE_URL);
+    }
 
     // 전역 데이터
     let memos = [];
@@ -997,6 +1019,10 @@
     async function apiRequest(endpoint, options = {}) {
       const token = await getAuthToken();
       const provider = await getUserProvider();
+
+      if (!API_BASE_URL) {
+        throw new Error('백엔드 API URL이 설정되지 않았습니다.');
+      }
 
       if (!token) {
         throw new Error('인증 토큰이 없습니다.');
@@ -1156,8 +1182,8 @@
             const time = schedule.time || '시간 미정';
             scheduleHTML += `
               <div class="schedule-item">
-                <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${schedule.title}</span>
+                <span class="schedule-time">${escapeHtml(time)}</span>
+                <span class="schedule-name">${escapeHtml(schedule.title || '')}</span>
               </div>
             `;
           });
@@ -1176,8 +1202,8 @@
             const displayTitle = authorName ? `${authorName} - ${schedule.title}` : schedule.title;
             scheduleHTML += `
               <div class="schedule-item">
-                <span class="schedule-time">${time}</span>
-                <span class="schedule-name">${displayTitle}</span>
+                <span class="schedule-time">${escapeHtml(time)}</span>
+                <span class="schedule-name">${escapeHtml(displayTitle || '')}</span>
               </div>
             `;
           });
@@ -1225,8 +1251,8 @@
           <div class="memo-item" onclick="showMemoDetail(${memo.id})" style="cursor: pointer;">
             <div class="memo-header">
               ${memo.important ? '<span class="memo-badge">중요</span>' : ''}
-              <div class="memo-title">${memo.title}</div>
-              ${memo.author ? `<div class="memo-author">${memo.author_name || memo.author || '사용자'}</div>` : ''}
+              <div class="memo-title">${escapeHtml(memo.title || '')}</div>
+              ${memo.author ? `<div class="memo-author">${escapeHtml(memo.author_name || memo.author || '사용자')}</div>` : ''}
             </div>
             <div class="memo-content">${linkifyContentSimple(memo.content)}</div>
           </div>
@@ -1336,243 +1362,54 @@
     }
 
     // WebSocket 연결 및 이벤트 리스너
-    let socket = null;
-    let isConnecting = false;
-    let heartbeatInterval = null;
-    let reconnectInterval = null;
-    const RECONNECT_CHECK_INTERVAL = 30000; // 30초마다 재연결 체크
+    const webSocketEventCleanups = [];
 
-    async function connectWebSocket() {
-      const authData = await getAuthData();
-      if (!authData) {
-        console.warn('[Sticky WebSocket] No auth data found, cannot connect');
-        return null;
+    function setupWebSocketEventListeners() {
+      if (!window.electron?.onWebSocketEvent) {
+        console.warn('[Sticky] WebSocket IPC event API not available');
+        return;
       }
 
-      if (socket?.connected) {
-        console.log('[Sticky WebSocket] Already connected');
-        return socket;
-      }
+      const register = (eventName, handler) => {
+        const cleanup = window.electron.onWebSocketEvent(eventName, handler);
+        if (cleanup) webSocketEventCleanups.push(cleanup);
+      };
 
-      if (isConnecting) {
-        console.log('[Sticky WebSocket] Already attempting to connect, skipping...');
-        return socket;
-      }
+      register('consultation:created', () => loadConsultationStats());
+      register('consultation:updated', () => loadConsultationStats());
+      register('consultation:deleted', () => loadConsultationStats());
+      register('email:created', () => loadConsultationStats());
+      register('email:updated', () => loadConsultationStats());
+      register('email:deleted', () => loadConsultationStats());
+      register('memo:created', () => loadMemos());
+      register('memo:updated', () => loadMemos());
+      register('memo:deleted', () => loadMemos());
+      register('schedule:created', () => loadSchedules());
+      register('schedule:updated', () => loadSchedules());
+      register('schedule:deleted', () => loadSchedules());
 
-      isConnecting = true;
-
-      try {
-        const token = authData.idToken;
-        const provider = authData.provider;
-
-        if (!token) {
-          console.warn('[Sticky WebSocket] No token found');
-          isConnecting = false;
-          return null;
-        }
-
-        console.log('[Sticky WebSocket] Connecting to', WEBSOCKET_URL);
-
-        // 기존 소켓이 있으면 정리
-        if (socket) {
-          socket.removeAllListeners();
-          socket.disconnect();
-          socket = null;
-        }
-
-        socket = io(WEBSOCKET_URL, {
-          transports: ['websocket', 'polling'],
-          reconnectionDelay: 1000,
-          reconnection: false, // Socket.IO 자동 재연결 비활성화 (수동 관리)
-          timeout: 10000
+      if (window.electron.onWebSocketStatusChanged) {
+        const cleanup = window.electron.onWebSocketStatusChanged(async (status) => {
+          if (!status?.connected) return;
+          console.log('[Sticky] Main WebSocket reconnected; reloading data');
+          await Promise.all([
+            loadMemos(),
+            loadConsultationStats(),
+            loadSchedules()
+          ]);
         });
-
-        socket.on('connect', async () => {
-          console.log('[Sticky WebSocket] Connected to server');
-          isConnecting = false;
-
-          // Send handshake (메인 앱과 동일)
-          socket.emit('handshake', {
-            type: 'client',
-            metadata: {
-              email: authData.email,
-              provider: authData.provider,
-              displayName: authData.displayName,
-              connectedAt: new Date().toISOString()
-            }
-          });
-
-          // 재연결 시 데이터 동기화
-          console.log('[Sticky WebSocket] Reloading data after connect...');
-          try {
-            await Promise.all([
-              loadMemos(),
-              loadConsultationStats(),
-              loadSchedules()
-            ]);
-          } catch (error) {
-            console.error('[Sticky WebSocket] Failed to reload data on connect:', error);
-          }
-        });
-
-        socket.on('handshake:success', (data) => {
-          console.log('[Sticky WebSocket] Handshake successful:', data);
-        });
-
-        socket.on('disconnect', (reason) => {
-          console.log('[Sticky WebSocket] Disconnected from server:', reason);
-        });
-
-        socket.on('connect_error', (error) => {
-          console.error('[Sticky WebSocket] Connection error:', error.message);
-          isConnecting = false;
-        });
-
-        // Heartbeat (30초마다 전송)
-        if (heartbeatInterval) {
-          clearInterval(heartbeatInterval);
-        }
-        heartbeatInterval = setInterval(() => {
-          if (socket && socket.connected) {
-            socket.emit('heartbeat');
-          } else {
-            clearInterval(heartbeatInterval);
-            heartbeatInterval = null;
-          }
-        }, 30000);
-
-        // 신규 상담 생성 이벤트
-        socket.on('consultation:created', () => {
-          console.log('[Sticky WebSocket] New consultation created');
-          loadConsultationStats();
-        });
-
-        // 상담 업데이트 이벤트
-        socket.on('consultation:updated', () => {
-          console.log('[Sticky WebSocket] Consultation updated');
-          loadConsultationStats();
-        });
-
-        // 상담 삭제 이벤트
-        socket.on('consultation:deleted', () => {
-          console.log('[Sticky WebSocket] Consultation deleted');
-          loadConsultationStats();
-        });
-
-        // 이메일 생성 이벤트
-        socket.on('email:created', (newEmail) => {
-          console.log('[Sticky WebSocket] Email created:', newEmail);
-          loadConsultationStats();
-        });
-
-        // 이메일 업데이트 이벤트
-        socket.on('email:updated', (data) => {
-          console.log('[Sticky WebSocket] Email updated:', data.id);
-          loadConsultationStats();
-        });
-
-        // 이메일 삭제 이벤트
-        socket.on('email:deleted', (data) => {
-          console.log('[Sticky WebSocket] Email deleted:', data.id);
-          loadConsultationStats();
-        });
-
-        // 메모 생성 이벤트
-        socket.on('memo:created', (newMemo) => {
-          console.log('[Sticky WebSocket] Memo created:', newMemo);
-          loadMemos();
-        });
-
-        // 메모 삭제 이벤트
-        socket.on('memo:deleted', (data) => {
-          console.log('[Sticky WebSocket] Memo deleted:', data.id);
-          loadMemos();
-        });
-
-        // 일정 생성 이벤트
-        socket.on('schedule:created', (newSchedule) => {
-          console.log('[Sticky WebSocket] Schedule created:', newSchedule);
-          loadSchedules();
-        });
-
-        // 일정 수정 이벤트
-        socket.on('schedule:updated', (data) => {
-          console.log('[Sticky WebSocket] Schedule updated:', data);
-          loadSchedules();
-        });
-
-        // 일정 삭제 이벤트
-        socket.on('schedule:deleted', (data) => {
-          console.log('[Sticky WebSocket] Schedule deleted:', data.id);
-          loadSchedules();
-        });
-
-        // NOTE: 재연결 시 데이터 동기화는 위의 connect 핸들러에서 처리
-
-        // 주기적인 재연결 체크 시작
-        startReconnectMonitor();
-
-        return socket;
-      } catch (error) {
-        console.error('[Sticky WebSocket] Failed to connect:', error);
-        isConnecting = false;
-        return null;
+        if (cleanup) webSocketEventCleanups.push(cleanup);
       }
     }
 
-    /**
-     * 주기적으로 연결 상태 확인 및 재연결
-     */
-    function startReconnectMonitor() {
-      // 기존 인터벌이 있으면 정리
-      if (reconnectInterval) {
-        clearInterval(reconnectInterval);
+    function cleanupWebSocketEventListeners() {
+      while (webSocketEventCleanups.length > 0) {
+        webSocketEventCleanups.pop()?.();
       }
-
-      reconnectInterval = setInterval(async () => {
-        const authData = await getAuthData();
-
-        if (!authData) {
-          console.log('[Sticky WebSocket] No auth data, skipping reconnect check');
-          return;
-        }
-
-        if (!socket || !socket.connected) {
-          console.log('[Sticky WebSocket] Connection lost, attempting to reconnect...');
-          connectWebSocket();
-        }
-      }, RECONNECT_CHECK_INTERVAL);
     }
 
-    /**
-     * WebSocket 연결 종료 (창 닫을 때 호출)
-     */
-    function disconnectWebSocket() {
-      // 재연결 모니터 중지
-      if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-        reconnectInterval = null;
-      }
-
-      // Heartbeat 중지
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-      }
-
-      if (socket) {
-        console.log('[Sticky WebSocket] Disconnecting...');
-        socket.removeAllListeners();
-        socket.disconnect();
-        socket = null;
-      }
-
-      isConnecting = false;
-    }
-
-    // 창 닫힐 때 정리
     window.addEventListener('beforeunload', () => {
-      disconnectWebSocket();
+      cleanupWebSocketEventListeners();
     });
 
     // 초기 데이터 수신 및 렌더링
@@ -1611,6 +1448,8 @@
     document.addEventListener('DOMContentLoaded', async () => {
       console.log('[Sticky] Initializing data...');
       console.log('[Sticky] Checking auth data via IPC...');
+
+      await loadBackendConfig();
 
       // 투명도 슬라이더 초기화
       await initializeOpacitySlider();
@@ -1666,7 +1505,7 @@
       adjustWindowHeight();
 
       // WebSocket 연결 (데이터 로드 실패와 관계없이 연결)
-      connectWebSocket();
+      setupWebSocketEventListeners();
     });
 
     // 윈도우 높이 자동 조정 함수

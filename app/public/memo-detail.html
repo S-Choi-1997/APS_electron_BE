@@ -376,48 +376,75 @@
     document.body.classList.add(`mode-${mode}`);
 
     // API 기본 URL - HTTP 요청은 릴레이 서버 프록시 사용
-    const API_BASE_URL = 'http://136.113.67.193:8080/proxy';
+    let API_BASE_URL = '';
+
+    async function loadBackendConfig() {
+      try {
+        if (window.electron) {
+          const config = window.electron.getAppConfig
+            ? await window.electron.getAppConfig()
+            : await window.electron.getConfig?.();
+
+          if (config) {
+            API_BASE_URL = config.restBaseUrl || config.apiUrl || API_BASE_URL;
+          }
+        }
+      } catch (error) {
+        console.warn('[MemoDetail] Failed to load backend config, using default:', error);
+      }
+
+      console.log('[MemoDetail] Active API_BASE_URL:', API_BASE_URL);
+    }
 
     // 로컬 스토리지에서 인증 정보 가져오기
-    function getAuthToken() {
+    let cachedAuthData = null;
+
+    async function getAuthData() {
+      if (cachedAuthData) {
+        return cachedAuthData;
+      }
+
       try {
-        const userStr = localStorage.getItem('aps-local-auth-user');
-        if (!userStr) return null;
-        const user = JSON.parse(userStr);
-        return user.idToken;
+        if (!window.electron?.getAuthToken) {
+          console.error('[MemoDetail] Electron auth IPC API is not available');
+          return null;
+        }
+
+        const result = await window.electron.getAuthToken();
+        if (result?.success && result.user) {
+          cachedAuthData = result.user;
+          return cachedAuthData;
+        }
+
+        return null;
       } catch (error) {
-        console.error('Failed to get auth token:', error);
+        console.error('[MemoDetail] Failed to get auth data:', error);
         return null;
       }
     }
 
-    function getUserProvider() {
-      try {
-        const userStr = localStorage.getItem('aps-local-auth-user');
-        if (!userStr) return null;
-        const user = JSON.parse(userStr);
-        return user.provider;
-      } catch (error) {
-        console.error('Failed to get user provider:', error);
-        return null;
-      }
+    async function getAuthToken() {
+      const authData = await getAuthData();
+      return authData?.idToken || null;
     }
 
-    function getCurrentUser() {
-      try {
-        const userStr = localStorage.getItem('aps-local-auth-user');
-        if (!userStr) return null;
-        return JSON.parse(userStr);
-      } catch (error) {
-        console.error('Failed to get current user:', error);
-        return null;
-      }
+    async function getUserProvider() {
+      const authData = await getAuthData();
+      return authData?.provider || null;
+    }
+
+    async function getCurrentUser() {
+      return getAuthData();
     }
 
     // API 호출 헬퍼
     async function apiRequest(endpoint, options = {}) {
-      const token = getAuthToken();
-      const provider = getUserProvider();
+      const token = await getAuthToken();
+      const provider = await getUserProvider();
+
+      if (!API_BASE_URL) {
+        throw new Error('백엔드 API URL이 설정되지 않았습니다.');
+      }
 
       if (!token) {
         throw new Error('인증 토큰이 없습니다.');
@@ -443,12 +470,21 @@
     }
 
     // URL 자동 링크 변환
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function linkifyContent(text) {
       if (!text) return '';
       const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/g;
-      return text.replace(urlPattern, (url) => {
+      return escapeHtml(text).replace(urlPattern, (url) => {
         const href = url.startsWith('www.') ? `https://${url}` : url;
-        return `<a href="${href}" class="external-link-modal" data-clickable="true">${url}</a>`;
+        return `<a href="${escapeHtml(href)}" class="external-link-modal" data-clickable="true">${escapeHtml(url)}</a>`;
       });
     }
 
@@ -474,12 +510,12 @@
           <div class="detail-section">
             <div class="detail-title">
               ${memo.important ? '<span class="detail-badge">중요</span>' : ''}
-              ${memo.title}
+              ${escapeHtml(memo.title || '')}
             </div>
             <div class="detail-meta">
-              <span class="detail-meta-item"><span class="detail-meta-label">작성자:</span> ${memo.author_name || memo.author || '사용자'}</span>
-              <span class="detail-meta-item"><span class="detail-meta-label">작성일:</span> ${createdDate}</span>
-              <span class="detail-meta-item"><span class="detail-meta-label">만료일:</span> ${expireDate}</span>
+              <span class="detail-meta-item"><span class="detail-meta-label">작성자:</span> ${escapeHtml(memo.author_name || memo.author || '사용자')}</span>
+              <span class="detail-meta-item"><span class="detail-meta-label">작성일:</span> ${escapeHtml(createdDate)}</span>
+              <span class="detail-meta-item"><span class="detail-meta-label">만료일:</span> ${escapeHtml(expireDate)}</span>
             </div>
             <div class="detail-content">${linkifyContent(memo.content)}</div>
           </div>
@@ -561,7 +597,7 @@
       }
 
       try {
-        const user = getCurrentUser();
+        const user = await getCurrentUser();
         const response = await apiRequest('/memos', {
           method: 'POST',
           body: JSON.stringify({
@@ -569,7 +605,7 @@
             content,
             important,
             expire_date: expireDate || null,
-            author: user.email,
+            author: user?.email,
           }),
         });
         const newMemo = response.data;
@@ -624,12 +660,15 @@
 
     // 초기화
     console.log('[MemoDetail] Initializing... mode:', mode, 'memoId:', memoId);
-    console.log('[MemoDetail] Checking localStorage...');
-    const userStr = localStorage.getItem('aps-local-auth-user');
-    console.log('[MemoDetail] aps-local-auth-user exists:', !!userStr);
+    async function initializeMemoDetail() {
+      await loadBackendConfig();
 
-    if (!userStr) {
-      console.error('[MemoDetail] No aps-local-auth-user in localStorage!');
+      console.log('[MemoDetail] Checking auth IPC...');
+      const authData = await getAuthData();
+      console.log('[MemoDetail] Auth data exists:', !!authData);
+
+    if (!authData) {
+      console.error('[MemoDetail] No auth data from IPC!');
       document.getElementById('content').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">인증 정보가 없습니다.<br>메인 창에서 로그인해주세요.</div>';
     } else if (mode === 'view' && memoId) {
       renderViewMode();
@@ -638,6 +677,10 @@
     } else {
       document.getElementById('content').innerHTML = '<p style="padding: 20px; text-align: center; color: #999;">잘못된 요청입니다.</p>';
     }
+
+    }
+
+    initializeMemoDetail();
   </script>
 </body>
 </html>

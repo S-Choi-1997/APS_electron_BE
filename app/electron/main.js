@@ -121,21 +121,122 @@ function logUpdate(message) {
 // ============================================
 // Environment 설정 관리
 // ============================================
-const DEFAULT_CONFIG = {
-  environment: 'production',
-  wsRelayUrl: 'ws://136.113.67.193:8080'
-};
+function normalizeWebSocketUrl(url) {
+  const parsedUrl = new URL(url);
+  if (!['ws:', 'wss:', 'http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('WebSocket URL must use ws, wss, http, or https protocol');
+  }
+
+  if (parsedUrl.protocol === 'http:') parsedUrl.protocol = 'ws:';
+  if (parsedUrl.protocol === 'https:') parsedUrl.protocol = 'wss:';
+  parsedUrl.pathname = parsedUrl.pathname.replace(/\/$/, '');
+
+  return parsedUrl.toString().replace(/\/$/, '');
+}
+
+function deriveWebSocketUrlFromApiUrl(apiUrl) {
+  const parsedUrl = new URL(apiUrl);
+  parsedUrl.protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  parsedUrl.pathname = '';
+  parsedUrl.search = '';
+  parsedUrl.hash = '';
+  return normalizeWebSocketUrl(parsedUrl.toString());
+}
+
+function createAppConfig(input = {}, source = 'runtime') {
+  const restBaseUrl = normalizeHttpUrl(input.restBaseUrl || input.apiUrl || 'http://localhost:3001');
+  const wsBaseUrl = normalizeWebSocketUrl(
+    input.wsBaseUrl || input.wsRelayUrl || input.wsUrl || deriveWebSocketUrlFromApiUrl(restBaseUrl)
+  );
+
+  return {
+    version: 1,
+    mode: input.mode || 'direct',
+    environment: input.environment || 'production',
+    restBaseUrl,
+    wsBaseUrl,
+    wsDerivedFromRest: !(input.wsBaseUrl || input.wsRelayUrl || input.wsUrl),
+    source,
+    // Backward-compatible aliases for existing windows and saved config.
+    apiUrl: restBaseUrl,
+    wsRelayUrl: wsBaseUrl,
+  };
+}
+
+function loadBundledDefaultConfig() {
+  const candidatePaths = [
+    path.join(__dirname, 'app-config.default.json'),
+  ];
+
+  if (process.resourcesPath) {
+    candidatePaths.push(path.join(process.resourcesPath, 'app-config.default.json'));
+  }
+
+  for (const candidatePath of candidatePaths) {
+    try {
+      if (!fs.existsSync(candidatePath)) continue;
+      const bundledConfig = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
+      return createAppConfig(bundledConfig, 'packaged-default');
+    } catch (error) {
+      console.warn(`[Config] Failed to load bundled default config from ${candidatePath}:`, error.message);
+    }
+  }
+
+  return null;
+}
+
+function getDefaultConfig() {
+  const bundledDefaultConfig = loadBundledDefaultConfig();
+  const apiUrl = process.env.APS_API_URL || process.env.VITE_API_URL || bundledDefaultConfig?.restBaseUrl || 'http://localhost:3001';
+  const wsUrl = process.env.APS_WS_URL || process.env.VITE_WS_URL || process.env.VITE_WS_RELAY_URL;
+  return createAppConfig({
+    environment: process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_RELAY_ENVIRONMENT || 'production',
+    apiUrl,
+    wsUrl: wsUrl || bundledDefaultConfig?.wsBaseUrl,
+    mode: bundledDefaultConfig?.mode,
+  }, process.env.APS_API_URL || process.env.VITE_API_URL ? 'env' : bundledDefaultConfig ? 'packaged-default' : 'local-fallback');
+}
+
+function normalizeHttpUrl(url) {
+  const parsedUrl = new URL(url);
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('API URL must use http or https protocol');
+  }
+
+  return parsedUrl.toString().replace(/\/$/, '');
+}
 
 function getConfigPath() {
   return path.join(app.getPath('userData'), 'app-config.json');
 }
 
 function loadConfig() {
+  const defaultConfig = getDefaultConfig();
+  const apiUrlOverride = process.env.APS_API_URL || process.env.VITE_API_URL;
+  const wsUrlOverride = process.env.APS_WS_URL || process.env.VITE_WS_URL || process.env.VITE_WS_RELAY_URL;
   const configPath = getConfigPath();
   if (fs.existsSync(configPath)) {
     try {
       const data = fs.readFileSync(configPath, 'utf8');
-      const config = JSON.parse(data);
+      const parsedConfig = {
+        ...defaultConfig,
+        ...JSON.parse(data),
+      };
+
+      if (apiUrlOverride) {
+        parsedConfig.apiUrl = apiUrlOverride;
+        parsedConfig.restBaseUrl = apiUrlOverride;
+      }
+
+      if (wsUrlOverride) {
+        parsedConfig.wsRelayUrl = wsUrlOverride;
+        parsedConfig.wsBaseUrl = wsUrlOverride;
+      } else if (apiUrlOverride) {
+        parsedConfig.wsRelayUrl = deriveWebSocketUrlFromApiUrl(apiUrlOverride);
+        parsedConfig.wsBaseUrl = parsedConfig.wsRelayUrl;
+      }
+
+      const config = createAppConfig(parsedConfig, apiUrlOverride || wsUrlOverride ? 'env' : 'userData');
       console.log('[Config] Loaded configuration:', config);
       return config;
     } catch (e) {
@@ -143,14 +244,15 @@ function loadConfig() {
     }
   }
   console.log('[Config] Using default configuration');
-  return DEFAULT_CONFIG;
+  return defaultConfig;
 }
 
 function saveConfig(config) {
   const configPath = getConfigPath();
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    console.log('[Config] Saved configuration:', config);
+    const normalizedConfig = createAppConfig(config, 'userData');
+    fs.writeFileSync(configPath, JSON.stringify(normalizedConfig, null, 2));
+    console.log('[Config] Saved configuration:', normalizedConfig);
   } catch (e) {
     console.error('[Config] Failed to save config:', e);
   }
@@ -247,7 +349,7 @@ function getAuthTokenFromMainWindow() {
 }
 
 function connectWebSocket(config) {
-  currentConfig = config;
+  currentConfig = createAppConfig(config, config?.source || 'runtime');
 
   // 기존 heartbeat interval 정리
   if (heartbeatInterval) {
@@ -262,9 +364,9 @@ function connectWebSocket(config) {
     socket = null;
   }
 
-  console.log(`[WebSocket] Connecting to ${config.wsRelayUrl} (${config.environment})`);
+  console.log(`[WebSocket] Connecting to ${currentConfig.wsBaseUrl} (${currentConfig.environment})`);
 
-  socket = io(config.wsRelayUrl, {
+  socket = io(currentConfig.wsBaseUrl, {
     transports: ['websocket', 'polling'],
     reconnectionDelay: 1000,
     reconnection: true,
@@ -277,7 +379,7 @@ function connectWebSocket(config) {
     // 연결 상태 브로드캐스트
     broadcastToAllWindows('websocket-status-changed', {
       connected: true,
-      environment: config.environment
+      environment: currentConfig.environment
     });
 
     const user = getAuthTokenFromMainWindow();
@@ -285,7 +387,7 @@ function connectWebSocket(config) {
     socket.emit('handshake', {
       type: 'client',
       metadata: {
-        environment: config.environment,
+        environment: currentConfig.environment,
         email: user?.email || 'main-process',
         provider: user?.provider || 'electron',
         displayName: user?.displayName || 'Main Process',
@@ -304,7 +406,7 @@ function connectWebSocket(config) {
     // 연결 해제 상태 브로드캐스트
     broadcastToAllWindows('websocket-status-changed', {
       connected: false,
-      environment: config.environment
+      environment: currentConfig.environment
     });
   });
 
@@ -610,9 +712,10 @@ ipcMain.handle('get-environment', async () => {
 });
 
 ipcMain.handle('set-environment', async (event, environment) => {
-  console.log(`[Config] Changing environment: ${currentConfig.environment} → ${environment}`);
+  const baseConfig = currentConfig || loadConfig();
+  console.log(`[Config] Changing environment: ${baseConfig.environment} → ${environment}`);
 
-  const newConfig = { ...currentConfig, environment };
+  const newConfig = createAppConfig({ ...baseConfig, environment }, 'userData');
   saveConfig(newConfig);
 
   // WebSocket 재연결
@@ -624,7 +727,105 @@ ipcMain.handle('set-environment', async (event, environment) => {
   return { success: true, environment };
 });
 
+ipcMain.handle('set-websocket-url', async (event, url) => {
+  try {
+    const wsBaseUrl = normalizeWebSocketUrl(url);
+    const baseConfig = currentConfig || loadConfig();
+
+    if (baseConfig.wsBaseUrl === wsBaseUrl) {
+      return { success: true, url: wsBaseUrl, changed: false, config: baseConfig };
+    }
+
+    const newConfig = createAppConfig({ ...baseConfig, wsBaseUrl }, 'userData');
+    saveConfig(newConfig);
+    connectWebSocket(newConfig);
+
+    broadcastToAllWindows('app-config-changed', newConfig);
+
+    return { success: true, url: wsBaseUrl, changed: true, config: newConfig };
+  } catch (error) {
+    console.error('[Config] Failed to set WebSocket URL:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('set-backend-urls', async (event, { apiUrl, wsUrl } = {}) => {
+  try {
+    if (!apiUrl || !wsUrl) {
+      throw new Error('apiUrl and wsUrl are required');
+    }
+
+    const normalizedApiUrl = normalizeHttpUrl(apiUrl);
+    const wsBaseUrl = normalizeWebSocketUrl(wsUrl);
+    const baseConfig = currentConfig || loadConfig();
+    const changed = baseConfig.restBaseUrl !== normalizedApiUrl || baseConfig.wsBaseUrl !== wsBaseUrl;
+
+    if (!changed) {
+      return { success: true, apiUrl: normalizedApiUrl, wsUrl: wsBaseUrl, changed: false, config: baseConfig };
+    }
+
+    const newConfig = createAppConfig({
+      ...baseConfig,
+      restBaseUrl: normalizedApiUrl,
+      wsBaseUrl,
+    }, 'userData');
+
+    saveConfig(newConfig);
+
+    if (baseConfig.wsBaseUrl !== wsBaseUrl) {
+      connectWebSocket(newConfig);
+    } else {
+      currentConfig = newConfig;
+    }
+
+    broadcastToAllWindows('app-config-changed', newConfig);
+
+    return { success: true, apiUrl: normalizedApiUrl, wsUrl: wsBaseUrl, changed: true, config: newConfig };
+  } catch (error) {
+    console.error('[Config] Failed to set backend URLs:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-app-config', async () => {
+  if (!currentConfig) currentConfig = loadConfig();
+  return currentConfig;
+});
+
+ipcMain.handle('set-app-config', async (event, configPatch = {}) => {
+  try {
+    const baseConfig = currentConfig || loadConfig();
+    const mergedConfig = { ...baseConfig, ...configPatch };
+    const restUrlChanged = Boolean(configPatch.restBaseUrl || configPatch.apiUrl);
+    const explicitWsUrl = Boolean(configPatch.wsBaseUrl || configPatch.wsRelayUrl || configPatch.wsUrl);
+
+    if (restUrlChanged && !explicitWsUrl && baseConfig.wsDerivedFromRest) {
+      delete mergedConfig.wsBaseUrl;
+      delete mergedConfig.wsRelayUrl;
+      delete mergedConfig.wsUrl;
+    }
+
+    const newConfig = createAppConfig(mergedConfig, 'userData');
+    const wsChanged = baseConfig.wsBaseUrl !== newConfig.wsBaseUrl;
+
+    saveConfig(newConfig);
+
+    if (wsChanged) {
+      connectWebSocket(newConfig);
+    } else {
+      currentConfig = newConfig;
+    }
+
+    broadcastToAllWindows('app-config-changed', newConfig);
+    return { success: true, config: newConfig };
+  } catch (error) {
+    console.error('[Config] Failed to set app config:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-config', async () => {
+  if (!currentConfig) currentConfig = loadConfig();
   return currentConfig;
 });
 
@@ -632,7 +833,7 @@ ipcMain.handle('get-websocket-status', async () => {
   return {
     connected: socket?.connected || false,
     environment: currentConfig?.environment || 'production',
-    url: currentConfig?.wsRelayUrl || 'ws://136.113.67.193:8080'
+    url: currentConfig?.wsBaseUrl || getDefaultConfig().wsBaseUrl
   };
 });
 

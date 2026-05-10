@@ -44,6 +44,8 @@ services:
       DATABASE_URL: postgresql://apsuser:aps_secure_password_2025@postgres:5432/aps_admin
       # 프로덕션 모드
       NODE_ENV: production
+      # Electron app connects directly to this backend; SMS still uses RELAY_URL.
+      RELAY_ENABLED: "false"
     networks:
       - aps-network
     depends_on:

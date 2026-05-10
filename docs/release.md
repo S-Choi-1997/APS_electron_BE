@@ -1,32 +1,59 @@
-# 릴리스 프로세스
+# Release Process
 
-## Electron 앱 릴리스
+## Electron Release
 
-1. `package.json`의 `version` 업데이트
+1. Update `app/package.json` version.
 
-2. `npm run release` 실행
-   - Vite 빌드 → Electron 패키징 → NSIS 설치파일 생성
-   - GitHub Releases에 자동 게시
-   - 실행 중인 앱은 `electron-updater`로 자동 업데이트 알림
+2. Configure GitHub repository variables for the release build.
 
-3. GitHub Releases에 릴리스 노트 작성 (선택)
+Required:
 
-## Backend Docker 이미지 릴리스
+```env
+VITE_API_URL=https://your-backend-domain
+```
 
-GitHub에 push하면 Actions가 자동 빌드/푸시:
+Optional:
 
-- `main`/`master` → `choho97/aps-admin-backend:latest`
-- `v*.*.*` 태그 → `choho97/aps-admin-backend:<버전>` + `latest`
-- `test/*`, `feature/*` → `choho97/aps-admin-backend:dev`
+```env
+VITE_WS_URL=wss://your-backend-domain
+VITE_RELAY_ENVIRONMENT=production
+```
 
-NAS에서 최신 이미지 적용:
+If `VITE_WS_URL` is empty, the release build derives the WebSocket URL from `VITE_API_URL`.
+
+3. Push a `v*` tag.
+
+The `.github/workflows/build.yml` workflow writes `app/.env` from the repository variables, runs `npm run electron:build`, packages the Electron installer, and publishes it to GitHub Releases.
+
+`npm run electron:build` first runs `npm run prepare:app-config`. That command generates `app/electron/app-config.default.json` from `VITE_API_URL`, `VITE_WS_URL`, and `VITE_RELAY_ENVIRONMENT`. The generated file is ignored by git, but it is included in the packaged app through the Electron Builder `electron/**/*` files rule. This is the packaged runtime default used before any per-user AppConfig override exists.
+
+The GitHub Release must include all Electron updater artifacts:
+
+- `APS-Admin-Setup-<version>.exe`
+- `latest.yml`
+- `*.blockmap`
+
+## Backend Docker Image Release
+
+Pushing to GitHub runs `.github/workflows/docker-build-push.yml` and builds from `backend/Dockerfile`.
+
+- `main` / `master` -> `choho97/aps-admin-backend:latest`
+- `v*.*.*` tag -> `choho97/aps-admin-backend:<version>` and `latest`
+- `test/*`, `feature/*` -> `choho97/aps-admin-backend:dev`
+
+## NAS Deployment
+
+`nas-deploy/docker-compose.yml` is the backend deployment unit. It runs:
+
+- `postgres` as `aps-postgres`
+- `aps-backend` from `choho97/aps-admin-backend:latest`
+
+Apply the latest backend image on the NAS:
 
 ```bash
+cd nas-deploy
 docker-compose pull
 docker-compose up -d
 ```
 
-## 버전 정책
-
-- Electron 앱: `package.json` version = GitHub Release 태그
-- Backend: Docker Hub 태그로 관리 (버전 태그 별도)
+`aps-backend` has `RELAY_ENABLED=false` in `nas-deploy/docker-compose.yml`, so the Electron app connects directly to the backend HTTP and Socket.IO server. SMS still uses `RELAY_URL`.

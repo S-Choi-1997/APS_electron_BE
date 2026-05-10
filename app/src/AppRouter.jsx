@@ -4,7 +4,7 @@
  * App.jsx의 기존 로직을 유지하면서 라우팅 기능 추가
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { auth, onAuthStateChanged } from './auth/authManager';
@@ -19,7 +19,7 @@ import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
 import UpdateProgressModal from './components/UpdateProgressModal';
 import { fetchInquiries } from './services/inquiryService';
-import { apiRequest } from './config/api';
+import { apiRequest, applyAppConfig, initializeAppConfig } from './config/api';
 import useWebSocketSync from './hooks/useWebSocketSync';
 import './App.css';
 
@@ -76,6 +76,31 @@ function AppContent() {
   const [stats, setStats] = useState({ website: 0, email: 0 });
   const [loading, setLoading] = useState(true);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [configReady, setConfigReady] = useState(false);
+
+  useEffect(() => {
+    let cleanupConfigListener;
+    let canceled = false;
+
+    initializeAppConfig()
+      .catch((error) => {
+        console.error('[AppRouter] Failed to initialize backend config:', error);
+      })
+      .finally(() => {
+        if (!canceled) setConfigReady(true);
+      });
+
+    if (window.electron?.onAppConfigChanged) {
+      cleanupConfigListener = window.electron.onAppConfigChanged((config) => {
+        applyAppConfig(config);
+      });
+    }
+
+    return () => {
+      canceled = true;
+      cleanupConfigListener?.();
+    };
+  }, []);
 
   // 인증 상태 감지
   useEffect(() => {
@@ -111,38 +136,7 @@ function AppContent() {
     }
   }, []);
 
-  // WebSocket 이벤트 수신 시 stats 갱신 (debounce 적용)
-  const statsDebounceRef = useRef(null);
-
-  useEffect(() => {
-    if (!window.electron || !user) return;
-
-    // updated 이벤트는 카운트를 변경하지 않으므로 제외
-    const STATS_EVENTS = ['consultation:created', 'consultation:deleted',
-                          'email:created', 'email:deleted'];
-
-    const cleanups = STATS_EVENTS.map(eventName =>
-      window.electron.onWebSocketEvent(eventName, () => {
-        console.log(`[AppRouter] Stats refresh triggered by ${eventName}`);
-        if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
-        statsDebounceRef.current = setTimeout(() => {
-          loadStats();
-          statsDebounceRef.current = null;
-        }, 500);
-      })
-    );
-
-    return () => {
-      cleanups.forEach(cleanup => cleanup?.());
-      if (statsDebounceRef.current) {
-        clearTimeout(statsDebounceRef.current);
-        statsDebounceRef.current = null;
-      }
-    };
-  }, [user, loadStats]);
-
-  // 문의 목록 불러오기
-  useEffect(() => {
+  const loadAppData = useCallback(async ({ showLoading = true } = {}) => {
     if (!user) {
       setConsultations([]);
       setStats({ website: 0, email: 0 });
@@ -150,52 +144,58 @@ function AppContent() {
       return;
     }
 
-    const loadInquiries = async () => {
-      const loadStartTime = performance.now();
-      console.log('[App Performance] Starting to load inquiries...');
-      try {
-        setLoading(true);
-        const data = await fetchInquiries(auth);
-        const fetchDuration = performance.now() - loadStartTime;
-        console.log(`[App Performance] fetchInquiries completed in ${fetchDuration.toFixed(0)}ms`);
+    const loadStartTime = performance.now();
+    console.log('[App Performance] Starting to load app data...');
+    try {
+      if (showLoading) setLoading(true);
+      const data = await fetchInquiries(auth);
+      const fetchDuration = performance.now() - loadStartTime;
+      console.log(`[App Performance] fetchInquiries completed in ${fetchDuration.toFixed(0)}ms`);
 
-        setConsultations(data);
+      setConsultations(data);
+      await loadStats();
 
-        // 통계도 함께 로드
-        await loadStats();
+      const totalDuration = performance.now() - loadStartTime;
+      console.log(`[App Performance] Total loadAppData completed in ${totalDuration.toFixed(0)}ms`);
+    } catch (error) {
+      console.error('Failed to fetch app data:', error);
 
-        const totalDuration = performance.now() - loadStartTime;
-        console.log(`[App Performance] Total loadInquiries (including state updates) completed in ${totalDuration.toFixed(0)}ms`);
-      } catch (error) {
-        console.error('Failed to fetch inquiries:', error);
-
-        // 토큰 에러 체크
-        if (error.message.includes('Invalid or expired token') ||
-            error.message.includes('unauthorized') ||
-            error.message.includes('Invalid token')) {
-          setLoading(false);
-          auth.signOut();
-          return;
-        }
-
-        // 권한 없음 에러 체크
-        if (error.message.includes('Access denied') ||
-            error.message.includes('unauthorized email') ||
-            error.message.includes('forbidden')) {
-          setLoading(false);
-          setShowUnauthorized(true);
-          auth.signOut();
-          return;
-        }
-
-        alert('상담 목록을 불러오지 못했습니다: ' + error.message);
-      } finally {
+      if (error.message.includes('Invalid or expired token') ||
+          error.message.includes('unauthorized') ||
+          error.message.includes('Invalid token')) {
         setLoading(false);
+        auth.signOut();
+        return;
       }
-    };
 
-    loadInquiries();
-  }, [user]);
+      if (error.message.includes('Access denied') ||
+          error.message.includes('unauthorized email') ||
+          error.message.includes('forbidden')) {
+        setLoading(false);
+        setShowUnauthorized(true);
+        auth.signOut();
+        return;
+      }
+
+      if (showLoading) {
+        alert('상담 목록을 불러오지 못했습니다. ' + error.message);
+      }
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [user, loadStats]);
+
+  useEffect(() => {
+    loadAppData({ showLoading: true });
+  }, [loadAppData]);
+
+  const refreshAppData = useCallback(() => {
+    loadAppData({ showLoading: false });
+  }, [loadAppData]);
+
+  const refreshStats = useCallback(() => {
+    loadStats();
+  }, [loadStats]);
 
   // 업데이트 모달 표시 이벤트
   useEffect(() => {
@@ -215,12 +215,14 @@ function AppContent() {
     };
   }, []);
 
-  // WebSocket 실시간 동기화 (React Query 캐시 자동 갱신)
-  // NOTE: useWebSocketSync는 파라미터를 받지 않음 - React Query만 사용
-  useWebSocketSync();
+  useWebSocketSync({
+    enabled: !!user && configReady,
+    onConsultationsChanged: refreshAppData,
+    onStatsChanged: refreshStats,
+  });
 
   // 로딩 중
-  if (authLoading) {
+  if (!configReady || authLoading) {
     return (
       <div className="app">
         <div className="auth-loading">

@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
-import { API_URL, RELAY_ENVIRONMENT } from '../config/api';
+import { buildApiUrl, getRelayEnvironment } from '../config/api';
 import './ConsultationModal.css';
 
 function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
@@ -51,10 +51,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
       setLoadingContent(true);
       setContentError(null);
       const token = getAuthToken();
-      const response = await fetch(`${API_URL}/email-inquiries/${email.id}/content`, {
+      const response = await fetch(await buildApiUrl(`/email-inquiries/${email.id}/content`), {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'X-Relay-Environment': RELAY_ENVIRONMENT
+          'X-Relay-Environment': await getRelayEnvironment()
         }
       });
       if (!response.ok) {
@@ -78,10 +78,10 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
     try {
       setLoadingAttachments(true);
       const token = getAuthToken();
-      const response = await fetch(`${API_URL}/email-inquiries/${email.id}/attachments`, {
+      const response = await fetch(await buildApiUrl(`/email-inquiries/${email.id}/attachments`), {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'X-Relay-Environment': RELAY_ENVIRONMENT
+          'X-Relay-Environment': await getRelayEnvironment()
         }
       });
       if (!response.ok) throw new Error('Failed to fetch attachments');
@@ -106,14 +106,14 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
     console.log('[Email Modal] Download clicked:', attachment.attachmentName);
     try {
       const token = getAuthToken();
-      const downloadUrl = `${API_URL}/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`;
+      const downloadUrl = await buildApiUrl(`/email-inquiries/${email.id}/attachments/${attachment.attachmentId}/download`);
       console.log('[Email Modal] Downloading from:', downloadUrl);
 
       // fetch로 다운로드
       const response = await fetch(downloadUrl, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'X-Relay-Environment': RELAY_ENVIRONMENT
+          'X-Relay-Environment': await getRelayEnvironment()
         }
       });
 

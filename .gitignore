@@ -30,6 +30,7 @@ dist-ssr
 # Electron
 out/
 release/
+app/electron/app-config.default.json
 
 # Firebase
 .firebase/
