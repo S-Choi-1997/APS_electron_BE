@@ -190,7 +190,7 @@ function getDefaultConfig() {
   const apiUrl = process.env.APS_API_URL || process.env.VITE_API_URL || bundledDefaultConfig?.restBaseUrl || 'http://localhost:3001';
   const wsUrl = process.env.APS_WS_URL || process.env.VITE_WS_URL || process.env.VITE_WS_RELAY_URL;
   return createAppConfig({
-    environment: process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_RELAY_ENVIRONMENT || 'production',
+    environment: process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT || process.env.VITE_RELAY_ENVIRONMENT || 'production',
     apiUrl,
     wsUrl: wsUrl || bundledDefaultConfig?.wsBaseUrl,
     mode: bundledDefaultConfig?.mode,

@@ -30,7 +30,8 @@ jobs:
         env:
           RELEASE_API_URL: ${{ vars.VITE_API_URL }}
           RELEASE_WS_URL: ${{ vars.VITE_WS_URL }}
-          RELEASE_ENVIRONMENT: ${{ vars.VITE_RELAY_ENVIRONMENT }}
+          RELEASE_BACKEND_ENVIRONMENT: ${{ vars.VITE_BACKEND_ENVIRONMENT }}
+          RELEASE_RELAY_ENVIRONMENT: ${{ vars.VITE_RELAY_ENVIRONMENT }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RELEASE_API_URL)) {
             throw "Repository variable VITE_API_URL is required for Electron release builds."
@@ -42,8 +43,14 @@ jobs:
             "VITE_WS_URL=$env:RELEASE_WS_URL" | Add-Content -Path app/.env -Encoding utf8
           }
 
-          $environment = if ([string]::IsNullOrWhiteSpace($env:RELEASE_ENVIRONMENT)) { "production" } else { $env:RELEASE_ENVIRONMENT }
-          "VITE_RELAY_ENVIRONMENT=$environment" | Add-Content -Path app/.env -Encoding utf8
+          $environment = if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_BACKEND_ENVIRONMENT)) {
+            $env:RELEASE_BACKEND_ENVIRONMENT
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:RELEASE_RELAY_ENVIRONMENT)) {
+            $env:RELEASE_RELAY_ENVIRONMENT
+          } else {
+            "production"
+          }
+          "VITE_BACKEND_ENVIRONMENT=$environment" | Add-Content -Path app/.env -Encoding utf8
 
       - name: Build Electron app
         run: npm run electron:build

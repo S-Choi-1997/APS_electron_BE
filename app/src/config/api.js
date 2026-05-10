@@ -6,7 +6,7 @@
  */
 
 const FALLBACK_REST_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_FALLBACK_URL || 'http://localhost:3001';
-const FALLBACK_ENVIRONMENT = import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
+const FALLBACK_ENVIRONMENT = import.meta.env.VITE_BACKEND_ENVIRONMENT || import.meta.env.VITE_RELAY_ENVIRONMENT || 'production';
 
 function normalizeBaseUrl(url, allowedProtocols, label) {
   const parsedUrl = new URL(url);

@@ -687,7 +687,12 @@ app.get("/", (req, res) => {
     status: "ok",
     service: "aps-admin-local-backend",
     version: "1.0.0",
-    environment: "local",
+    environment: DIRECT_WS_ENVIRONMENT,
+    relayEnabled: RELAY_ENABLED,
+    directWebSocket: {
+      enabled: true,
+      connectedClients: directClients.size,
+    },
   });
 });
 
