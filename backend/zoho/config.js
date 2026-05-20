@@ -24,13 +24,17 @@ module.exports = {
 
   // Account to monitor
   accountEmail: process.env.ZOHO_ACCOUNT_EMAIL || '',
+  fromDisplayName: process.env.ZOHO_FROM_DISPLAY_NAME || '\uD589\uC815\uC0AC\uBC95\uC778 APS\uCEE8\uC124\uD305',
 
   // Scopes required for mail access
   scopes: [
     'ZohoMail.messages.READ',
     'ZohoMail.messages.CREATE',
+    'ZohoMail.messages.UPDATE',
+    'ZohoMail.messages.DELETE',
     'ZohoMail.folders.READ',
-    'ZohoMail.accounts.READ'
+    'ZohoMail.accounts.READ',
+    'ZohoMail.tags.ALL'
   ].join(','),
 
   // Validation

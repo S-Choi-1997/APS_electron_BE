@@ -170,6 +170,15 @@ async function handleAuthCallback(req, res) {
 /**
  * Refresh access token using refresh token
  */
+function getOAuthErrorSummary(error) {
+  if (error.response) {
+    const data = error.response.data || {};
+    const reason = data.error_description || data.error || data.message || error.message;
+    return `status ${error.response.status}: ${reason}`;
+  }
+  return error.message;
+}
+
 async function refreshAccessToken(refreshToken, zohoEmail) {
   try {
     console.log('[ZOHO OAuth] Refreshing access token for:', zohoEmail);
@@ -207,7 +216,7 @@ async function refreshAccessToken(refreshToken, zohoEmail) {
     console.log('[ZOHO OAuth] Access token refreshed for:', zohoEmail);
     return access_token;
   } catch (error) {
-    console.error('[ZOHO OAuth] Error refreshing token:', error);
+    console.error('[ZOHO OAuth] Error refreshing token:', getOAuthErrorSummary(error));
     throw error;
   }
 }
@@ -215,8 +224,9 @@ async function refreshAccessToken(refreshToken, zohoEmail) {
 /**
  * Get valid access token (refresh if expired)
  */
-async function getValidAccessToken() {
+async function getValidAccessToken(options = {}) {
   try {
+    const { forceRefresh = false } = options;
     const zohoEmail = config.accountEmail;
 
     if (!zohoEmail) {
@@ -266,8 +276,10 @@ async function getValidAccessToken() {
     const now = new Date();
     const bufferMs = 5 * 60 * 1000; // 5 minutes
 
-    if (expiresAt.getTime() - now.getTime() < bufferMs) {
-      console.log('[ZOHO OAuth] Token expired or expiring soon, refreshing...');
+    if (forceRefresh || expiresAt.getTime() - now.getTime() < bufferMs) {
+      console.log(forceRefresh
+        ? '[ZOHO OAuth] Force refreshing access token...'
+        : '[ZOHO OAuth] Token expired or expiring soon, refreshing...');
       // Token expired or expiring soon, refresh it
       const newAccessToken = await refreshAccessToken(tokenRecord.refresh_token, zohoEmail);
       return newAccessToken;
@@ -276,7 +288,7 @@ async function getValidAccessToken() {
     // Token is still valid
     return tokenRecord.access_token;
   } catch (error) {
-    console.error('[ZOHO OAuth] Error getting valid token:', error);
+    console.error('[ZOHO OAuth] Error getting valid token:', getOAuthErrorSummary(error));
     throw error;
   }
 }

@@ -1,5 +1,16 @@
 # APS Backend Quick Start Script (PowerShell)
-# 사용법: .\quick-start.ps1
+# 사용법: .\quick-start.ps1 -ImageTag 1.3.2
+
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ImageTag
+)
+
+if ($ImageTag -eq "latest") {
+    Write-Host "Error: 운영/검증 실행에는 latest 대신 명시 태그를 사용하세요. 예: 1.3.2" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "======================================================" -ForegroundColor Cyan
 Write-Host "  APS Admin Backend - Quick Start" -ForegroundColor Cyan
@@ -34,9 +45,10 @@ if ($existing) {
     docker rm aps-admin-backend 2>$null
 }
 
-# 최신 이미지 다운로드
-Write-Host "Docker Hub에서 최신 이미지 다운로드 중..." -ForegroundColor Cyan
-docker pull choho97/aps-admin-backend:latest
+# 지정 이미지 다운로드
+$image = "choho97/aps-admin-backend:$ImageTag"
+Write-Host "Docker Hub에서 이미지 다운로드 중: $image" -ForegroundColor Cyan
+docker pull $image
 
 # 컨테이너 실행
 Write-Host ""
@@ -49,7 +61,7 @@ docker run -d `
   --env-file .env `
   -e GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json `
   -v "${currentDir}/service-account.json:/app/service-account.json:ro" `
-  choho97/aps-admin-backend:latest
+  $image
 
 # 결과 확인
 Write-Host ""

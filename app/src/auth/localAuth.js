@@ -12,6 +12,7 @@
 import { buildApiUrl } from '../config/api';
 
 const STORAGE_KEY = 'aps-local-auth-user';
+const CURRENT_USER_STORAGE_KEY = 'currentUser';
 
 // Global state for authenticated user
 let currentUser = null;
@@ -24,17 +25,57 @@ const notifyAuthListeners = (user) => {
 const persistUser = (user) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(user));
   } catch (err) {
     console.warn('Failed to persist user session', err);
+  }
+};
+
+const clearCurrentUserStorage = () => {
+  try {
+    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+  } catch (err) {
+    console.warn('Failed to clear current user session', err);
   }
 };
 
 const clearPersistedUser = () => {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
   } catch (err) {
     console.warn('Failed to clear user session', err);
   }
+};
+
+function createAuthError(message, response, errorData = {}) {
+  const error = new Error(message || '로그인에 실패했습니다.');
+  error.status = response?.status;
+  error.code = errorData.error;
+  return error;
+}
+
+const resolveDisplayName = (user) => {
+  return user?.displayName || user?.display_name || user?.name || user?.email || '';
+};
+
+const syncElectronAuthSession = () => {
+  if (typeof window === 'undefined' || !window.electron) {
+    return;
+  }
+
+  Promise.resolve(window.electron.setAuthSession?.(currentUser))
+    .then(() => window.electron.refreshWebSocketAuth?.())
+    .catch((err) => {
+      console.warn('[Local Auth] Failed to sync Electron auth session', err);
+    });
+};
+
+const clearCurrentSession = () => {
+  currentUser = null;
+  clearPersistedUser();
+  syncElectronAuthSession();
+  notifyAuthListeners(null);
 };
 
 const loadPersistedUser = () => {
@@ -62,18 +103,24 @@ export async function signInWithLocal(email, password) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
+      let errorData = {};
+      try {
+        errorData = await response.json();
+      } catch (parseError) {
+        errorData = {};
+      }
+      throw createAuthError(errorData.message, response, errorData);
     }
 
     const data = await response.json();
     const { user, accessToken, refreshToken } = data;
+    const displayName = resolveDisplayName(user);
 
     // Store user with tokens
     currentUser = {
       email: user.email,
-      displayName: user.displayName || user.email,
-      name: user.displayName || user.email,
+      displayName,
+      name: displayName,
       role: user.role,
       idToken: accessToken,
       accessToken,
@@ -82,6 +129,7 @@ export async function signInWithLocal(email, password) {
     };
 
     persistUser(currentUser);
+    syncElectronAuthSession();
     notifyAuthListeners(currentUser);
 
     console.log('[Local Auth] Login successful:', currentUser.email);
@@ -103,9 +151,10 @@ export async function signInWithLocal(email, password) {
 export async function restoreSession() {
   console.log('[Local Auth] Attempting to restore session...');
 
-  const stored = loadPersistedUser();
+  const stored = loadPersistedUser() || currentUser;
   if (!stored || !stored.refreshToken) {
     console.log('[Local Auth] No refresh token found');
+    clearCurrentSession();
     return null;
   }
 
@@ -135,19 +184,20 @@ export async function restoreSession() {
       if (!response.ok) {
         // 서버가 응답함 → 인증 오류 (토큰 만료/무효) → 토큰 삭제 (재시도 불필요)
         console.log('[Local Auth] Refresh token expired or invalid, status:', response.status);
-        clearPersistedUser();
+        clearCurrentSession();
         return null;
       }
 
       const data = await response.json();
       const { accessToken, refreshToken: newRefreshToken, user } = data;
+      const displayName = resolveDisplayName(user);
 
       // Update user with new access token AND new refresh token (rolling refresh)
       currentUser = {
         ...stored,
         email: user.email,
-        displayName: user.displayName || user.email,
-        name: user.displayName || user.email,
+        displayName,
+        name: displayName,
         role: user.role,
         idToken: accessToken,
         accessToken,
@@ -156,6 +206,7 @@ export async function restoreSession() {
       };
 
       persistUser(currentUser);
+      syncElectronAuthSession();
       notifyAuthListeners(currentUser);
 
       console.log('[Local Auth] Session restored successfully:', currentUser.email);
@@ -169,12 +220,13 @@ export async function restoreSession() {
         continue;
       }
 
-      // 모든 재시도 실패 → 저장된 토큰으로 오프라인 복원 (토큰 삭제하지 않음)
-      console.warn('[Local Auth] All retries failed, restoring with stored credentials');
-      currentUser = { ...stored, provider: 'local' };
-      persistUser(currentUser);
-      notifyAuthListeners(currentUser);
-      return currentUser;
+      // 모든 재시도 실패 → 만료 가능성이 있는 access token으로 보호 화면을 통과시키지 않음
+      console.warn('[Local Auth] All retries failed, keeping stored refresh token for a later retry');
+      currentUser = null;
+      clearCurrentUserStorage();
+      syncElectronAuthSession();
+      notifyAuthListeners(null);
+      return null;
     }
   }
 
@@ -184,25 +236,32 @@ export async function restoreSession() {
 /**
  * Sign out
  */
-export function signOut() {
-  if (currentUser && currentUser.refreshToken) {
+export async function signOut() {
+  const refreshToken = currentUser?.refreshToken || loadPersistedUser()?.refreshToken;
+
+  clearCurrentSession();
+
+  if (refreshToken) {
     // Call backend to revoke refresh token
-    buildApiUrl('/auth/logout')
-      .then((url) => fetch(url, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const url = await buildApiUrl('/auth/logout');
+      await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ refreshToken: currentUser.refreshToken }),
-      }))
-      .catch((err) => {
-        console.warn('[Local Auth] Logout API call failed:', err);
+        body: JSON.stringify({ refreshToken }),
+        signal: controller.signal,
       });
+    } catch (err) {
+      console.warn('[Local Auth] Logout API call failed:', err);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
-
-  currentUser = null;
-  clearPersistedUser();
-  notifyAuthListeners(null);
 
   console.log('[Local Auth] Signed out');
 }
@@ -211,6 +270,33 @@ export function signOut() {
  * Get current user
  */
 export function getCurrentUser() {
+  return currentUser;
+}
+
+export function clearPersistedSessionOnly() {
+  clearPersistedUser();
+}
+
+/**
+ * Replace the in-memory/persisted local auth session.
+ *
+ * This is intended for authManager only. localAuth owns token persistence,
+ * while authManager owns the public auth facade used by the app.
+ */
+export function setCurrentUser(user, options = {}) {
+  const { persist = true, syncElectron = true } = options;
+  currentUser = user || null;
+
+  if (currentUser && persist) {
+    persistUser(currentUser);
+  } else if (!currentUser && persist) {
+    clearPersistedUser();
+  }
+
+  if (syncElectron) {
+    syncElectronAuthSession();
+  }
+  notifyAuthListeners(currentUser);
   return currentUser;
 }
 

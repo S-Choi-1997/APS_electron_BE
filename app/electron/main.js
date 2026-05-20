@@ -2,6 +2,20 @@ const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray, dialog 
 const path = require('path');
 const fs = require('fs');
 const io = require('socket.io-client');
+const { pathToFileURL } = require('url');
+
+const APP_NAME = 'APS Admin';
+const APP_USER_MODEL_ID = 'kr.apsconsulting.admin';
+const APP_ROUTES = {
+  DASHBOARD: '/',
+  WEBSITE_CONSULTATIONS: '/consultations/website',
+  EMAIL_CONSULTATIONS: '/consultations/email',
+};
+
+app.setName(APP_NAME);
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 
 // 단일 인스턴스 잠금 (설치기가 새 인스턴스 실행 시 기존 앱 종료 유도)
 const gotTheLock = app.requestSingleInstanceLock();
@@ -9,21 +23,29 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   // 이미 실행 중인 인스턴스가 있으면 즉시 종료
   app.quit();
+  process.exit(0);
 }
 
 // electron-updater는 app.whenReady() 이후에 로드 (개발 모드에서는 에러 발생하므로)
 let autoUpdater = null;
+const PRODUCTION_BACKEND_URL = 'https://backend.apsconsulting.kr';
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const AUTO_UPDATE_ENABLED = app.isPackaged
+  ? process.env.APS_DISABLE_AUTO_UPDATE !== 'true'
+  : process.env.APS_ENABLE_AUTO_UPDATE === 'true';
 
 let mainWindow;
 let tray = null; // System tray
 let stickyWindows = {}; // { type: BrowserWindow }
 let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
+let pendingNavigationRoute = null;
 
 // WebSocket 관련 변수
 let socket = null;
 let currentConfig = null;
 let heartbeatInterval = null;
+let rendererAuthSession = null;
 
 // Lazy getters for paths (app.getPath는 app ready 이후에만 사용 가능)
 let _stickySettingsPath = null;
@@ -31,6 +53,70 @@ let _updateLogPath = null;
 
 // 업데이트 다운로드 상태 (중복 방지)
 let isUpdateDownloading = false;
+let updateCheckInterval = null;
+let latestUpdateState = {
+  status: 'idle',
+  info: null,
+  progress: null,
+  errorMessage: null,
+  isDownloaded: false,
+  isDownloading: false,
+  checkedAt: null,
+};
+
+function sendToMainWindow(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const send = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(channel, payload);
+  };
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
+
+function setLatestUpdateState(partialState) {
+  latestUpdateState = {
+    ...latestUpdateState,
+    ...partialState,
+    checkedAt: new Date().toISOString(),
+  };
+  return latestUpdateState;
+}
+
+function normalizeNavigationRoute(route) {
+  const routeValue = typeof route === 'string' ? route.trim() : '';
+  if (!routeValue) return '/';
+
+  return routeValue.startsWith('/') ? routeValue : `/${routeValue}`;
+}
+
+function sendNavigationRoute(route) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { success: false, error: '메인 창을 찾지 못했습니다.', route: normalizeNavigationRoute(route) };
+  }
+
+  const normalizedRoute = normalizeNavigationRoute(route);
+  pendingNavigationRoute = normalizedRoute;
+
+  const send = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    console.log(`[Main] Sending navigation route: ${normalizedRoute}`);
+    mainWindow.webContents.send('navigate-to-route', normalizedRoute);
+  };
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+
+  return { success: true, route: normalizedRoute };
+}
 
 /**
  * Graceful Shutdown - 모든 리소스를 정리하고 앱을 종료하는 함수
@@ -45,6 +131,12 @@ async function gracefulShutdown() {
     clearInterval(heartbeatInterval);
     heartbeatInterval = null;
     console.log('[Shutdown] Heartbeat cleared');
+  }
+
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+    updateCheckInterval = null;
+    console.log('[Shutdown] Update check interval cleared');
   }
 
   // 2. WebSocket 정리
@@ -124,7 +216,7 @@ function logUpdate(message) {
 function normalizeWebSocketUrl(url) {
   const parsedUrl = new URL(url);
   if (!['ws:', 'wss:', 'http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('WebSocket URL must use ws, wss, http, or https protocol');
+    throw new Error('WebSocket URL은 ws, wss, http, https 프로토콜만 사용할 수 있습니다.');
   }
 
   if (parsedUrl.protocol === 'http:') parsedUrl.protocol = 'ws:';
@@ -134,8 +226,8 @@ function normalizeWebSocketUrl(url) {
   return parsedUrl.toString().replace(/\/$/, '');
 }
 
-function deriveWebSocketUrlFromApiUrl(apiUrl) {
-  const parsedUrl = new URL(apiUrl);
+function deriveWebSocketUrlFromRestUrl(restUrl) {
+  const parsedUrl = new URL(restUrl);
   parsedUrl.protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
   parsedUrl.pathname = '';
   parsedUrl.search = '';
@@ -143,10 +235,87 @@ function deriveWebSocketUrlFromApiUrl(apiUrl) {
   return normalizeWebSocketUrl(parsedUrl.toString());
 }
 
+function getBuiltInApiFallback() {
+  return app.isPackaged ? PRODUCTION_BACKEND_URL : 'http://localhost:3001';
+}
+
+function isLegacyBackendUrl(value) {
+  if (!value || typeof value !== 'string') return false;
+
+  const normalizedValue = value.toLowerCase();
+  return [
+    '/proxy',
+    '136.113.67.193',
+    'inquiryapi-',
+    '.run.app',
+    'ws-relay',
+    'aps-websocket-relay',
+    'your-cloudflare-backend-domain',
+  ].some((pattern) => normalizedValue.includes(pattern));
+}
+
+function migratePersistedConfig(savedConfig, defaultConfig) {
+  const migratedConfig = { ...savedConfig };
+  const legacyRestBaseUrl = savedConfig['api' + 'Url'];
+  const legacyWsRelayUrl = savedConfig['wsRelay' + 'Url'];
+  const legacyWsBaseUrl = savedConfig['ws' + 'Url'];
+  const savedUrls = [
+    savedConfig.restBaseUrl,
+    legacyRestBaseUrl,
+    savedConfig.wsBaseUrl,
+    legacyWsRelayUrl,
+    legacyWsBaseUrl,
+  ];
+
+  if (!savedUrls.some(isLegacyBackendUrl)) {
+    return { config: migratedConfig, migrated: false };
+  }
+
+  delete migratedConfig.restBaseUrl;
+  delete migratedConfig['api' + 'Url'];
+  delete migratedConfig.wsBaseUrl;
+  delete migratedConfig['wsRelay' + 'Url'];
+  delete migratedConfig['ws' + 'Url'];
+  delete migratedConfig.wsDerivedFromRest;
+
+  migratedConfig.mode = 'direct';
+  migratedConfig.environment = defaultConfig.environment;
+  migratedConfig.migratedFromLegacyBackend = true;
+  migratedConfig.migratedAt = new Date().toISOString();
+
+  console.warn('[Config] Legacy backend URL detected in userData config. Resetting backend URLs to packaged direct defaults.');
+  return { config: migratedConfig, migrated: true };
+}
+
+function promotePersistedConfigAliases(savedConfig) {
+  const promotedConfig = { ...savedConfig };
+  let promoted = false;
+
+  const legacyRestBaseUrl = savedConfig['api' + 'Url'];
+  const legacyWsRelayUrl = savedConfig['wsRelay' + 'Url'];
+  const legacyWsBaseUrl = savedConfig['ws' + 'Url'];
+
+  if (!promotedConfig.restBaseUrl && legacyRestBaseUrl) {
+    promotedConfig.restBaseUrl = legacyRestBaseUrl;
+    promoted = true;
+  }
+
+  if (!promotedConfig.wsBaseUrl && (legacyWsRelayUrl || legacyWsBaseUrl)) {
+    promotedConfig.wsBaseUrl = legacyWsRelayUrl || legacyWsBaseUrl;
+    promoted = true;
+  }
+
+  delete promotedConfig['api' + 'Url'];
+  delete promotedConfig['wsRelay' + 'Url'];
+  delete promotedConfig['ws' + 'Url'];
+
+  return { config: promotedConfig, promoted };
+}
+
 function createAppConfig(input = {}, source = 'runtime') {
-  const restBaseUrl = normalizeHttpUrl(input.restBaseUrl || input.apiUrl || 'http://localhost:3001');
+  const restBaseUrl = normalizeHttpUrl(input.restBaseUrl || getBuiltInApiFallback());
   const wsBaseUrl = normalizeWebSocketUrl(
-    input.wsBaseUrl || input.wsRelayUrl || input.wsUrl || deriveWebSocketUrlFromApiUrl(restBaseUrl)
+    input.wsBaseUrl || deriveWebSocketUrlFromRestUrl(restBaseUrl)
   );
 
   return {
@@ -155,11 +324,8 @@ function createAppConfig(input = {}, source = 'runtime') {
     environment: input.environment || 'production',
     restBaseUrl,
     wsBaseUrl,
-    wsDerivedFromRest: !(input.wsBaseUrl || input.wsRelayUrl || input.wsUrl),
+    wsDerivedFromRest: !input.wsBaseUrl,
     source,
-    // Backward-compatible aliases for existing windows and saved config.
-    apiUrl: restBaseUrl,
-    wsRelayUrl: wsBaseUrl,
   };
 }
 
@@ -187,12 +353,14 @@ function loadBundledDefaultConfig() {
 
 function getDefaultConfig() {
   const bundledDefaultConfig = loadBundledDefaultConfig();
-  const apiUrl = process.env.APS_API_URL || process.env.VITE_API_URL || bundledDefaultConfig?.restBaseUrl || 'http://localhost:3001';
-  const wsUrl = process.env.APS_WS_URL || process.env.VITE_WS_URL || process.env.VITE_WS_RELAY_URL;
+  const restBaseUrl = process.env.APS_API_URL || process.env.VITE_API_URL || bundledDefaultConfig?.restBaseUrl || getBuiltInApiFallback();
+  const wsBaseUrl = process.env.APS_WS_URL || process.env.VITE_WS_URL;
+  const environment = process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT || bundledDefaultConfig?.environment || 'production';
+
   return createAppConfig({
-    environment: process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT || process.env.VITE_RELAY_ENVIRONMENT || 'production',
-    apiUrl,
-    wsUrl: wsUrl || bundledDefaultConfig?.wsBaseUrl,
+    environment,
+    restBaseUrl,
+    wsBaseUrl: wsBaseUrl || bundledDefaultConfig?.wsBaseUrl,
     mode: bundledDefaultConfig?.mode,
   }, process.env.APS_API_URL || process.env.VITE_API_URL ? 'env' : bundledDefaultConfig ? 'packaged-default' : 'local-fallback');
 }
@@ -200,7 +368,7 @@ function getDefaultConfig() {
 function normalizeHttpUrl(url) {
   const parsedUrl = new URL(url);
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('API URL must use http or https protocol');
+    throw new Error('API URL은 http 또는 https 프로토콜만 사용할 수 있습니다.');
   }
 
   return parsedUrl.toString().replace(/\/$/, '');
@@ -212,31 +380,43 @@ function getConfigPath() {
 
 function loadConfig() {
   const defaultConfig = getDefaultConfig();
-  const apiUrlOverride = process.env.APS_API_URL || process.env.VITE_API_URL;
-  const wsUrlOverride = process.env.APS_WS_URL || process.env.VITE_WS_URL || process.env.VITE_WS_RELAY_URL;
+  const restBaseUrlOverride = process.env.APS_API_URL || process.env.VITE_API_URL;
+  const wsBaseUrlOverride = process.env.APS_WS_URL || process.env.VITE_WS_URL;
+  const environmentOverride = process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT;
   const configPath = getConfigPath();
   if (fs.existsSync(configPath)) {
     try {
       const data = fs.readFileSync(configPath, 'utf8');
+      const savedConfig = JSON.parse(data);
+      const migration = migratePersistedConfig(savedConfig, defaultConfig);
+      const persistedConfig = promotePersistedConfigAliases(migration.config);
       const parsedConfig = {
         ...defaultConfig,
-        ...JSON.parse(data),
+        ...persistedConfig.config,
       };
 
-      if (apiUrlOverride) {
-        parsedConfig.apiUrl = apiUrlOverride;
-        parsedConfig.restBaseUrl = apiUrlOverride;
+      if (restBaseUrlOverride) {
+        parsedConfig.restBaseUrl = restBaseUrlOverride;
       }
 
-      if (wsUrlOverride) {
-        parsedConfig.wsRelayUrl = wsUrlOverride;
-        parsedConfig.wsBaseUrl = wsUrlOverride;
-      } else if (apiUrlOverride) {
-        parsedConfig.wsRelayUrl = deriveWebSocketUrlFromApiUrl(apiUrlOverride);
-        parsedConfig.wsBaseUrl = parsedConfig.wsRelayUrl;
+      if (wsBaseUrlOverride) {
+        parsedConfig.wsBaseUrl = wsBaseUrlOverride;
+      } else if (restBaseUrlOverride) {
+        parsedConfig.wsBaseUrl = deriveWebSocketUrlFromRestUrl(restBaseUrlOverride);
       }
 
-      const config = createAppConfig(parsedConfig, apiUrlOverride || wsUrlOverride ? 'env' : 'userData');
+      if (environmentOverride) {
+        parsedConfig.environment = environmentOverride;
+      }
+
+      const config = createAppConfig(parsedConfig, restBaseUrlOverride || wsBaseUrlOverride || environmentOverride ? 'env' : 'userData');
+      if (migration.migrated || persistedConfig.promoted) {
+        try {
+          saveConfig(config);
+        } catch (saveError) {
+          console.error('[Config] Failed to persist migrated config:', saveError);
+        }
+      }
       console.log('[Config] Loaded configuration:', config);
       return config;
     } catch (e) {
@@ -249,12 +429,14 @@ function loadConfig() {
 
 function saveConfig(config) {
   const configPath = getConfigPath();
+  const normalizedConfig = createAppConfig(config, 'userData');
   try {
-    const normalizedConfig = createAppConfig(config, 'userData');
-    fs.writeFileSync(configPath, JSON.stringify(normalizedConfig, null, 2));
+    fs.writeFileSync(configPath, JSON.stringify(normalizedConfig, null, 2), 'utf8');
     console.log('[Config] Saved configuration:', normalizedConfig);
+    return normalizedConfig;
   } catch (e) {
     console.error('[Config] Failed to save config:', e);
+    throw e;
   }
 }
 
@@ -285,67 +467,67 @@ function broadcastToAllWindows(eventName, eventData) {
 function setupWebSocketEventListeners() {
   if (!socket) return;
 
-  const RELAY_EVENTS = [
-    'memo:created',
-    'memo:updated',
-    'memo:deleted',
+  const BACKEND_EVENTS = [
     'consultation:created',
     'consultation:updated',
     'consultation:deleted',
+    'email:created',
+    'email:updated',
+    'email:deleted',
+    'memo:created',
+    'memo:updated',
+    'memo:deleted',
     'schedule:created',
     'schedule:updated',
     'schedule:deleted',
-    'email:created',
-    'email:updated',
-    'email:deleted'
   ];
 
   // 비즈니스 이벤트만 등록 (connect/disconnect는 connectWebSocket에서 처리)
-  RELAY_EVENTS.forEach((eventName) => {
+  BACKEND_EVENTS.forEach((eventName) => {
     socket.on(eventName, (eventData) => {
       console.log(`[WebSocket] Event received: ${eventName}`);
       broadcastToAllWindows(eventName, eventData);
 
-      // 특정 이벤트에 대해 토스트 알림 생성 (메인 윈도우가 포커스 상태가 아닐 때만)
-      if (eventName === 'consultation:created' && mainWindow && !mainWindow.isFocused()) {
-        createToastNotification({
-          icon: '📋',
-          title: '새 홈페이지 상담',
-          message: '새 홈페이지 상담이 접수되었습니다.',
-          route: '/consultations/website',
-          duration: 5000
-        });
-      } else if (eventName === 'email:created' && mainWindow && !mainWindow.isFocused()) {
-        createToastNotification({
-          icon: '📧',
-          title: '새 이메일',
-          message: '새 이메일이 도착했습니다.',
-          route: '/consultations/email',
-          duration: 5000
-        });
-      }
     });
   });
 }
 
-function getAuthTokenFromMainWindow() {
-  // 메인 창에서 인증 정보 가져오기 (executeJavaScript 사용)
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      // localStorage에서 인증 정보를 가져오는 시도
-      // 실제로는 preload를 통해 안전하게 가져와야 하지만,
-      // 여기서는 간단하게 기본값 사용
-      return {
-        email: 'main-process@electron',
-        provider: 'electron',
-        displayName: 'Main Process'
-      };
-    } catch (e) {
-      console.error('[WebSocket] Failed to get auth token:', e);
-      return null;
-    }
+function normalizeRendererAuthSession(user) {
+  if (!user) return null;
+
+  const token = user.idToken || user.accessToken;
+  if (!token) return null;
+
+  return {
+    email: user.email,
+    provider: user.provider || 'local',
+    displayName: user.displayName || user.name || user.email,
+    idToken: token,
+    accessToken: token,
+  };
+}
+
+async function getSocketAuthFromMainWindow() {
+  return rendererAuthSession;
+}
+
+function disconnectWebSocket(reason = 'manual') {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
   }
-  return null;
+
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
+
+  broadcastToAllWindows('websocket-status-changed', {
+    connected: false,
+    environment: currentConfig?.environment || 'production',
+    reason
+  });
 }
 
 function connectWebSocket(config) {
@@ -370,19 +552,20 @@ function connectWebSocket(config) {
     transports: ['websocket', 'polling'],
     reconnectionDelay: 1000,
     reconnection: true,
-    timeout: 10000
+    timeout: 10000,
+    auth: async (callback) => {
+      const user = await getSocketAuthFromMainWindow();
+      callback({
+        token: user?.idToken || user?.accessToken || null,
+        environment: currentConfig.environment
+      });
+    }
   });
 
-  socket.on('connect', () => {
-    console.log('[WebSocket] Connected to relay server');
+  socket.on('connect', async () => {
+    console.log('[WebSocket] Connected to backend WebSocket');
 
-    // 연결 상태 브로드캐스트
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: true,
-      environment: currentConfig.environment
-    });
-
-    const user = getAuthTokenFromMainWindow();
+    const user = await getSocketAuthFromMainWindow();
 
     socket.emit('handshake', {
       type: 'client',
@@ -398,6 +581,11 @@ function connectWebSocket(config) {
 
   socket.on('handshake:success', (data) => {
     console.log('[WebSocket] Handshake successful:', data);
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: true,
+      environment: data?.environment || currentConfig.environment,
+      direct: data?.direct ?? true
+    });
   });
 
   socket.on('disconnect', (reason) => {
@@ -412,6 +600,11 @@ function connectWebSocket(config) {
 
   socket.on('connect_error', (error) => {
     console.error('[WebSocket] Connection error:', error.message);
+    broadcastToAllWindows('websocket-status-changed', {
+      connected: false,
+      environment: currentConfig.environment,
+      reason: error.message
+    });
   });
 
   // Heartbeat
@@ -428,6 +621,11 @@ function connectWebSocket(config) {
 // AutoUpdater 초기화 함수 (app.whenReady() 이후에 호출)
 function initAutoUpdater() {
   logUpdate(`initAutoUpdater called. app.isPackaged: ${app.isPackaged}`);
+
+  if (!AUTO_UPDATE_ENABLED) {
+    logUpdate('AutoUpdater disabled. App releases are distributed manually.');
+    return;
+  }
 
   // 개발 모드에서는 electron-updater 로드하지 않음
   if (!app.isPackaged) {
@@ -454,56 +652,121 @@ function initAutoUpdater() {
   autoUpdater.on('update-available', (info) => {
     const version = info?.version || 'unknown';
     logUpdate(`Update available: ${version}`);
+    const payload = { version, releaseNotes: info?.releaseNotes || '' };
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-available', { version, releaseNotes: info?.releaseNotes || '' });
-    }
+    setLatestUpdateState({
+      status: 'available',
+      info: payload,
+      progress: null,
+      errorMessage: null,
+      isDownloaded: false,
+      isDownloading: false,
+    });
+    sendToMainWindow('update-available', payload);
     // 자동 다운로드 제거 - UI에서 사용자가 결정
   });
 
   autoUpdater.on('update-not-available', () => {
     const currentVersion = app.getVersion();
     logUpdate(`No update available. Current version: ${currentVersion} is latest.`);
+    const payload = { currentVersion };
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-not-available', { currentVersion });
-    }
+    setLatestUpdateState({
+      status: 'not-available',
+      info: null,
+      progress: null,
+      errorMessage: null,
+      isDownloaded: false,
+      isDownloading: false,
+    });
+    sendToMainWindow('update-not-available', payload);
   });
 
   autoUpdater.on('error', (error) => {
     logUpdate(`Update error: ${error.message}`);
     isUpdateDownloading = false;  // 다운로드 상태 리셋
+    const payload = { message: error.message };
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-error', { message: error.message });
-    }
+    setLatestUpdateState({
+      status: 'error',
+      progress: null,
+      errorMessage: error.message,
+      isDownloaded: false,
+      isDownloading: false,
+    });
+    sendToMainWindow('update-error', payload);
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
     logUpdate(`Download progress: ${progressObj.percent.toFixed(1)}%`);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-download-progress', {
-        percent: progressObj.percent,
-        bytesPerSecond: progressObj.bytesPerSecond,
-        transferred: progressObj.transferred,
-        total: progressObj.total
-      });
-    }
+    const payload = {
+      percent: progressObj.percent,
+      bytesPerSecond: progressObj.bytesPerSecond,
+      transferred: progressObj.transferred,
+      total: progressObj.total
+    };
+
+    setLatestUpdateState({
+      status: 'downloading',
+      progress: payload,
+      errorMessage: null,
+      isDownloaded: false,
+      isDownloading: true,
+    });
+    sendToMainWindow('update-download-progress', payload);
   });
 
   autoUpdater.on('update-downloaded', (info) => {
     const version = info?.version || 'unknown';
     logUpdate(`Update downloaded: ${version}`);
     isUpdateDownloading = false;  // 다운로드 완료
+    const payload = { version };
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-downloaded', { version });
-    }
+    setLatestUpdateState({
+      status: 'downloaded',
+      info: latestUpdateState.info || payload,
+      progress: { percent: 100, transferred: 0, total: 0 },
+      errorMessage: null,
+      isDownloaded: true,
+      isDownloading: false,
+    });
+    sendToMainWindow('update-downloaded', payload);
 
     // 모달에서 재시작 처리 (dialog 제거)
   });
 
   console.log('[AutoUpdater] Initialized successfully');
+}
+
+function checkForUpdatesSafely(reason = 'manual') {
+  if (!autoUpdater) return;
+  if (isUpdateDownloading) {
+    logUpdate(`Skipping update check (${reason}) because download is already in progress`);
+    return;
+  }
+
+  logUpdate(`Checking for updates (${reason})...`);
+  autoUpdater.checkForUpdates().catch((error) => {
+    logUpdate(`Update check failed (${reason}): ${error.message}`);
+  });
+}
+
+function scheduleAutoUpdateChecks() {
+  if (!autoUpdater) return;
+
+  setTimeout(() => {
+    checkForUpdatesSafely('startup');
+  }, 3000);
+
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+  }
+
+  updateCheckInterval = setInterval(() => {
+    checkForUpdatesSafely('30-minute interval');
+  }, UPDATE_CHECK_INTERVAL_MS);
+
+  updateCheckInterval.unref?.();
 }
 
 // Load sticky window settings
@@ -662,6 +925,7 @@ function createTray() {
 
 // 세션 정리 (로그아웃 시 사용)
 ipcMain.handle('clear-session', async () => {
+  rendererAuthSession = null;
   if (mainWindow) {
     await session.defaultSession.clearStorageData({
       storages: ['cookies', 'localstorage'],
@@ -671,118 +935,71 @@ ipcMain.handle('clear-session', async () => {
   return { success: false };
 });
 
+ipcMain.handle('set-auth-session', async (event, user) => {
+  rendererAuthSession = normalizeRendererAuthSession(user);
+  return {
+    success: true,
+    hasAuth: Boolean(rendererAuthSession),
+  };
+});
+
 // 인증 토큰 가져오기 (sticky 윈도우용)
 ipcMain.handle('get-auth-token', async () => {
-  try {
-    // 메인 윈도우의 localStorage에서 인증 정보 가져오기
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      return { success: false, error: 'Main window not found' };
-    }
-
-    const userDataStr = await mainWindow.webContents.executeJavaScript(`
-      localStorage.getItem('aps-local-auth-user')
-    `);
-
-    if (!userDataStr) {
-      return { success: false, error: 'No auth data found' };
-    }
-
-    const userData = JSON.parse(userDataStr);
-    return {
-      success: true,
-      user: {
-        email: userData.email,
-        displayName: userData.displayName,
-        provider: userData.provider,
-        idToken: userData.idToken,
-        accessToken: userData.accessToken
-      }
-    };
-  } catch (error) {
-    console.error('[Main] Failed to get auth token:', error);
-    return { success: false, error: error.message };
+  if (!rendererAuthSession) {
+    return { success: false, error: '인증 정보를 찾지 못했습니다.' };
   }
+
+  return {
+    success: true,
+    user: rendererAuthSession,
+  };
 });
 
 // ============================================
 // Environment 설정 IPC 핸들러
 // ============================================
+ipcMain.handle('refresh-websocket-auth', async () => {
+  try {
+    const user = await getSocketAuthFromMainWindow();
+
+    if (!user?.idToken && !user?.accessToken) {
+      disconnectWebSocket('no-auth-token');
+      return { success: true, connected: false, reason: 'no-auth-token' };
+    }
+
+    connectWebSocket(currentConfig || loadConfig());
+
+    return {
+      success: true,
+      connected: socket?.connected || false,
+      environment: currentConfig?.environment || 'production'
+    };
+  } catch (error) {
+    console.error('[WebSocket] Failed to refresh auth:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-environment', async () => {
   return currentConfig?.environment || 'production';
 });
 
 ipcMain.handle('set-environment', async (event, environment) => {
+  try {
   const baseConfig = currentConfig || loadConfig();
   console.log(`[Config] Changing environment: ${baseConfig.environment} → ${environment}`);
 
-  const newConfig = createAppConfig({ ...baseConfig, environment }, 'userData');
-  saveConfig(newConfig);
-
-  // WebSocket 재연결
+  const newConfig = saveConfig(createAppConfig({ ...baseConfig, environment }, 'userData'));
+  currentConfig = newConfig;
   connectWebSocket(newConfig);
 
   // 모든 창에 알림
   broadcastToAllWindows('environment-changed', { environment });
+  broadcastToAllWindows('app-config-changed', newConfig);
 
-  return { success: true, environment };
-});
-
-ipcMain.handle('set-websocket-url', async (event, url) => {
-  try {
-    const wsBaseUrl = normalizeWebSocketUrl(url);
-    const baseConfig = currentConfig || loadConfig();
-
-    if (baseConfig.wsBaseUrl === wsBaseUrl) {
-      return { success: true, url: wsBaseUrl, changed: false, config: baseConfig };
-    }
-
-    const newConfig = createAppConfig({ ...baseConfig, wsBaseUrl }, 'userData');
-    saveConfig(newConfig);
-    connectWebSocket(newConfig);
-
-    broadcastToAllWindows('app-config-changed', newConfig);
-
-    return { success: true, url: wsBaseUrl, changed: true, config: newConfig };
+  return { success: true, environment, config: newConfig };
   } catch (error) {
-    console.error('[Config] Failed to set WebSocket URL:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('set-backend-urls', async (event, { apiUrl, wsUrl } = {}) => {
-  try {
-    if (!apiUrl || !wsUrl) {
-      throw new Error('apiUrl and wsUrl are required');
-    }
-
-    const normalizedApiUrl = normalizeHttpUrl(apiUrl);
-    const wsBaseUrl = normalizeWebSocketUrl(wsUrl);
-    const baseConfig = currentConfig || loadConfig();
-    const changed = baseConfig.restBaseUrl !== normalizedApiUrl || baseConfig.wsBaseUrl !== wsBaseUrl;
-
-    if (!changed) {
-      return { success: true, apiUrl: normalizedApiUrl, wsUrl: wsBaseUrl, changed: false, config: baseConfig };
-    }
-
-    const newConfig = createAppConfig({
-      ...baseConfig,
-      restBaseUrl: normalizedApiUrl,
-      wsBaseUrl,
-    }, 'userData');
-
-    saveConfig(newConfig);
-
-    if (baseConfig.wsBaseUrl !== wsBaseUrl) {
-      connectWebSocket(newConfig);
-    } else {
-      currentConfig = newConfig;
-    }
-
-    broadcastToAllWindows('app-config-changed', newConfig);
-
-    return { success: true, apiUrl: normalizedApiUrl, wsUrl: wsBaseUrl, changed: true, config: newConfig };
-  } catch (error) {
-    console.error('[Config] Failed to set backend URLs:', error);
+    console.error('[Config] Failed to set environment:', error);
     return { success: false, error: error.message };
   }
 });
@@ -796,19 +1013,15 @@ ipcMain.handle('set-app-config', async (event, configPatch = {}) => {
   try {
     const baseConfig = currentConfig || loadConfig();
     const mergedConfig = { ...baseConfig, ...configPatch };
-    const restUrlChanged = Boolean(configPatch.restBaseUrl || configPatch.apiUrl);
-    const explicitWsUrl = Boolean(configPatch.wsBaseUrl || configPatch.wsRelayUrl || configPatch.wsUrl);
+    const restUrlChanged = Boolean(configPatch.restBaseUrl);
+    const explicitWsUrl = Boolean(configPatch.wsBaseUrl);
 
     if (restUrlChanged && !explicitWsUrl && baseConfig.wsDerivedFromRest) {
       delete mergedConfig.wsBaseUrl;
-      delete mergedConfig.wsRelayUrl;
-      delete mergedConfig.wsUrl;
     }
 
-    const newConfig = createAppConfig(mergedConfig, 'userData');
+    const newConfig = saveConfig(createAppConfig(mergedConfig, 'userData'));
     const wsChanged = baseConfig.wsBaseUrl !== newConfig.wsBaseUrl;
-
-    saveConfig(newConfig);
 
     if (wsChanged) {
       connectWebSocket(newConfig);
@@ -824,16 +1037,32 @@ ipcMain.handle('set-app-config', async (event, configPatch = {}) => {
   }
 });
 
-ipcMain.handle('get-config', async () => {
-  if (!currentConfig) currentConfig = loadConfig();
-  return currentConfig;
+ipcMain.handle('reset-app-config', async () => {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      fs.rmSync(configPath, { force: true });
+    }
+
+    const defaultConfig = getDefaultConfig();
+    currentConfig = defaultConfig;
+    connectWebSocket(defaultConfig);
+    broadcastToAllWindows('app-config-changed', defaultConfig);
+
+    return { success: true, config: defaultConfig };
+  } catch (error) {
+    console.error('[Config] Failed to reset app config:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('get-websocket-status', async () => {
   return {
     connected: socket?.connected || false,
+    socketId: socket?.id || null,
     environment: currentConfig?.environment || 'production',
-    url: currentConfig?.wsBaseUrl || getDefaultConfig().wsBaseUrl
+    url: currentConfig?.wsBaseUrl || getDefaultConfig().wsBaseUrl,
+    transport: socket?.io?.engine?.transport?.name || null
   };
 });
 
@@ -861,8 +1090,18 @@ ipcMain.handle('window-close', () => {
   }
 });
 
+ipcMain.handle('close-current-window', (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow && !senderWindow.isDestroyed()) {
+    senderWindow.close();
+    return { success: true };
+  }
+
+  return { success: false, error: '창을 찾지 못했습니다.' };
+});
+
 // Sticky Window 관리
-ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = false }) => {
+ipcMain.handle('open-sticky-window', async (event, { type, title, reset = false }) => {
   // 이미 열려있는 경우
   if (stickyWindows[type] && !stickyWindows[type].isDestroyed()) {
     if (reset) {
@@ -899,6 +1138,11 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
   const defaultX = 100;
   const defaultY = 100;
   const defaultOpacity = 1.0;
+  const minStickyOpacity = 0.2;
+  const savedOpacity = Number(savedSettings?.opacity);
+  const initialOpacity = Number.isFinite(savedOpacity)
+    ? Math.min(1, Math.max(minStickyOpacity, savedOpacity))
+    : defaultOpacity;
 
   const stickyWindow = new BrowserWindow({
     width: 300,
@@ -907,11 +1151,13 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     y: savedSettings?.y || defaultY,
     frame: false,
     alwaysOnTop: true,
+    transparent: true,
+    backgroundColor: '#00000000',
     show: false, // 크기 조정 후 표시
     resizable: true, // setSize() 호출을 위해 true로 설정
     minWidth: 300,
     maxWidth: 300,
-    opacity: savedSettings?.opacity || defaultOpacity,
+    opacity: initialOpacity,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
@@ -927,22 +1173,18 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
     saveStickySettings(type, { x, y, opacity });
   });
 
-  // type만 URL 파라미터로 전달 (cachedData는 IPC로 전달 — URL 431 에러 방지)
-  const queryParams = `type=${type}`;
+  // Sticky content is rendered by the shared React bundle.
+  const stickyRoute = `/window/sticky/${encodeURIComponent(type || 'dashboard')}`;
 
   // 개발 모드와 프로덕션 모드 분기
   if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
     console.log('[Sticky] 개발 모드: Vite 서버에서 로드');
-    stickyWindow.loadURL(`http://localhost:5173/sticky.html?${queryParams}`);
+    stickyWindow.loadURL(`http://localhost:5173/#${stickyRoute}`);
     // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
   } else {
-    const stickyPath = path.join(__dirname, '../dist/sticky.html');
+    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
     console.log('[Sticky] 프로덕션 모드: 파일에서 로드');
-    console.log('[Sticky] 파일 경로:', stickyPath);
-    console.log('[Sticky] 파일 존재:', fs.existsSync(stickyPath));
-    stickyWindow.loadFile(stickyPath, {
-      search: queryParams
-    });
+    stickyWindow.loadURL(`${indexUrl}#${stickyRoute}`);
     // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
   }
 
@@ -956,11 +1198,6 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, data, reset = 
 
   stickyWindow.webContents.on('did-finish-load', () => {
     console.log(`[Sticky] Successfully loaded: ${type}`);
-    // 로드 완료 후 캐시 데이터를 IPC로 전달
-    if (data) {
-      stickyWindow.webContents.send('sticky-cached-data', data);
-      console.log(`[Sticky] Sent cached data via IPC: ${type}`);
-    }
     stickyWindow.show();
     console.log(`[Sticky] Window shown: ${type}`);
   });
@@ -1012,7 +1249,8 @@ ipcMain.handle('show-sticky-window', async (event) => {
 ipcMain.handle('set-window-opacity', async (event, opacity) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (senderWindow) {
-    senderWindow.setOpacity(opacity);
+    const safeOpacity = Math.min(1, Math.max(0.2, Number(opacity) || 1));
+    senderWindow.setOpacity(safeOpacity);
 
     // Save opacity setting immediately
     for (const [type, window] of Object.entries(stickyWindows)) {
@@ -1073,8 +1311,7 @@ ipcMain.handle('focus-main-window', async (event, route) => {
 
       // 라우트 변경 (route가 제공된 경우)
       if (route) {
-        console.log(`[Main] Navigating to route: ${route}`);
-        mainWindow.webContents.send('navigate-to-route', route);
+        sendNavigationRoute(route);
       }
 
       // Sticky 창들이 사라지지 않도록 다시 최상단으로
@@ -1086,11 +1323,17 @@ ipcMain.handle('focus-main-window', async (event, route) => {
 
       return { success: true };
     }
-    return { success: false, error: 'Main window not found' };
+    return { success: false, error: '메인 창을 찾지 못했습니다.' };
   } catch (error) {
     console.error('[Main] Failed to focus main window:', error);
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('consume-pending-navigation-route', async () => {
+  const route = pendingNavigationRoute;
+  pendingNavigationRoute = null;
+  return route;
 });
 
 // 외부 브라우저에서 URL 열기
@@ -1180,7 +1423,6 @@ ipcMain.handle('download-file', async (event, { url, filename }) => {
 ipcMain.handle('save-file', async (event, { buffer, filename }) => {
   try {
     console.log(`[Main] Saving file: ${filename}`);
-    const { dialog } = require('electron');
 
     // 다운로드 경로 선택
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
@@ -1202,13 +1444,81 @@ ipcMain.handle('save-file', async (event, { buffer, filename }) => {
   }
 });
 
+function sanitizeDownloadFilename(filename) {
+  const fallback = 'download';
+  const baseName = path.basename(String(filename || fallback));
+  const cleaned = baseName
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || fallback;
+}
+
+function getUniqueFilePath(directoryPath, filename) {
+  const parsed = path.parse(filename);
+  let candidate = path.join(directoryPath, filename);
+  let index = 1;
+
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directoryPath, `${parsed.name} (${index})${parsed.ext}`);
+    index += 1;
+  }
+
+  return candidate;
+}
+
+ipcMain.handle('select-directory', async () => {
+  try {
+    const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+      title: '저장할 폴더 선택',
+      properties: ['openDirectory', 'createDirectory']
+    });
+
+    if (canceled || !filePaths?.[0]) {
+      return { success: false, canceled: true };
+    }
+
+    return { success: true, directoryPath: filePaths[0] };
+  } catch (error) {
+    console.error('[Main] Failed to select directory:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-file-to-directory', async (event, { buffer, directoryPath, filename }) => {
+  try {
+    const resolvedDirectory = path.resolve(directoryPath || '');
+    const stats = fs.statSync(resolvedDirectory);
+
+    if (!stats.isDirectory()) {
+      throw new Error('선택한 경로가 폴더가 아닙니다.');
+    }
+
+    const safeFilename = sanitizeDownloadFilename(filename);
+    const filePath = getUniqueFilePath(resolvedDirectory, safeFilename);
+    const resolvedFilePath = path.resolve(filePath);
+    const relativePath = path.relative(resolvedDirectory, resolvedFilePath);
+
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error('저장 경로가 올바르지 않습니다.');
+    }
+
+    fs.writeFileSync(resolvedFilePath, Buffer.from(buffer));
+    console.log(`[Main] File saved successfully: ${resolvedFilePath}`);
+    return { success: true, filePath: resolvedFilePath };
+  } catch (error) {
+    console.error('[Main] Failed to save file to directory:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // 메모 서브 윈도우 열기 (알림창 옆에 배치)
 ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   console.log('[Main] open-memo-sub-window called:', { mode, memoId });
   const parentWindow = BrowserWindow.fromWebContents(event.sender);
   if (!parentWindow) {
     console.error('[Main] Parent window not found');
-    return { success: false, error: 'Parent window not found' };
+    return { success: false, error: '상위 창을 찾지 못했습니다.' };
   }
 
   // 부모 창 타입 찾기 (stickyWindows에서)
@@ -1219,7 +1529,7 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   console.log('[Main] Found parentType:', parentType);
   if (!parentType) {
     console.error('[Main] Parent is not a sticky window');
-    return { success: false, error: 'Parent is not a sticky window' };
+    return { success: false, error: '상위 창이 알림창이 아닙니다.' };
   }
 
   // 이미 열려있으면 닫고 새로 열기
@@ -1278,15 +1588,16 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   });
 
   // URL 구성
-  const queryParams = mode === 'view' ? `mode=view&id=${memoId}` : 'mode=create';
+  const memoRoute = mode === 'view' && memoId
+    ? `/window/memo/${encodeURIComponent(memoId)}`
+    : '/window/memo/new';
 
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    subWindow.loadURL(`http://localhost:5173/memo-detail.html?${queryParams}`);
+    subWindow.loadURL(`http://localhost:5173/#${memoRoute}`);
     // subWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
   } else {
-    subWindow.loadFile(path.join(__dirname, '../dist/memo-detail.html'), {
-      query: Object.fromEntries(new URLSearchParams(queryParams))
-    });
+    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
+    subWindow.loadURL(`${indexUrl}#${memoRoute}`);
     // subWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
   }
 
@@ -1307,6 +1618,17 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   parentWindow.once('closed', onParentClosed);
 
   return { success: true, alreadyOpen: false };
+});
+
+ipcMain.handle('memo-window-changed', async (event, payload = {}) => {
+  const change = {
+    domain: 'memo',
+    at: new Date().toISOString(),
+    ...payload,
+  };
+
+  broadcastToAllWindows('memo-window-changed', change);
+  return { success: true };
 });
 
 // Toast 알림창 생성 함수
@@ -1355,11 +1677,10 @@ function createToastNotification(data) {
   const x = width - NOTIFICATION_WIDTH - MARGIN;
   const y = height - estimatedHeight - MARGIN - previousHeights;
 
-  // URL 파라미터 생성
   const params = new URLSearchParams({
     icon: data.icon || '🔔',
     title: data.title || '알림',
-    message: encodeURIComponent(data.message || '새로운 알림이 도착했습니다.'),
+    message: data.message || '새로운 알림이 도착했습니다.',
     route: data.route || '',
     duration: data.duration || 5000
   });
@@ -1384,14 +1705,13 @@ function createToastNotification(data) {
     },
   });
 
-  // 개발 모드: Vite 개발 서버 로드
+  const toastRoute = `/window/toast?${params.toString()}`;
+
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    toastWindow.loadURL(`http://localhost:5173/toast-notification.html?${params.toString()}`);
+    toastWindow.loadURL(`http://localhost:5173/#${toastRoute}`);
   } else {
-    // 프로덕션: 빌드된 파일 로드
-    toastWindow.loadFile(path.join(__dirname, '../dist/toast-notification.html'), {
-      search: params.toString()
-    });
+    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
+    toastWindow.loadURL(`${indexUrl}#${toastRoute}`);
   }
 
   toastWindow.once('ready-to-show', () => {
@@ -1503,9 +1823,10 @@ ipcMain.handle('navigate-from-notification', async (event, route) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
     mainWindow.focus();
-    mainWindow.webContents.send('navigate-to', route);
+    return sendNavigationRoute(route);
   }
-  return { success: true };
+  pendingNavigationRoute = normalizeNavigationRoute(route);
+  return { success: false, error: '메인 창을 찾지 못했습니다.', route: pendingNavigationRoute };
 });
 
 // 앱 버전 가져오기
@@ -1513,10 +1834,22 @@ ipcMain.handle('get-app-version', async () => {
   return app.getVersion();
 });
 
+ipcMain.handle('get-auto-update-enabled', async () => {
+  return AUTO_UPDATE_ENABLED && Boolean(autoUpdater);
+});
+
+ipcMain.handle('get-update-state', async () => {
+  return latestUpdateState;
+});
+
 // 수동 업데이트 확인
 ipcMain.handle('check-for-updates', async () => {
   if (!autoUpdater) {
-    return { success: false, error: 'AutoUpdater not available in development mode' };
+    return {
+      success: false,
+      disabled: !AUTO_UPDATE_ENABLED,
+      error: AUTO_UPDATE_ENABLED ? '개발 모드에서는 자동 업데이트를 사용할 수 없습니다.' : '수동 배포 모드에서는 자동 업데이트가 비활성화되어 있습니다.',
+    };
   }
   logUpdate('Manual update check triggered');
   try {
@@ -1538,7 +1871,7 @@ ipcMain.handle('restart-app', async () => {
 // 업데이트 설치 및 재시작
 ipcMain.handle('install-update', async () => {
   if (!autoUpdater) {
-    return { success: false, error: 'AutoUpdater not available' };
+    return { success: false, error: '자동 업데이트를 사용할 수 없습니다.' };
   }
 
   logUpdate('User requested update installation');
@@ -1549,9 +1882,9 @@ ipcMain.handle('install-update', async () => {
 
   // 약간의 지연 후 설치 시작 (UI 응답 시간 확보)
   setTimeout(() => {
-    // autoInstallOnAppQuit가 false이므로 직접 호출 필요
-    // isSilent=false (설치 UI 표시), isForceRunAfter=true (설치 후 앱 재실행)
-    autoUpdater.quitAndInstall(false, true);
+    // autoInstallOnAppQuit가 false이므로 직접 호출 필요.
+    // isSilent=true로 호출해 인앱 업데이트 중 NSIS 설치 마법사가 뜨지 않게 한다.
+    autoUpdater.quitAndInstall(true, true);
   }, 500);
 
   return { success: true };
@@ -1566,13 +1899,13 @@ ipcMain.handle('quit-app', async () => {
 // 수동 업데이트 다운로드 (사용자 확인 후)
 ipcMain.handle('download-update', async () => {
   if (!autoUpdater) {
-    return { success: false, error: 'AutoUpdater not available' };
+    return { success: false, error: '자동 업데이트를 사용할 수 없습니다.' };
   }
 
   // 중복 다운로드 방지
   if (isUpdateDownloading) {
     logUpdate('Download already in progress, ignoring duplicate request');
-    return { success: false, error: 'Download already in progress' };
+    return { success: false, error: '이미 업데이트를 다운로드하고 있습니다.' };
   }
 
   logUpdate('Manual download triggered by user');
@@ -1590,14 +1923,13 @@ ipcMain.handle('download-update', async () => {
 
 // ==================== 시작프로그램 설정 ====================
 const STARTUP_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
-const APP_NAME = 'APS Admin';
 
 // 시작프로그램 등록 여부 확인
 ipcMain.handle('get-startup-enabled', async () => {
   try {
     // Windows 전용
     if (process.platform !== 'win32') {
-      return { success: false, error: 'Windows only feature' };
+      return { success: false, error: 'Windows에서만 사용할 수 있는 기능입니다.' };
     }
 
     const { execSync } = require('child_process');
@@ -1619,7 +1951,7 @@ ipcMain.handle('set-startup-enabled', async (event, enabled) => {
   try {
     // Windows 전용
     if (process.platform !== 'win32') {
-      return { success: false, error: 'Windows only feature' };
+      return { success: false, error: 'Windows에서만 사용할 수 있는 기능입니다.' };
     }
 
     const { execSync } = require('child_process');
@@ -1658,13 +1990,8 @@ app.whenReady().then(() => {
   const config = loadConfig();
   connectWebSocket(config);
 
-  // 프로덕션 환경에서만 업데이트 확인
-  if (autoUpdater) {
-    setTimeout(() => {
-      logUpdate('Auto-checking for updates...');
-      autoUpdater.checkForUpdates();
-    }, 3000);
-  }
+  // 프로덕션 설치본에서 시작 시 1회, 이후 30분마다 업데이트 확인
+  scheduleAutoUpdateChecks();
 });
 
 // 외부(설치기/OS)에서 앱 종료 요청 시

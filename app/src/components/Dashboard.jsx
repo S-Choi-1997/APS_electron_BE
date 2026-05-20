@@ -3,18 +3,29 @@
  *
  * 협업툴 스타일의 메인 화면
  * - 우측: 캘린더 (상단 ~ 중앙)
- * - 좌측 상단: 공지사항
- * - 좌측 하단: 미처리 상담 요청 (이메일/홈페이지)
+ * - 좌측 상단: 팀 메모
+ * - 좌측 하단: 미확인 상담 요청 (이메일/홈페이지)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Modal from './Modal';
-import { auth } from '../auth/authManager';
-import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
-import { fetchSchedules, createSchedule, updateSchedule, deleteSchedule } from '../services/scheduleService';
-import { showToastNotification } from '../utils/notificationHelper';
+import { useEmailStats } from '../hooks/queries/useEmailInquiries';
+import {
+  useActiveMemos,
+  useCreateMemo,
+  useDeleteMemo,
+  useUpdateMemo,
+} from '../hooks/queries/useMemos';
+import {
+  useCreateSchedule,
+  useDeleteSchedule,
+  useSchedules,
+  useUpdateSchedule,
+} from '../hooks/queries/useSchedules';
+import { useAllWebsiteInquiries, useWebsiteStats } from '../hooks/queries/useWebsiteInquiries';
+import { ROUTES } from '../constants/routes';
 import './Dashboard.css';
 import './css/PageLayout.css';
 import './css/DashboardLayout.css';
@@ -22,109 +33,56 @@ import './css/DashboardNotice.css';
 import './css/DashboardPending.css';
 import './css/DashboardCalendar.css';
 
-function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
-  const queryClient = useQueryClient();
+function getDateInputValue(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function getMonthQueryRange(date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  return {
+    start_date: getDateInputValue(start),
+    end_date: getDateInputValue(end),
+  };
+}
+
+function isCompanyScheduleType(type) {
+  return type === 'company' || type === '회사';
+}
+
+function Dashboard({ user }) {
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const scheduleRange = useMemo(() => getMonthQueryRange(currentDate), [currentDate]);
+  const { data: consultations = [] } = useAllWebsiteInquiries(scheduleRange, { enabled: !!user });
+  const { data: websiteStats = {} } = useWebsiteStats({ enabled: !!user });
+  const { data: emailStats = {} } = useEmailStats({ enabled: !!user });
 
-  // 일정 데이터 (API 연동)
-  // React Query - 메모 데이터 조회
-  const { data: memos = [], isLoading: memosLoading } = useQuery({
-    queryKey: ['memos'],
-    queryFn: async () => {
-      const data = await fetchMemos(auth);
-
-      // API 응답을 프론트엔드 형식으로 변환
-      const formattedMemos = data.map(memo => ({
-        id: memo.id,
-        title: memo.title,
-        content: memo.content,
-        important: memo.important,
-        createdAt: new Date(memo.created_at),
-        author: memo.author,
-        author_name: memo.author_name,
-        expire_date: memo.expire_date,
-      }));
-
-      // 만료되지 않은 메모만 반환
-      return formattedMemos.filter(memo => {
-        if (!memo.expire_date) return true;
-        const expireDate = new Date(memo.expire_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return expireDate >= today;
-      });
-    },
-    staleTime: 30000, // 30초 동안 캐시 유지
-    enabled: !!user, // user가 있을 때만 쿼리 실행
-  });
-
-  // React Query - 메모 삭제 Mutation
-  const { data: schedules = [], isLoading: schedulesLoading, refetch: refetchSchedules } = useQuery({
-    queryKey: ['schedules'],
-    queryFn: async () => {
-      const data = await fetchSchedules(auth);
-
-      return data.map(schedule => ({
-        id: schedule.id,
-        title: schedule.title,
-        time: schedule.time,
-        start_date: new Date(schedule.start_date),
-        end_date: new Date(schedule.end_date),
-        type: schedule.type === 'company' ? '회사' : '개인',
-        author: schedule.author,
-        author_name: schedule.author_name,
-      }));
-    },
-    staleTime: 30000,
-    enabled: !!user,
-  });
-
-  const deleteMemoMutation = useMutation({
-    mutationFn: async (memoId) => {
-      await deleteMemo(memoId, auth);
-      return memoId;
-    },
-    // 낙관적 업데이트: 서버 응답 전에 UI 즉시 업데이트
-    onMutate: async (memoId) => {
-      // 진행 중인 쿼리 취소 (충돌 방지)
-      await queryClient.cancelQueries({ queryKey: ['memos'] });
-
-      // 이전 데이터 백업 (롤백용)
-      const previousMemos = queryClient.getQueryData(['memos']);
-
-      // 낙관적 업데이트: 캐시에서 메모 즉시 제거
-      queryClient.setQueryData(['memos'], (old) => {
-        if (!old) return [];
-        return old.filter(m => m.id !== memoId);
-      });
-
-      console.log('[Dashboard] Optimistic update: removed memo', memoId);
-
-      // 롤백용 데이터 반환
-      return { previousMemos };
-    },
-    // 성공 시: 서버에서 최신 데이터 가져오기 (진실의 원천)
-    onSuccess: (memoId) => {
-      console.log('[Dashboard] Memo deleted successfully:', memoId);
-
-      // 서버에서 최신 데이터 가져오기
-      queryClient.invalidateQueries({ queryKey: ['memos'] });
-
-      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
-    },
-    // 실패 시: 캐시를 백업 데이터로 롤백
-    onError: (error, memoId, context) => {
-      console.error('[Dashboard] Memo deletion failed:', error);
-
-      // 롤백: 이전 상태로 복구
-      if (context?.previousMemos) {
-        queryClient.setQueryData(['memos'], context.previousMemos);
-      }
-
-      alert('메모 삭제에 실패했습니다: ' + error.message);
-    },
-  });
+  const {
+    data: memos = [],
+    isLoading: memosLoading,
+    isError: memosError,
+    error: memosErrorDetail,
+    refetch: refetchMemos,
+  } = useActiveMemos({}, { enabled: !!user });
+  const {
+    data: schedules = [],
+    isLoading: schedulesLoading,
+    isError: schedulesError,
+    error: schedulesErrorDetail,
+    refetch: refetchSchedules,
+  } = useSchedules(scheduleRange, { enabled: !!user });
+  const createMemoMutation = useCreateMemo();
+  const updateMemoMutation = useUpdateMemo();
+  const deleteMemoMutation = useDeleteMemo();
+  const createScheduleMutation = useCreateSchedule();
+  const updateScheduleMutation = useUpdateSchedule();
+  const deleteScheduleMutation = useDeleteSchedule();
 
   // 모달 상태
   const [showMemoCreateModal, setShowMemoCreateModal] = useState(false);
@@ -157,11 +115,15 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     hasTime: false, // 시간 지정 체크박스
   });
 
-  // 미처리 상담 요청 통계 (API stats 사용)
+  // 미확인 상담 요청 통계 (API stats 사용)
   const uncheckedConsultations = consultations.filter(c => !c.check);
   // 이메일은 현재 로직 없음 (0건), 홈페이지는 미확인(check=false) 건수
-  const emailCount = stats.email || 0;
-  const websiteCount = stats.website || 0;
+  const emailCount = emailStats.unread || 0;
+  const websiteCount = websiteStats.website ?? websiteStats.unread ?? uncheckedConsultations.length;
+  const dashboardMemos = useMemo(
+    () => [...memos].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5),
+    [memos]
+  );
 
   // 캘린더 생성 로직
   const getDaysInMonth = (date) => {
@@ -236,28 +198,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   // 선택된 날짜의 일정
   const selectedDateSchedules = getSchedulesForDate(selectedDate);
 
-  // React Query - 메모 생성 Mutation
-  const createMemoMutation = useMutation({
-    mutationFn: async (memoData) => {
-      return await createMemo(memoData, auth);
-    },
-    onSuccess: (createdMemo) => {
-      console.log('[Dashboard] Memo created successfully:', createdMemo.id);
-
-      // 캐시 무효화하여 서버에서 최신 데이터 가져오기
-      queryClient.invalidateQueries({ queryKey: ['memos'] });
-
-      // WebSocket 이벤트가 자동으로 모든 창에 전파됨 (Main Process를 통해)
-
-      // 폼 초기화 및 모달 닫기
-      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
-      setShowMemoCreateModal(false);
-    },
-    onError: (error) => {
-      console.error('[Dashboard] Memo creation failed:', error);
-      alert('메모 생성에 실패했습니다: ' + error.message);
-    },
-  });
 
   // 메모 관련 핸들러
   const handleMemoCreate = async () => {
@@ -279,7 +219,17 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       // author is automatically set by backend using req.user.email
     };
 
-    createMemoMutation.mutate(memoData);
+    createMemoMutation.mutate(memoData, {
+      onSuccess: (createdMemo) => {
+        console.log('[Dashboard] Memo created successfully:', createdMemo.id);
+        setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+        setShowMemoCreateModal(false);
+      },
+      onError: (error) => {
+        console.error('[Dashboard] Memo creation failed:', error);
+        alert('메모 생성에 실패했습니다: ' + error.message);
+      },
+    });
   };
 
   const handleMemoClick = (memo) => {
@@ -299,46 +249,6 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
     setShowMemoEditModal(true);
   };
 
-  // React Query - 메모 수정 Mutation
-  const updateMemoMutation = useMutation({
-    mutationFn: async ({ memoId, updates }) => {
-      return await updateMemo(memoId, updates, auth);
-    },
-    // 낙관적 업데이트
-    onMutate: async ({ memoId, updates }) => {
-      await queryClient.cancelQueries({ queryKey: ['memos'] });
-
-      const previousMemos = queryClient.getQueryData(['memos']);
-
-      queryClient.setQueryData(['memos'], (old) => {
-        if (!old) return [];
-        return old.map(m => m.id === memoId ? { ...m, ...updates } : m);
-      });
-
-      console.log('[Dashboard] Optimistic update: updated memo', memoId);
-
-      return { previousMemos };
-    },
-    onSuccess: () => {
-      console.log('[Dashboard] Memo updated successfully');
-
-      // 서버에서 최신 데이터 가져오기
-      queryClient.invalidateQueries({ queryKey: ['memos'] });
-
-      setMemoForm({ title: '', content: '', important: false, expire_date: '' });
-      setShowMemoEditModal(false);
-      setSelectedMemo(null);
-    },
-    onError: (error, variables, context) => {
-      console.error('[Dashboard] Memo update failed:', error);
-
-      if (context?.previousMemos) {
-        queryClient.setQueryData(['memos'], context.previousMemos);
-      }
-
-      alert('메모 수정에 실패했습니다: ' + error.message);
-    },
-  });
 
   const handleMemoUpdate = async () => {
     if (!memoForm.content.trim()) return;
@@ -357,7 +267,18 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       expire_date: memoForm.expire_date || null,
     };
 
-    updateMemoMutation.mutate({ memoId: selectedMemo.id, updates });
+    updateMemoMutation.mutate({ id: selectedMemo.id, updates }, {
+      onSuccess: () => {
+        console.log('[Dashboard] Memo updated successfully');
+        setMemoForm({ title: '', content: '', important: false, expire_date: '' });
+        setShowMemoEditModal(false);
+        setSelectedMemo(null);
+      },
+      onError: (error) => {
+        console.error('[Dashboard] Memo update failed:', error);
+        alert('메모 수정에 실패했습니다: ' + error.message);
+      },
+    });
   };
 
   const handleMemoDelete = async () => {
@@ -370,7 +291,15 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
       setDeleteTarget(null);
 
       // React Query Mutation 실행 (낙관적 업데이트 + 서버 동기화 자동 처리)
-      deleteMemoMutation.mutate(memoId);
+      deleteMemoMutation.mutate(memoId, {
+        onSuccess: () => {
+          console.log('[Dashboard] Memo deleted successfully:', memoId);
+        },
+        onError: (error) => {
+          console.error('[Dashboard] Memo deletion failed:', error);
+          alert('메모 삭제에 실패했습니다: ' + error.message);
+        },
+      });
     }
   };
 
@@ -388,10 +317,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         // author is automatically set by backend using req.user.email
       };
 
-      const createdSchedule = await createSchedule(scheduleData, auth);
-
-      // 일정 목록 새로고침
-      await loadSchedules();
+      await createScheduleMutation.mutateAsync(scheduleData);
 
       // Toast 알림은 WebSocket 이벤트 핸들러에서 처리됨 (중복 방지)
 
@@ -440,13 +366,10 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
         time: scheduleForm.hasTime ? scheduleForm.time : null,
         start_date: scheduleForm.start_date, // 이미 YYYY-MM-DD 형식
         end_date: scheduleForm.multiDay ? scheduleForm.end_date : scheduleForm.start_date,
-        type: scheduleForm.type,
+        type: scheduleForm.type === '회사' ? 'company' : 'personal',
       };
 
-      await updateSchedule(selectedSchedule.id, scheduleData, auth);
-
-      // 일정 목록 새로고침
-      await loadSchedules();
+      await updateScheduleMutation.mutateAsync({ id: selectedSchedule.id, updates: scheduleData });
 
       setScheduleForm({ title: '', time: '', start_date: '', end_date: '', type: '회사', author: '', multiDay: false, hasTime: false });
       setShowScheduleEditModal(false);
@@ -462,10 +385,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
   const handleScheduleDelete = async () => {
     if (deleteTarget && deleteTarget.type === 'schedule') {
       try {
-        await deleteSchedule(deleteTarget.id, auth);
-
-        // 일정 목록 새로고침
-        await loadSchedules();
+        await deleteScheduleMutation.mutateAsync(deleteTarget.id);
 
         setShowDeleteConfirmModal(false);
         setDeleteTarget(null);
@@ -552,8 +472,8 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
       const timer = setTimeout(() => {
         console.log('[Dashboard] 날짜 변경 감지 - 메모 및 일정 새로고침');
-        queryClient.invalidateQueries({ queryKey: ['memos'] }); // React Query 캐시 무효화
-        loadSchedules(); // 일정도 함께 새로고침
+        refetchMemos();
+        refetchSchedules();
 
         // 다음 자정을 위해 재귀 호출
         checkMidnight();
@@ -566,7 +486,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
     // 컴포넌트 언마운트 시 타이머 정리
     return () => clearTimeout(timer);
-  }, [queryClient]);
+  }, [refetchMemos, refetchSchedules]);
 
   // 일정 폼이 열릴 때 기본 시간 설정
   useEffect(() => {
@@ -590,15 +510,8 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
           if (isOpen) return;
 
           // 캐시 데이터 준비
-          const uncheckedConsultations = consultations.filter(c => !c.check);
-          const cachedData = {
-            memos,
-            schedules,
-            consultations: uncheckedConsultations
-          };
-
           // 알림창 열기 (리셋 모드 아님)
-          await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+          await window.electron.openStickyWindow('dashboard', '알림창', false);
         } catch (error) {
           console.error('[Dashboard] Failed to auto-open sticky window:', error);
         }
@@ -606,12 +519,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
 
       openStickyOnLogin();
     }
-  }, [user, memosLoading, schedulesLoading, memos, schedules, consultations]);
-
-  // 일정 데이터 로드
-  const loadSchedules = async () => {
-    await refetchSchedules();
-  };
+  }, [user, memosLoading, schedulesLoading]);
 
   // 메모 날짜별 그룹화 함수
   const groupMemosByDate = (memos) => {
@@ -691,13 +599,8 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
                   // 이미 열려있는지 확인
                   const isOpen = await window.electron.isStickyWindowOpen('dashboard');
                   // 캐시 데이터: 메모, 일정, 미확인 상담
-                  const cachedData = {
-                    memos,
-                    schedules,
-                    consultations: uncheckedConsultations
-                  };
                   // 열려있으면 포커스, 아니면 열기
-                  await window.electron.openStickyWindow('dashboard', '알림창', cachedData, false);
+                  await window.electron.openStickyWindow('dashboard', '알림창', false);
                 } catch (error) {
                   console.error('[Dashboard] Failed to open sticky window:', error);
                 }
@@ -712,13 +615,8 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
                 if (!window.electron) return;
                 try {
                   // 캐시 데이터: 메모, 일정, 미확인 상담
-                  const cachedData = {
-                    memos,
-                    schedules,
-                    consultations: uncheckedConsultations
-                  };
                   // 리셋 모드로 열기
-                  await window.electron.openStickyWindow('dashboard', '알림창', cachedData, true);
+                  await window.electron.openStickyWindow('dashboard', '알림창', true);
                 } catch (error) {
                   console.error('[Dashboard] Failed to reset sticky window:', error);
                 }
@@ -826,14 +724,20 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
                 </button>
               </div>
 
-              {selectedDateSchedules.length > 0 && (
+              {schedulesError ? (
+                <div className="schedule-empty-state error">
+                  {schedulesErrorDetail?.message || '일정을 불러오지 못했습니다.'}
+                </div>
+              ) : selectedDateSchedules.length === 0 ? (
+                <div className="schedule-empty-state">선택한 날짜의 일정이 없습니다.</div>
+              ) : (
                 <div className="schedule-list">
                   {selectedDateSchedules.map(schedule => (
                     <div key={schedule.id} className={`schedule-item schedule-${schedule.type === '회사' ? 'company' : 'personal'}`}>
                       <span className="schedule-type-badge">{schedule.type}</span>
                       <span className="schedule-time">{schedule.time}</span>
                       <span className="schedule-title">
-                        {schedule.type === '개인' && schedule.author && <span className="schedule-author">{schedule.author_name || schedule.author || '사용자'} - </span>}
+                        {schedule.type === '개인' && <span className="schedule-author">{schedule.authorDisplayName || '사용자'} - </span>}
                         {schedule.title}
                       </span>
                       <div className="schedule-actions">
@@ -866,7 +770,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
           </div>
         </div>
 
-        {/* 우측 메모+미처리 영역 */}
+        {/* 우측 메모+미확인 영역 */}
         <div className="dashboard-right">
           {/* 팀 메모 */}
           <div className="dashboard-card memo-card">
@@ -887,43 +791,48 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
               </button>
             </div>
             <div className="memo-list">
-              {memos
-                .sort((a, b) => b.createdAt - a.createdAt)
-                .slice(0, 5)
-                .map((memo) => (
+              {memosLoading ? (
+                <div className="memo-empty-state">메모를 불러오는 중입니다.</div>
+              ) : memosError ? (
+                <div className="memo-empty-state error">
+                  {memosErrorDetail?.message || '메모를 불러오지 못했습니다.'}
+                </div>
+              ) : dashboardMemos.length === 0 ? (
+                <div className="memo-empty-state">표시할 활성 메모가 없습니다.</div>
+              ) : dashboardMemos.map((memo) => (
                   <div key={memo.id} className="memo-item" onClick={() => handleMemoClick(memo)}>
                     <div className="memo-card-header">
                       {memo.important && <span className="memo-badge important">중요</span>}
                       <h4 className="memo-card-title">{memo.title}</h4>
-                      <span className="memo-card-author">{memo.author_name || memo.author || '사용자'}</span>
+                      <span className="memo-card-author">{memo.authorDisplayName || '사용자'}</span>
                     </div>
                     <div className="memo-card-content" dangerouslySetInnerHTML={{ __html: linkifyContentCard(memo.content) }} />
                     <div className="memo-card-date">{memo.createdAt.toLocaleDateString()}</div>
                   </div>
-                ))}
+              ))}
             </div>
           </div>
 
-          {/* 미처리 상담 요청 */}
+          {/* 미확인 상담 요청 */}
           <div className="dashboard-card pending-card">
             <div className="card-header">
-              <h2>⏳ 미처리 상담 요청</h2>
+              <h2>⏳ 미확인 상담 요청</h2>
             </div>
             <div className="pending-stats">
-              <div className="pending-item email">
+              <button type="button" className={`pending-item email${emailCount > 0 ? ' has-items' : ''}`} onClick={() => navigate(ROUTES.EMAIL_CONSULTATIONS)}>
                 <div className="pending-icon">✉️</div>
                 <div className="pending-info">
                   <span className="pending-label">이메일</span>
                   <span className="pending-count">{emailCount}건</span>
                 </div>
-              </div>
-              <div className="pending-item web">
+              </button>
+              <button type="button" className={`pending-item web${websiteCount > 0 ? ' has-items' : ''}`} onClick={() => navigate(ROUTES.WEBSITE_CONSULTATIONS)}>
                 <div className="pending-icon">🌐</div>
                 <div className="pending-info">
                   <span className="pending-label">홈페이지</span>
                   <span className="pending-count">{websiteCount}건</span>
                 </div>
-              </div>
+              </button>
             </div>
 
           </div>
@@ -1060,7 +969,7 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
             </div>
             <div className="detail-meta">
               <span className="detail-meta-item">
-                <span className="detail-meta-label">작성자:</span> {selectedMemo.author || '사용자'}
+                <span className="detail-meta-label">작성자:</span> {selectedMemo.authorDisplayName || '사용자'}
               </span>
               <span className="detail-meta-item">
                 <span className="detail-meta-label">작성일:</span> {selectedMemo.createdAt.toLocaleString('ko-KR')}
@@ -1076,6 +985,12 @@ function Dashboard({ user, consultations, stats = { website: 0, email: 0 } }) {
               dangerouslySetInnerHTML={{ __html: linkifyContentModal(selectedMemo.content) }}
             />
             <div className="memo-detail-actions">
+              <button
+                className="modal-btn primary"
+                onClick={() => handleMemoEdit(selectedMemo)}
+              >
+                수정
+              </button>
               <button
                 className="modal-btn danger"
                 onClick={() => confirmDelete(selectedMemo, 'memo')}

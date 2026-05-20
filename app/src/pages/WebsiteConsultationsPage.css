@@ -369,6 +369,12 @@
   max-width: 100%;
 }
 
+.list-meta {
+  color: #6b7280;
+  font-size: 13px;
+  text-align: right;
+}
+
 /* 긴 텍스트 말줄임표 처리 */
 .ellipsis-text {
   overflow: hidden;

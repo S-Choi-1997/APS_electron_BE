@@ -15,24 +15,23 @@
 
 ## backend/
 
-NAS에 Docker로 배포되는 Express 백엔드.
+NAS/백엔드 서버에 Docker로 배포되는 Express 백엔드.
 
-- **포트**: 3001 (외부 노출 없음, Relay를 통해서만 접근)
+- **포트**: 3001 (Cloudflare Tunnel이 이 포트로 전달)
 - **DB**: PostgreSQL (메모, 일정, 이메일 문의)
 - **인증**: JWT (Access 1h + Refresh 30d)
-- **실시간**: Socket.IO (클라이언트로 Relay에 연결)
+- **실시간**: Socket.IO 직접 연결 (Electron 앱 ↔ backend)
 - **Docker Hub**: `choho97/aps-admin-backend`
 
 ## relay/
 
-GCP4 VM에서 실행되는 WebSocket 릴레이 서버 (HTTP-over-WebSocket 터널).
+레거시 WebSocket 릴레이 서버입니다. 현재 Electron 앱의 정상 트래픽은 Cloudflare Tunnel을 통해 backend에 직접 연결되므로 새 릴리스 경로에서는 사용하지 않습니다.
 
 - **VM**: GCP Compute Engine `aligo-proxy` (us-central1-a)
 - **IP**: `136.113.67.193:8080`
-- **역할**: Electron ↔ backend 간 HTTP 요청을 WebSocket 이벤트로 변환하여 중계
-- **실시간**: 백엔드 이벤트를 모든 클라이언트에 브로드캐스트
+- **기존 역할**: Electron ↔ backend 간 HTTP 요청을 WebSocket 이벤트로 변환하여 중계
 - **배포**: `relay/DEPLOY.md` 참조 (Docker Hub 푸시 → gcloud pull)
-- **대시보드**: `http://136.113.67.193:8080` (production/development 상태 확인)
+- **대시보드**: `http://136.113.67.193:8080` (레거시 상태 확인)
 
 ## power-state/
 

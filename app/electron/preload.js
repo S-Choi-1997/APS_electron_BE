@@ -9,8 +9,8 @@ contextBridge.exposeInMainWorld('electron', {
   clearSession: () => ipcRenderer.invoke('clear-session'),
 
   // 스티커 창 관리
-  openStickyWindow: (type, title, data, reset = false) =>
-    ipcRenderer.invoke('open-sticky-window', { type, title, data, reset }),
+  openStickyWindow: (type, title, reset = false) =>
+    ipcRenderer.invoke('open-sticky-window', { type, title, reset }),
 
   closeStickyWindow: (type) =>
     ipcRenderer.invoke('close-sticky-window', type),
@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electron', {
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
+  closeCurrentWindow: () => ipcRenderer.invoke('close-current-window'),
 
   // NOTE: createMemo API 제거됨 - memoService.js의 API 호출 사용
 
@@ -45,6 +46,12 @@ contextBridge.exposeInMainWorld('electron', {
 
   // 메모 서브 윈도우 열기
   openMemoSubWindow: (mode, memoId) => ipcRenderer.invoke('open-memo-sub-window', { mode, memoId }),
+  notifyMemoChanged: (payload) => ipcRenderer.invoke('memo-window-changed', payload),
+  onMemoWindowChanged: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('memo-window-changed', handler);
+    return () => ipcRenderer.removeListener('memo-window-changed', handler);
+  },
 
   // 외부 브라우저에서 URL 열기
   openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
@@ -54,35 +61,20 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Blob/Buffer 데이터를 파일로 저장 (인증이 필요한 다운로드용)
   saveFile: (buffer, filename) => ipcRenderer.invoke('save-file', { buffer, filename }),
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  saveFileToDirectory: (buffer, directoryPath, filename) =>
+    ipcRenderer.invoke('save-file-to-directory', { buffer, directoryPath, filename }),
 
   // 메인 창 포커스 및 라우팅
   focusMainWindow: (route) => ipcRenderer.invoke('focus-main-window', route),
+  consumePendingNavigationRoute: () => ipcRenderer.invoke('consume-pending-navigation-route'),
 
   // 이벤트 리스너 (메인 프로세스 → 렌더러)
-  // NOTE: WebSocket 이벤트는 콜론(:) 구분자 사용 (memo:created, memo:deleted 등)
   // NOTE: removeListener 사용하여 해당 콜백만 제거 (다른 리스너 유지)
-  onMemoCreated: (callback) => {
-    const handler = (event, data) => callback(data);
-    ipcRenderer.on('memo:created', handler);
-    return () => ipcRenderer.removeListener('memo:created', handler);
-  },
-
-  onMemoDeleted: (callback) => {
-    const handler = (event, data) => callback(data?.id || data);
-    ipcRenderer.on('memo:deleted', handler);
-    return () => ipcRenderer.removeListener('memo:deleted', handler);
-  },
-
   onNavigateToRoute: (callback) => {
     const handler = (event, route) => callback(route);
     ipcRenderer.on('navigate-to-route', handler);
     return () => ipcRenderer.removeListener('navigate-to-route', handler);
-  },
-
-  onConsultationUpdated: (callback) => {
-    const handler = (event, data) => callback(data);
-    ipcRenderer.on('consultation:updated', handler);
-    return () => ipcRenderer.removeListener('consultation:updated', handler);
   },
 
   // Toast 알림 관련 API
@@ -93,24 +85,14 @@ contextBridge.exposeInMainWorld('electron', {
   navigateFromNotification: (route) => ipcRenderer.invoke('navigate-from-notification', route),
 
   // 메인 창에서 네비게이션 이벤트 수신
-  onNavigateTo: (callback) => {
-    const handler = (event, route) => callback(route);
-    ipcRenderer.on('navigate-to', handler);
-    return () => ipcRenderer.removeListener('navigate-to', handler);
-  },
-
   // Sticky 윈도우: 캐시 데이터 수신 (IPC로 전달받음)
-  onStickyData: (callback) => {
-    const handler = (event, data) => callback(data);
-    ipcRenderer.on('sticky-cached-data', handler);
-    return () => ipcRenderer.removeListener('sticky-cached-data', handler);
-  },
-
   // Electron 환경 확인
   isElectron: true,
 
   // 인증 토큰 가져오기 (메인 프로세스에서 제공)
   getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
+  setAuthSession: (user) => ipcRenderer.invoke('set-auth-session', user),
+  refreshWebSocketAuth: () => ipcRenderer.invoke('refresh-websocket-auth'),
 
   // ==================== Auto Update 관련 ====================
   // NOTE: removeListener 사용하여 해당 콜백만 제거 (여러 컴포넌트에서 동시 사용 가능)
@@ -148,6 +130,8 @@ contextBridge.exposeInMainWorld('electron', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
   // 수동 업데이트 확인
+  getAutoUpdateEnabled: () => ipcRenderer.invoke('get-auto-update-enabled'),
+  getUpdateState: () => ipcRenderer.invoke('get-update-state'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 
   // 앱 재시작
@@ -168,12 +152,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),
-  setEnvironment: (environment) => ipcRenderer.invoke('set-environment', environment),
   getAppConfig: () => ipcRenderer.invoke('get-app-config'),
-  setAppConfig: (config) => ipcRenderer.invoke('set-app-config', config),
-  getConfig: () => ipcRenderer.invoke('get-config'),
-  setBackendUrls: (urls) => ipcRenderer.invoke('set-backend-urls', urls),
-  setWebSocketUrl: (url) => ipcRenderer.invoke('set-websocket-url', url),
 
   onAppConfigChanged: (callback) => {
     const handler = (event, data) => callback(data);

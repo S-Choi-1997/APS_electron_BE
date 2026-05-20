@@ -25,7 +25,12 @@ async function handleWebhook(req, res) {
     console.log('[ZOHO Webhook] ========================================');
 
     // Verify webhook signature if secret is configured
-    if (config.webhookSecret && signature) {
+    if (config.webhookSecret) {
+      if (!signature) {
+        console.error('[ZOHO Webhook] Missing signature while webhook secret is configured');
+        return res.status(401).json({ error: 'Missing signature' });
+      }
+
       const isValid = verifyWebhookSignature(JSON.stringify(webhookData), signature);
       if (!isValid) {
         console.error('[ZOHO Webhook] Invalid signature');
@@ -129,6 +134,16 @@ async function processNewMessage(messageData) {
         hasAttachments: saved.has_attachments,
         isOutgoing: saved.is_outgoing || false,
         status: saved.status || (saved.check ? 'read' : 'unread'),
+        inReplyTo: saved.in_reply_to,
+        references: saved.references,
+        threadId: saved.thread_id,
+        translationStatus: saved.translation_status || 'not_required',
+        detectedLanguage: saved.detected_language || null,
+        translatedSubject: saved.translated_subject || null,
+        translatedBody: saved.translated_body_text || null,
+        translationModel: saved.translation_model || null,
+        translationError: saved.translation_error || null,
+        translatedAt: saved.translated_at || null,
         receivedAt: saved.received_at,
         check: saved.check,
         createdAt: saved.created_at,
@@ -147,12 +162,12 @@ async function processNewMessage(messageData) {
         try {
           const updatedOriginal = await updateEmailStatusByMessageId(inquiry.inReplyTo, 'responded');
 
-          if (updatedOriginal && global.broadcastEvent) {
-            global.broadcastEvent('email:updated', {
-              id: updatedOriginal.id,
-              updates: { status: 'responded' }
-            });
-            console.log('[ZOHO Webhook] Original email status updated to responded and event broadcast');
+          if (updatedOriginal) {
+            if (global.broadcastEvent) {
+              global.broadcastEvent('email:updated', updatedOriginal);
+              console.log('[ZOHO Webhook] Real-time update emitted for original email');
+            }
+            console.log('[ZOHO Webhook] Original email status updated to responded');
           }
         } catch (error) {
           console.error('[ZOHO Webhook] Failed to update original email status:', error);

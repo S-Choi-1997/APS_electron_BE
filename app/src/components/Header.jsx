@@ -1,7 +1,10 @@
 ﻿import { signOut } from '../auth/authManager';
+import { getDisplayName } from '../utils/displayName';
 import './Header.css';
 
 function Header({ user }) {
+  const userDisplayName = getDisplayName([user?.displayName, user?.email]);
+
   const handleLogout = () => {
     try {
       signOut();
@@ -23,7 +26,7 @@ function Header({ user }) {
           <span className="system-title">상담 관리 서비스</span>
           {user && (
             <div className="user-section">
-              <span className="user-email">{user.email}</span>
+              <span className="user-email" title={user.email}>{userDisplayName}</span>
               <button className="logout-btn" onClick={handleLogout}>
                 로그아웃
               </button>

@@ -25,7 +25,7 @@ const isImageFile = (file = {}) => {
   return type.startsWith('image/') || (ext && imageExt.includes(ext));
 };
 
-function ConsultationModal({ consultation, onClose, onRespond, attachments, attachmentsLoading }) {
+function ConsultationModal({ consultation, onClose, onRespond, isResponding = false, attachments, attachmentsLoading }) {
   if (!consultation) return null;
 
   const formatFullDate = (date) => {
@@ -55,7 +55,7 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
 
   const typeColor = getTypeColor(consultation.type);
   const currentStatus = consultation.status || (consultation.check ? 'responded' : 'unread');
-  const canRespond = currentStatus !== 'responded'; // 응신 완료된 경우만 버튼 비활성화
+  const canRespond = currentStatus !== 'responded';
 
   const imageAttachments = useMemo(() => {
     const images = (attachments || []).filter((file) => {
@@ -129,11 +129,11 @@ function ConsultationModal({ consultation, onClose, onRespond, attachments, atta
                 <button
                   className={`modal-respond-btn ${canRespond ? 'primary' : 'secondary'}`}
                   onClick={() => onRespond?.(consultation.id, consultation.check)}
-                  disabled={!canRespond}
+                  disabled={!canRespond || isResponding}
                   type="button"
-                  title={canRespond ? 'SMS 응신 발송' : '응신 완료 (문자 발송됨)'}
+                  title={canRespond ? 'SMS 응답 발송' : '응답 완료 (문자 발송됨)'}
                 >
-                  {canRespond ? 'SMS 응신' : '응신 완료'}
+                  {isResponding ? '발송 중...' : canRespond ? 'SMS 응답' : '응답 완료'}
                 </button>
               </div>
             </div>

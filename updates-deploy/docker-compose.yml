@@ -1,0 +1,15 @@
+services:
+  aps-updates:
+    image: nginx:1.27-alpine
+    container_name: aps-updates
+    restart: unless-stopped
+    ports:
+      - "${UPDATES_PORT:-8088}:80"
+    volumes:
+      - ./updates:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

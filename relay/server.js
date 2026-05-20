@@ -514,6 +514,7 @@ io.on('connection', (socket) => {
   // ============================================
   const RELAY_EVENTS = [
     'memo:created',
+    'memo:updated',
     'memo:deleted',
     'schedule:created',
     'schedule:updated',

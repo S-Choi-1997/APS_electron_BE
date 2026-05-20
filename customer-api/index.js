@@ -74,13 +74,13 @@ app.post("/contact", async (req, res) => {
   const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.ip || "unknown";
 
   // Rate limit: 10 req/min per IP (per instance)
-  const now = Date.now();
+  const rateLimitNow = Date.now();
   const key = `rate_${ip}`;
-  if ((rateLimits.get(key) || 0) > now) {
+  if ((rateLimits.get(key) || 0) > rateLimitNow) {
     rateLimits.set(key + "_c", (rateLimits.get(key + "_c") || 0) + 1);
     if ((rateLimits.get(key + "_c") || 0) > 10) return res.status(429).json({ status: "error", message: "too many requests" });
   } else {
-    rateLimits.set(key, now + 60_000);
+    rateLimits.set(key, rateLimitNow + 60_000);
     rateLimits.set(key + "_c", 1);
   }
 
@@ -194,6 +194,7 @@ app.post("/contact", async (req, res) => {
     ip, recaptchaScore: score,
     createdAt: now,
     deleteAt: deleteDate,
+    check: false,
     status: "unread"
   });
 
@@ -205,4 +206,3 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
-

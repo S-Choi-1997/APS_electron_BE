@@ -227,8 +227,33 @@ input:checked + .toggle-slider:before {
   cursor: not-allowed;
 }
 
+.btn-diagnostics {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+  white-space: nowrap;
+}
+
+.btn-diagnostics:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  transform: translateY(-1px);
+}
+
+.btn-diagnostics:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Update Status Messages */
-.update-status {
+.update-status,
+.diagnostic-status {
   padding: 0.75rem;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -238,12 +263,14 @@ input:checked + .toggle-slider:before {
   animation: slideIn 0.3s ease-out;
 }
 
-.update-status.success {
+.update-status.success,
+.diagnostic-status.success {
   background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
   color: #065f46;
 }
 
-.update-status.error {
+.update-status.error,
+.diagnostic-status.error {
   background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
   color: #991b1b;
 }
@@ -264,4 +291,24 @@ input:checked + .toggle-slider:before {
 .btn-restart:hover {
   background: #e5e7eb;
   transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .setting-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .setting-display {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .btn-update,
+  .btn-diagnostics,
+  .btn-restart {
+    width: 100%;
+  }
+
 }

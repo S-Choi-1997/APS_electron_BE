@@ -7,21 +7,18 @@
 **이미지**: https://hub.docker.com/r/choho97/aps-admin-backend
 
 ```bash
-# 최신 버전 다운로드
-docker pull choho97/aps-admin-backend:latest
-
-# 특정 버전 다운로드
-docker pull choho97/aps-admin-backend:1.0.0
+# 운영 태그 다운로드
+docker pull choho97/aps-admin-backend:1.3.2
 ```
 
 ## 📋 개요
 
 - **원본**: GCP Cloud Run (GCP2)
-- **이식 목적**: 로컬 환경에서 Docker로 실행, 비용 절감
+- **현재 목적**: NAS에서 Docker로 실행하고 Cloudflare Tunnel로 앱에 직접 노출
 - **유지되는 부분**:
   - GCP Firestore (데이터베이스)
   - GCP Storage (첨부파일)
-  - GCP3 SMS Relay (고정 IP 필요)
+  - aligo-proxy SMS Relay (고정 IP 필요)
   - Google/Naver OAuth (인증)
 
 ## 🔧 사전 요구사항
@@ -45,7 +42,7 @@ docker pull choho97/aps-admin-backend:1.0.0
    gcloud config set project YOUR_PROJECT_ID
    ```
 
-3. **인터넷 연결** - GCP Firestore/Storage, OAuth, GCP3 SMS Relay 접근 필요
+3. **인터넷 연결** - GCP Firestore/Storage, OAuth, aligo-proxy SMS Relay 접근 필요
 
 ### 선택
 - **NAS/로컬 서버**: 24시간 실행 가능한 환경 (권장)
@@ -54,7 +51,7 @@ docker pull choho97/aps-admin-backend:1.0.0
 
 ### 방법 1: Quick Start 스크립트 (가장 간단)
 
-Docker Hub에서 이미지를 받아서 바로 실행합니다.
+Docker Hub에서 명시 태그 이미지를 받아서 바로 실행합니다.
 
 **Linux/Mac**:
 ```bash
@@ -63,7 +60,7 @@ Docker Hub에서 이미지를 받아서 바로 실행합니다.
 # 2. service-account.json 복사 (GCP 인증)
 
 # Quick Start 실행
-./quick-start.sh
+./quick-start.sh 1.3.2
 ```
 
 **Windows**:
@@ -73,12 +70,12 @@ Docker Hub에서 이미지를 받아서 바로 실행합니다.
 # 2. service-account.json 복사 (GCP 인증)
 
 # Quick Start 실행
-.\quick-start.ps1
+.\quick-start.ps1 -ImageTag 1.3.2
 ```
 
 **스크립트가 자동으로**:
 1. 환경 파일 확인
-2. Docker Hub에서 최신 이미지 다운로드
+2. Docker Hub에서 지정 이미지 다운로드
 3. 컨테이너 실행
 4. 상태 확인
 
@@ -88,7 +85,7 @@ Docker Hub에서 이미지를 받아서 바로 실행합니다.
 
 ```bash
 # 1. 이미지 다운로드
-docker pull choho97/aps-admin-backend:latest
+docker pull choho97/aps-admin-backend:1.3.2
 
 # 2. 실행 (.env와 service-account.json 필요)
 docker run -d \
@@ -98,7 +95,7 @@ docker run -d \
   --env-file .env \
   -e GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json \
   -v $(pwd)/service-account.json:/app/service-account.json:ro \
-  choho97/aps-admin-backend:latest
+  choho97/aps-admin-backend:1.3.2
 
 # 3. 상태 확인
 docker logs aps-admin-backend
@@ -141,6 +138,8 @@ NAVER_CLIENT_SECRET=your_naver_client_secret
 ALIGO_API_KEY=your_aligo_api_key
 ALIGO_USER_ID=your_aligo_user_id
 ALIGO_SENDER_PHONE=01012345678
+SMS_RELAY_URL=http://your-fixed-ip-relay:3000
+# SMS_RELAY_AUTH_TOKEN=optional_shared_bearer_token
 ```
 
 **중요**: `GOOGLE_APPLICATION_CREDENTIALS`는 환경에 맞게 설정:
@@ -220,9 +219,11 @@ docker exec -it aps-admin-backend sh
 ### 코드 수정 후 새 이미지 배포
 
 ```bash
-# 1. GitHub에 push → GitHub Actions가 자동으로 Docker Hub에 이미지 빌드
-# 2. NAS에서 새 이미지 pull 및 재시작 (nas-deploy/ 에서)
-docker-compose pull
+# 1. 새 백엔드 이미지를 명시적으로 빌드/푸시
+#    예: choho97/aps-admin-backend:1.3.1
+# 2. nas-deploy/.env의 BACKEND_IMAGE_TAG를 해당 태그로 설정
+# 3. NAS에서 새 이미지 pull 및 재시작 (nas-deploy/ 에서)
+docker-compose pull aps-backend
 docker-compose up -d
 ```
 
@@ -276,9 +277,10 @@ ports:
 
 ### 4. "SMS 발송 실패"
 
-- GCP3 Relay 서버 상태 확인: http://136.113.67.193:3000/
+- aligo-proxy SMS Relay 상태 확인
 - Aligo API 키 확인
-- `.env`의 `RELAY_URL` 확인
+- `.env`의 `SMS_RELAY_URL` 확인
+- relay가 토큰을 요구하도록 구성된 경우 `.env`의 `SMS_RELAY_AUTH_TOKEN` 확인
 
 ## 📊 API 엔드포인트
 
@@ -306,12 +308,12 @@ X-Provider: google|naver
 
 Electron 앱의 환경 변수 설정:
 
-### .env.production (프론트엔드)
+### app/.env
 ```env
-VITE_API_URL=http://192.168.0.100:3001  # 로컬 백엔드 주소
+VITE_API_URL=https://YOUR_BACKEND_DOMAIN
 ```
 
-**주의**: 로컬 네트워크 IP 주소 확인 필요
+WebSocket URL은 앱이 API URL에서 자동 파생합니다. 별도 도메인을 쓰는 경우에만 `VITE_WS_URL`을 지정합니다.
 
 ## 📦 배포 (NAS/로컬 서버)
 
@@ -352,7 +354,7 @@ sudo ufw allow 3001/tcp
 |------|-------------|-------------------|
 | 호스팅 | Cloud Run | Docker (NAS/로컬) |
 | 비용 | 사용량 기반 (유료) | 하드웨어 비용 (초기) |
-| URL | https://inquiryapi-... | http://192.168.0.x:3001 |
+| URL | https://inquiryapi-... | Cloudflare Tunnel → NAS backend:3001 |
 | 인증 | 자동 (GCP IAM) | service-account.json |
 | 로그 | Cloud Logging | docker logs aps-admin-backend |
 | 스케일링 | 자동 | 수동 |

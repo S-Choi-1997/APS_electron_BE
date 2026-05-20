@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { signInWithLocal } from '../auth/localAuth';
+import { setAutoLoginPreference, signInWithLocal } from '../auth/authManager';
 import TitleBar from './TitleBar';
 import './LoginPage.css';
 
@@ -39,17 +39,20 @@ function LoginPage({ onLoginSuccess, onUnauthorized }) {
         localStorage.removeItem('aps-saved-email');
       }
 
-      // 자동 로그인 설정 저장
-      localStorage.setItem('aps-auto-login', autoLogin.toString());
+      // 자동 로그인 설정 저장 및 refresh token 보관 정책 동기화
+      setAutoLoginPreference(autoLogin);
 
       onLoginSuccess(user);
     } catch (error) {
       console.error('[LoginPage] Login failed:', error);
 
       // Check if it's an unauthorized email error
-      if (error.message.includes('Access denied') ||
+      if (error.status === 403 ||
+          error.code === 'forbidden' ||
+          error.message.includes('Access denied') ||
           error.message.includes('unauthorized email') ||
           error.message.includes('forbidden') ||
+          error.message.includes('Account is inactive') ||
           error.message.includes('whitelist')) {
         if (onUnauthorized) {
           onUnauthorized();

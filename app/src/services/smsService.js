@@ -37,6 +37,37 @@ export async function sendSMS(params, auth) {
 }
 
 /**
+ * Send an SMS response for a website inquiry.
+ * The backend sends the SMS first and only marks the inquiry responded after provider success.
+ */
+export async function sendInquirySMSResponse({ inquiryId, message, phone, msg_type, title, testmode_yn }, auth) {
+  if (!inquiryId) {
+    throw new Error('문의 ID는 필수입니다.');
+  }
+
+  if (!message) {
+    throw new Error('메시지는 필수입니다.');
+  }
+
+  const response = await apiRequest(
+    API_ENDPOINTS.INQUIRY_RESPOND_SMS(inquiryId),
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        phone,
+        msg_type,
+        title,
+        testmode_yn,
+      }),
+    },
+    auth
+  );
+
+  return response.data;
+}
+
+/**
  * Send SMS to multiple recipients
  * @param {string[]} phoneNumbers - Array of phone numbers
  * @param {string} message - Message content

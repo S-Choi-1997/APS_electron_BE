@@ -34,7 +34,7 @@ function ConsultationDetail({ consultation }) {
         </h2>
         <div className="detail-meta">
           <span className="detail-date">{formatFullDate(consultation.createdAt)}</span>
-          {!consultation.read && <span className="detail-badge unread">안읽음</span>}
+          {!consultation.read && <span className="detail-badge unread">미확인</span>}
         </div>
       </div>
 

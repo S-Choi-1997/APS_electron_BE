@@ -1,6 +1,6 @@
 /* DashboardLayout.css - 대시보드 레이아웃 스타일 */
 
-/* 레이아웃: 좌측(캘린더) + 우측(공지사항+미처리) */
+/* 레이아웃: 좌측(캘린더) + 우측(팀 메모+미확인) */
 .dashboard-layout {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -123,7 +123,7 @@
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 3px 10px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* 미처리 카드 높이 */
+/* 미확인 카드 높이 */
 .pending-card {
   flex: 0 1 auto;
   min-height: 0;

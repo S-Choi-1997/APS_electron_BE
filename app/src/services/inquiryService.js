@@ -21,10 +21,27 @@ const CATEGORY_MAP = {
   other: '기타',
 };
 
+export const INQUIRY_CATEGORY_BY_TYPE = {
+  비자: 'visa',
+  비영리단체: 'nonprofit',
+  '기업 인허가': 'corporate',
+  '민원 행정': 'civil',
+  기타: 'etc',
+};
+
+function parseDateOrNull(value) {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (typeof value._seconds === 'number') return new Date(value._seconds * 1000);
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000);
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 /**
  * Transform backend inquiry data to frontend format
  */
-function transformInquiry(inquiry) {
+export function transformInquiry(inquiry) {
   return {
     id: inquiry.id,
     number: inquiry.number,
@@ -37,7 +54,7 @@ function transformInquiry(inquiry) {
     company: inquiry.company,
     message: inquiry.message || inquiry.content || '',
     attachments: inquiry.attachments || [],
-    createdAt: inquiry.createdAt ? new Date(inquiry.createdAt) : new Date(),
+    createdAt: parseDateOrNull(inquiry.createdAt),
     check: inquiry.check ?? false,
     status: inquiry.status,
     ip: inquiry.ip,
@@ -48,10 +65,43 @@ function transformInquiry(inquiry) {
 /**
  * Fetch all inquiries
  * @param {object} auth - Firebase auth object
- * @param {object} filters - Query filters (check, status, category, limit, offset)
+ * @param {object} filters - Query filters (check, status, category, start_date, end_date, limit, offset)
  * @returns {Promise<Array>}
  */
 export async function fetchInquiries(auth, filters = {}) {
+  const page = await fetchInquiryPage(auth, filters);
+  return page.items;
+}
+
+export async function fetchAllInquiries(auth, filters = {}) {
+  const pageSize = 500;
+  const items = [];
+  let offset = Number(filters.offset ?? 0);
+
+  while (true) {
+    const page = await fetchInquiryPage(auth, {
+      ...filters,
+      limit: pageSize,
+      offset,
+    });
+
+    items.push(...page.items);
+
+    const nextOffset = page.offset + page.count;
+    const total = Number(page.total ?? items.length);
+    const hasMore = page.hasMore || nextOffset < total;
+
+    if (!hasMore || page.count === 0) {
+      break;
+    }
+
+    offset = nextOffset;
+  }
+
+  return items;
+}
+
+export async function fetchInquiryPage(auth, filters = {}) {
   const queryParams = new URLSearchParams();
 
   if (filters.check !== undefined) {
@@ -63,6 +113,12 @@ export async function fetchInquiries(auth, filters = {}) {
   if (filters.category) {
     queryParams.append('category', filters.category);
   }
+  if (filters.start_date) {
+    queryParams.append('start_date', filters.start_date);
+  }
+  if (filters.end_date) {
+    queryParams.append('end_date', filters.end_date);
+  }
   if (filters.limit) {
     queryParams.append('limit', filters.limit);
   }
@@ -73,7 +129,16 @@ export async function fetchInquiries(auth, filters = {}) {
   const endpoint = `${API_ENDPOINTS.INQUIRIES}${queryParams.toString() ? `?${queryParams}` : ''}`;
   const response = await apiRequest(endpoint, {}, auth);
 
-  return response.data.map(transformInquiry);
+  const items = Array.isArray(response.data) ? response.data.map(transformInquiry) : [];
+
+  return {
+    items,
+    total: Number(response.total ?? response.count ?? items.length),
+    count: Number(response.count ?? items.length),
+    limit: Number(response.limit ?? filters.limit ?? items.length),
+    offset: Number(response.offset ?? filters.offset ?? 0),
+    hasMore: Boolean(response.hasMore),
+  };
 }
 
 /**

@@ -20,6 +20,7 @@ CREATE TABLE email_inquiries (
   -- Recipient information
   to_email VARCHAR(255) NOT NULL,
   cc_emails TEXT[],
+  bcc_emails TEXT[] DEFAULT ARRAY[]::TEXT[],
 
   -- Email content
   subject VARCHAR(500),

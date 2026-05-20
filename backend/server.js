@@ -20,7 +20,7 @@
  * - STORAGE_BUCKET: GCP Storage 버킷
  * - GOOGLE_APPLICATION_CREDENTIALS: GCP 서비스 계정 JSON 경로
  * - ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER_PHONE: Aligo SMS
- * - RELAY_URL: GCP3 SMS Relay 서버 주소
+ * - SMS_RELAY_URL: fixed-IP SMS Relay 서버 주소
  * - POSTGRES_*: PostgreSQL 연결 정보
  */
 
@@ -36,6 +36,16 @@ const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
 const auth = require("./auth"); // JWT authentication module
 const firestoreAdmin = require("./firestore-admin"); // Firestore admin management
+const zohoRoutes = require("./zoho/routes");
+const emailMailClient = require("./email-mail-client-service");
+const {
+  ensureEmailTranslationSchema,
+  translateEmailById,
+} = require("./email-translation-service");
+
+const asyncHandler = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
 
 // 환경변수 로드 확인
 console.log("=".repeat(60));
@@ -48,7 +58,11 @@ console.log(`- GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_
 console.log(`- ALLOWED_ORIGINS: ${process.env.ALLOWED_ORIGINS || 'Not set'}`);
 console.log(`- ALLOWED_EMAILS: ${process.env.ALLOWED_EMAILS ? '✓ Set' : '✗ Not set'}`);
 console.log(`- NAVER_CLIENT_ID: ${process.env.NAVER_CLIENT_ID ? '✓ Set' : '✗ Not set'}`);
-console.log(`- RELAY_URL (GCP3): ${process.env.RELAY_URL || 'http://136.113.67.193:3000'}`);
+const SMS_RELAY_URL = process.env.SMS_RELAY_URL || '';
+const SMS_RELAY_AUTH_TOKEN = process.env.SMS_RELAY_AUTH_TOKEN || '';
+
+console.log(`- SMS_RELAY_URL: ${SMS_RELAY_URL || '✗ Not set'}`);
+console.log(`- SMS_RELAY_AUTH_TOKEN: ${SMS_RELAY_AUTH_TOKEN ? '✓ Set' : 'Not set'}`);
 console.log("=".repeat(60));
 
 // Initialize Firebase Admin with service account
@@ -83,7 +97,10 @@ async function runMigrations() {
   const migrations = [
     '000_create_email_inquiries_table.sql',
     '001_add_source_column.sql',
-    '002_create_zoho_tokens_table.sql'
+    '002_create_zoho_tokens_table.sql',
+    '003_add_thread_and_status_fields.sql',
+    '004_add_email_translation_fields.sql',
+    '005_email_mail_client_backend.sql'
   ];
 
   console.log("[DB] Migrations disabled - using init-db.sql");
@@ -126,16 +143,30 @@ async function runMigrations() {
 }
 
 // Test PostgreSQL connection and run migrations on startup
-db_postgres.testConnection().then(async (success) => {
+const databaseReadyPromise = db_postgres.testConnection().then(async (success) => {
   if (!success) {
     console.error("⚠️  Warning: PostgreSQL connection failed. Memos and schedules will not work.");
+    return false;
   } else {
     // Run migrations after successful connection
     await runMigrations();
+    await ensureEmailTranslationSchema();
+    await emailMailClient.ensureMailClientSchema();
+    return true;
   }
 });
 
 const app = express();
+const TRUST_PROXY = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? '1' : 'false');
+const trustProxyValue = TRUST_PROXY === 'true'
+  ? true
+  : TRUST_PROXY === 'false'
+    ? false
+    : Number.isNaN(Number(TRUST_PROXY)) ? TRUST_PROXY : Number(TRUST_PROXY);
+
+app.set('trust proxy', trustProxyValue);
+console.log(`[Server] trust proxy: ${TRUST_PROXY}`);
+
 const server = http.createServer(app);
 
 // CORS configuration
@@ -177,8 +208,39 @@ function getDirectClientEnvironment(metadata = {}) {
   return metadata.environment || DIRECT_WS_ENVIRONMENT;
 }
 
+function getDirectSocketToken(socket) {
+  const authToken = socket.handshake.auth?.token;
+  if (authToken) {
+    return authToken;
+  }
+
+  const authHeader = socket.handshake.headers?.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  return null;
+}
+
+io.use((socket, next) => {
+  const token = getDirectSocketToken(socket);
+
+  if (!token) {
+    console.warn(`[Direct WebSocket] Rejected unauthenticated client: ${socket.id}`);
+    return next(new Error('unauthorized'));
+  }
+
+  try {
+    socket.data.user = auth.verifyAccessToken(token);
+    return next();
+  } catch (error) {
+    console.warn(`[Direct WebSocket] Rejected invalid token for ${socket.id}: ${error.message}`);
+    return next(new Error('unauthorized'));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log(`[Direct WebSocket] Client connected: ${socket.id}`);
+  console.log(`[Direct WebSocket] Client connected: ${socket.id} (${socket.data.user.email})`);
 
   socket.on('handshake', (data = {}) => {
     if (data.type && data.type !== 'client') {
@@ -191,10 +253,17 @@ io.on('connection', (socket) => {
 
     const metadata = data.metadata || {};
     const environment = getDirectClientEnvironment(metadata);
+    const user = socket.data.user;
 
     directClients.set(socket.id, {
       socket,
-      metadata: { ...metadata, environment },
+      metadata: {
+        ...metadata,
+        environment,
+        email: user.email,
+        role: user.role,
+        provider: user.provider,
+      },
       lastHeartbeat: Date.now(),
     });
 
@@ -241,11 +310,25 @@ function broadcastToDirectClients(eventType, data) {
 // ============================================
 const { io: ioClient } = require('socket.io-client');
 
-const RELAY_WS_URL = process.env.RELAY_WS_URL || 'ws://localhost:8080';
+const WS_RELAY_URL = process.env.WS_RELAY_URL || 'ws://localhost:8080';
 const BACKEND_VERSION = process.env.BACKEND_VERSION || '1.0.0';
 const BACKEND_INSTANCE_ID = process.env.BACKEND_INSTANCE_ID || 'backend-local-001';
 const RELAY_ENVIRONMENT = process.env.RELAY_ENVIRONMENT || 'production';
-const RELAY_ENABLED = process.env.RELAY_ENABLED !== 'false' && process.env.ENABLE_RELAY !== 'false';
+const WS_RELAY_ENABLED = process.env.WS_RELAY_ENABLED === 'true';
+const APP_SYNC_EVENTS = new Set([
+  'consultation:created',
+  'consultation:updated',
+  'consultation:deleted',
+  'email:created',
+  'email:updated',
+  'email:deleted',
+  'memo:created',
+  'memo:updated',
+  'memo:deleted',
+  'schedule:created',
+  'schedule:updated',
+  'schedule:deleted',
+]);
 
 let relaySocket = null;
 let isRelayConnected = false;
@@ -253,7 +336,7 @@ let isConnecting = false;
 const RECONNECT_CHECK_INTERVAL = 30000; // 30초마다 재연결 체크
 
 function connectToRelay() {
-  if (!RELAY_ENABLED) {
+  if (!WS_RELAY_ENABLED) {
     console.log('[WebSocket Relay] Disabled by environment');
     return;
   }
@@ -264,7 +347,7 @@ function connectToRelay() {
   }
 
   isConnecting = true;
-  console.log(`[WebSocket Relay] Connecting to ${RELAY_WS_URL}...`);
+  console.log(`[WebSocket Relay] Connecting to ${WS_RELAY_URL}...`);
 
   // 기존 소켓이 있으면 정리
   if (relaySocket) {
@@ -273,7 +356,7 @@ function connectToRelay() {
     relaySocket = null;
   }
 
-  relaySocket = ioClient(RELAY_WS_URL, {
+  relaySocket = ioClient(WS_RELAY_URL, {
     transports: ['websocket', 'polling'],
     reconnection: false, // Socket.IO 자동 재연결 비활성화 (수동으로 관리)
     timeout: 10000
@@ -340,9 +423,6 @@ function connectToRelay() {
     try {
       // Handle ZOHO-specific routes directly without HTTP roundtrip
       if (method === 'POST' && path === '/api/zoho/sync') {
-        const jwt = require('jsonwebtoken');
-        const zohoRoutes = require('./zoho/routes');
-
         // Verify JWT token from headers
         const authHeader = headers.authorization || headers.Authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -360,7 +440,7 @@ function connectToRelay() {
         let user;
 
         try {
-          user = jwt.verify(token, process.env.JWT_SECRET);
+          user = auth.verifyAccessToken(token);
         } catch (err) {
           relaySocket.emit('http:response', {
             requestId,
@@ -435,9 +515,6 @@ function connectToRelay() {
 
       // Handle email response route directly
       if (method === 'POST' && path === '/api/email-response') {
-        const jwt = require('jsonwebtoken');
-        const zohoRoutes = require('./zoho/routes');
-
         // Verify JWT token from headers
         const authHeader = headers.authorization || headers.Authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -455,7 +532,7 @@ function connectToRelay() {
         let user;
 
         try {
-          user = jwt.verify(token, process.env.JWT_SECRET);
+          user = auth.verifyAccessToken(token);
         } catch (err) {
           relaySocket.emit('http:response', {
             requestId,
@@ -484,7 +561,6 @@ function connectToRelay() {
       // Handle attachment download directly (binary files)
       const attachmentDownloadMatch = path.match(/^\/email-inquiries\/(\d+)\/attachments\/(\d+)\/download$/);
       if (method === 'GET' && attachmentDownloadMatch) {
-        const jwt = require('jsonwebtoken');
         const { downloadAttachment, fetchAttachmentInfo } = require('./zoho/mail-api');
 
         const emailId = attachmentDownloadMatch[1];
@@ -503,7 +579,7 @@ function connectToRelay() {
         }
 
         try {
-          jwt.verify(authHeader.substring(7), process.env.JWT_SECRET);
+          auth.verifyAccessToken(authHeader.substring(7));
         } catch (err) {
           relaySocket.emit('http:response', {
             requestId,
@@ -627,7 +703,7 @@ function connectToRelay() {
 
 // 주기적인 재연결 체크 (30초마다)
 setInterval(() => {
-  if (!RELAY_ENABLED) {
+  if (!WS_RELAY_ENABLED) {
     return;
   }
 
@@ -639,36 +715,41 @@ setInterval(() => {
 
 // 전역 broadcast 함수 (CRUD 작업에서 사용)
 global.broadcastEvent = (eventType, data) => {
+  if (!APP_SYNC_EVENTS.has(eventType)) {
+    return 0;
+  }
+
   const directCount = broadcastToDirectClients(eventType, data);
 
   if (!relaySocket || !isRelayConnected) {
-    if (RELAY_ENABLED) {
+    if (WS_RELAY_ENABLED) {
       console.warn(`[WebSocket Relay] Not connected, cannot send event: ${eventType}`);
     }
     if (directCount === 0) {
       console.warn(`[Broadcast] No connected clients for event: ${eventType}`);
     }
-    return;
+    return directCount;
   }
 
   relaySocket.emit(eventType, data);
   console.log(`[WebSocket Relay] Sent event to relay: ${eventType}`);
+  return directCount;
 };
 
 // Connect to relay on startup
-if (RELAY_ENABLED) {
+if (WS_RELAY_ENABLED) {
   connectToRelay();
 } else {
   console.log('✓ WebSocket Relay Client disabled; direct WebSocket server is active');
 }
 
 console.log('✓ Direct WebSocket server initialized');
-if (RELAY_ENABLED) {
+if (WS_RELAY_ENABLED) {
   console.log('✓ WebSocket Relay Client initialized');
 }
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "35mb" }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -686,9 +767,10 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     service: "aps-admin-local-backend",
-    version: "1.0.0",
+    version: BACKEND_VERSION,
     environment: DIRECT_WS_ENVIRONMENT,
-    relayEnabled: RELAY_ENABLED,
+    wsRelayEnabled: WS_RELAY_ENABLED,
+    smsRelayConfigured: Boolean(SMS_RELAY_URL),
     directWebSocket: {
       enabled: true,
       connectedClients: directClients.size,
@@ -700,21 +782,36 @@ app.get("/", (req, res) => {
 // Authentication Routes (JWT)
 // ============================================
 
-// Rate limiter for login endpoint - 5 attempts per 15 minutes
+const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+function normalizeLoginEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : 'unknown-email';
+}
+
+function getLoginRateLimitKey(req) {
+  const email = normalizeLoginEmail(req.body?.email);
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown-ip';
+  return `${email}:${ip}`;
+}
+
+// Rate limiter for login endpoint - failed attempts only, scoped by email + IP.
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
+  max: LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+  keyGenerator: getLoginRateLimitKey,
+  skipSuccessfulRequests: true,
   message: {
     error: 'too_many_requests',
-    message: '너무 많은 로그인 시도입니다. 15분 후 다시 시도하세요.',
+    message: '너무 많은 로그인 시도입니다. 5분 후 다시 시도하세요.',
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   handler: (req, res) => {
-    console.warn(`[Security] Rate limit exceeded for IP: ${req.ip}`);
+    console.warn(`[Security] Login rate limit exceeded for key: ${getLoginRateLimitKey(req)}`);
     res.status(429).json({
       error: 'too_many_requests',
-      message: '너무 많은 로그인 시도입니다. 15분 후 다시 시도하세요.',
+      message: '너무 많은 로그인 시도입니다. 5분 후 다시 시도하세요.',
     });
   },
 });
@@ -727,7 +824,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({
         error: 'bad_request',
-        message: 'Email and password are required',
+        message: '이메일과 비밀번호를 입력해 주세요.',
       });
     }
 
@@ -738,7 +835,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
       console.warn(`[Auth] Login attempt for non-existent email: ${email}`);
       return res.status(401).json({
         error: 'unauthorized',
-        message: 'Invalid email or password',
+        message: '이메일 또는 비밀번호가 올바르지 않습니다.',
       });
     }
 
@@ -747,7 +844,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
       console.warn(`[Auth] Login denied for inactive account: ${email}`);
       return res.status(403).json({
         error: 'forbidden',
-        message: 'Account is inactive',
+        message: '비활성화된 계정입니다.',
       });
     }
 
@@ -755,7 +852,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     if (!adminUser.password_hash) {
       return res.status(401).json({
         error: 'unauthorized',
-        message: 'Account not configured for local login',
+        message: '로컬 로그인이 설정되지 않은 계정입니다.',
       });
     }
 
@@ -764,30 +861,13 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
       console.warn(`[Auth] Invalid password for: ${email}`);
       return res.status(401).json({
         error: 'unauthorized',
-        message: 'Invalid email or password',
+        message: '이메일 또는 비밀번호가 올바르지 않습니다.',
       });
     }
 
     // Upsert user into PostgreSQL users table (for memos/schedules foreign key)
     try {
-      await db_postgres.query(
-        `INSERT INTO users (email, display_name, provider, role, active, created_at, updated_at, synced_at, password_hash)
-         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6)
-         ON CONFLICT (email)
-         DO UPDATE SET
-           display_name = EXCLUDED.display_name,
-           role = EXCLUDED.role,
-           active = EXCLUDED.active,
-           updated_at = CURRENT_TIMESTAMP`,
-        [
-          adminUser.email,
-          adminUser.display_name,
-          adminUser.provider || 'local',
-          adminUser.role,
-          adminUser.active,
-          adminUser.password_hash
-        ]
-      );
+      await syncAdminUserToPostgres(adminUser);
       console.log(`[Auth] User synced to PostgreSQL: ${email}`);
     } catch (dbError) {
       console.error('[Auth] Failed to sync user to PostgreSQL:', dbError);
@@ -800,6 +880,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     const { accessToken, refreshToken } = await auth.generateTokens(adminUser, userAgent, ipAddress);
 
     console.log(`[Auth] Login successful for ${email} (role: ${adminUser.role})`);
+    loginLimiter.resetKey(getLoginRateLimitKey(req));
 
     res.json({
       user: {
@@ -815,7 +896,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
     console.error('[Auth] Login error:', error);
     res.status(500).json({
       error: 'internal_error',
-      message: 'Login failed',
+      message: '로그인에 실패했습니다.',
     });
   }
 });
@@ -874,7 +955,7 @@ app.post('/auth/logout', async (req, res) => {
     const { refreshToken } = req.body;
 
     if (refreshToken) {
-      auth.revokeRefreshToken(refreshToken);
+      await auth.revokeRefreshToken(refreshToken);
     }
 
     res.json({ success: true, message: 'Logged out successfully' });
@@ -929,9 +1010,11 @@ app.post('/auth/register', auth.authenticateJWT, async (req, res) => {
     const newAdmin = await firestoreAdmin.createAdmin(
       email,
       password,
-      displayName || email,
+      displayName || '사용자',
       role
     );
+
+    await syncAdminUserToPostgres(newAdmin);
 
     console.log(`[Auth] New user registered: ${email} (role: ${role})`);
 
@@ -960,11 +1043,298 @@ app.post('/auth/register', auth.authenticateJWT, async (req, res) => {
 // Apply authentication to all /inquiries routes
 app.use("/inquiries", auth.authenticateJWT);
 
+function parsePaginationParam(value, fallback, { min = 0, max = 500 } = {}) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function isAdminRole(role) {
+  return ['admin', 'super_admin', 'owner'].includes(String(role || '').toLowerCase());
+}
+
+function firestoreValueToISOString(value) {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function resolveInquiryStatus(data = {}) {
+  return data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread'));
+}
+
+const INQUIRY_STATUS_VALUES = new Set(['unread', 'read', 'responded']);
+const EMAIL_STATUS_VALUES = new Set(['unread', 'read', 'responded']);
+const EMAIL_LIKE_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+function isEmailLike(value) {
+  return EMAIL_LIKE_PATTERN.test(String(value || '').trim());
+}
+
+function getUserFacingName(candidates = [], fallback = '사용자') {
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (value && !isEmailLike(value)) {
+      return value;
+    }
+  }
+
+  return fallback;
+}
+
+function decorateAuthorName(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    author_name: getUserFacingName([row.author_name, row.author]),
+  };
+}
+
+async function syncAdminUserToPostgres(adminUser) {
+  if (!adminUser?.email) return;
+
+  await db_postgres.query(
+    `INSERT INTO users (email, display_name, provider, role, active, created_at, updated_at, synced_at, password_hash)
+     VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6)
+     ON CONFLICT (email)
+     DO UPDATE SET
+       display_name = EXCLUDED.display_name,
+       role = EXCLUDED.role,
+       active = EXCLUDED.active,
+       password_hash = EXCLUDED.password_hash,
+       updated_at = CURRENT_TIMESTAMP,
+       synced_at = CURRENT_TIMESTAMP`,
+    [
+      adminUser.email,
+      getUserFacingName([adminUser.display_name, adminUser.displayName], '사용자'),
+      adminUser.provider || 'local',
+      adminUser.role || 'user',
+      adminUser.active !== false,
+      adminUser.password_hash || null,
+    ]
+  );
+}
+const SMS_MESSAGE_MAX_BYTES = 2000;
+
+function mapInquiryDocument(doc) {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    createdAt: firestoreValueToISOString(data.createdAt),
+    updatedAt: firestoreValueToISOString(data.updatedAt),
+    status: resolveInquiryStatus(data),
+  };
+}
+
+function makeHttpError(statusCode, errorCode, message, details = undefined) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.errorCode = errorCode;
+  if (details !== undefined) error.details = details;
+  return error;
+}
+
+function sendApiError(res, error, fallbackStatus = 500) {
+  const statusCode = error.statusCode || fallbackStatus;
+  res.status(statusCode).json({
+    error: error.errorCode || (statusCode >= 500 ? 'internal_error' : 'bad_request'),
+    message: error.message,
+    ...(error.details !== undefined ? { details: error.details } : {}),
+  });
+}
+
+function normalizePhoneNumber(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  let normalized = raw.replace(/[\s().-]/g, '');
+  if (normalized.startsWith('+82')) {
+    normalized = `0${normalized.slice(3)}`;
+  } else if (/^82(10|2|[3-6]\d|70)/.test(normalized)) {
+    normalized = `0${normalized.slice(2)}`;
+  }
+
+  if (!/^0\d{8,10}$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeSmsReceivers(receiver) {
+  const parts = String(receiver || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    throw makeHttpError(400, 'invalid_receiver', '수신자 번호가 필요합니다.');
+  }
+
+  if (parts.length > 1000) {
+    throw makeHttpError(400, 'too_many_receivers', 'SMS 수신자는 최대 1000명까지 보낼 수 있습니다.');
+  }
+
+  const normalized = [];
+  const invalid = [];
+
+  parts.forEach((part) => {
+    const phone = normalizePhoneNumber(part);
+    if (phone) normalized.push(phone);
+    else invalid.push(part);
+  });
+
+  if (invalid.length > 0) {
+    throw makeHttpError(400, 'invalid_receiver', '전화번호 형식이 올바르지 않습니다.', { invalid });
+  }
+
+  return {
+    receiver: normalized.join(','),
+    count: normalized.length,
+  };
+}
+
+function normalizeSmsMessage(message) {
+  const normalized = String(message || '').trim();
+  if (!normalized) {
+    throw makeHttpError(400, 'invalid_message', 'SMS 메시지가 필요합니다.');
+  }
+
+  if (Buffer.byteLength(normalized, 'utf8') > SMS_MESSAGE_MAX_BYTES) {
+    throw makeHttpError(400, 'message_too_long', `SMS 메시지는 ${SMS_MESSAGE_MAX_BYTES}바이트를 넘을 수 없습니다.`);
+  }
+
+  return normalized;
+}
+
+function parseAligoCount(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function sendSmsViaRelay({ receiver, msg, msg_type, title, testmode_yn }, userEmail) {
+  if (!SMS_RELAY_URL) {
+    throw makeHttpError(500, 'server_config_error', 'SMS_RELAY_URL is not configured');
+  }
+
+  const ALIGO_API_KEY = process.env.ALIGO_API_KEY;
+  const ALIGO_USER_ID = process.env.ALIGO_USER_ID;
+  const ALIGO_SENDER = process.env.ALIGO_SENDER_PHONE;
+
+  if (!ALIGO_API_KEY || !ALIGO_USER_ID || !ALIGO_SENDER) {
+    console.error("Aligo SMS credentials not configured");
+    throw makeHttpError(500, 'server_config_error', 'SMS service not configured');
+  }
+
+  const normalizedReceivers = normalizeSmsReceivers(receiver);
+  const normalizedMessage = normalizeSmsMessage(msg);
+  const normalizedMsgType = msg_type ? String(msg_type).trim().toUpperCase() : undefined;
+  const normalizedTestMode = testmode_yn ? String(testmode_yn).trim().toUpperCase() : undefined;
+
+  if (normalizedMsgType && !['SMS', 'LMS', 'MMS'].includes(normalizedMsgType)) {
+    throw makeHttpError(400, 'invalid_msg_type', 'msg_type must be SMS, LMS, or MMS');
+  }
+
+  if (normalizedTestMode && !['Y', 'N'].includes(normalizedTestMode)) {
+    throw makeHttpError(400, 'invalid_testmode', 'testmode_yn must be Y or N');
+  }
+
+  const relayPayload = {
+    key: ALIGO_API_KEY,
+    user_id: ALIGO_USER_ID,
+    sender: ALIGO_SENDER,
+    receiver: normalizedReceivers.receiver,
+    msg: normalizedMessage,
+  };
+
+  if (normalizedMsgType) relayPayload.msg_type = normalizedMsgType;
+  if (title) relayPayload.title = String(title).trim();
+  if (normalizedTestMode) relayPayload.testmode_yn = normalizedTestMode;
+
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  if (SMS_RELAY_AUTH_TOKEN) {
+    headers.Authorization = `Bearer ${SMS_RELAY_AUTH_TOKEN}`;
+  }
+
+  console.log(`[SMS] Sending via fixed-IP relay: ${SMS_RELAY_URL}/sms/send`);
+
+  const aligoResponse = await fetch(`${SMS_RELAY_URL}/sms/send`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(relayPayload),
+  });
+
+  let aligoResult = null;
+  try {
+    aligoResult = await aligoResponse.json();
+  } catch (parseError) {
+    const errorText = await aligoResponse.text().catch(() => '');
+    console.error("Aligo relay returned non-JSON response:", errorText);
+    throw makeHttpError(502, 'sms_provider_error', 'SMS relay returned an invalid response');
+  }
+
+  if (!aligoResponse.ok) {
+    console.error("Aligo relay request failed:", aligoResult);
+    throw makeHttpError(502, 'sms_provider_error', aligoResult?.message || 'Failed to send SMS', {
+      provider: aligoResult,
+    });
+  }
+
+  const resultCode = Number.parseInt(aligoResult.result_code, 10);
+  const successCount = parseAligoCount(aligoResult.success_cnt);
+  const errorCount = parseAligoCount(aligoResult.error_cnt);
+
+  if (!Number.isFinite(resultCode) || resultCode < 0 || successCount <= 0) {
+    console.error("Aligo API error:", aligoResult);
+    throw makeHttpError(502, 'sms_failed', aligoResult.message || 'SMS send failed', {
+      provider: aligoResult,
+    });
+  }
+
+  if (errorCount > 0 || successCount < normalizedReceivers.count) {
+    console.error("Aligo API partial failure:", aligoResult);
+    throw makeHttpError(502, 'sms_partial_failed', aligoResult.message || 'Some SMS recipients failed', {
+      provider: aligoResult,
+      requested_cnt: normalizedReceivers.count,
+    });
+  }
+
+  console.log(`[SMS] Sent by ${userEmail}: ${successCount} success, ${errorCount} failed`);
+
+  return {
+    msg_id: aligoResult.msg_id,
+    success_cnt: successCount,
+    error_cnt: errorCount,
+    msg_type: aligoResult.msg_type,
+    receiver: normalizedReceivers.receiver,
+    result_code: resultCode,
+  };
+}
+
 // GET /inquiries - List all inquiries with optional filtering
 app.get("/inquiries", async (req, res) => {
   const startTime = Date.now();
   try {
-    const { check, status, category, limit = "100", offset = "0" } = req.query;
+    const { check, status, category, start_date, end_date, limit = "100", offset = "0" } = req.query;
+    const limitNum = parsePaginationParam(limit, 100, { min: 1, max: 500 });
+    const offsetNum = parsePaginationParam(offset, 0, { min: 0, max: 100000 });
+
+    if (start_date && !isValidDateOnly(start_date)) {
+      return res.status(400).json({ error: "bad_request", message: "Invalid start_date" });
+    }
+    if (end_date && !isValidDateOnly(end_date)) {
+      return res.status(400).json({ error: "bad_request", message: "Invalid end_date" });
+    }
+    if (start_date && end_date && end_date < start_date) {
+      return res.status(400).json({ error: "bad_request", message: "end_date must be greater than or equal to start_date" });
+    }
 
     let query = db.collection("inquiries");
 
@@ -973,55 +1343,47 @@ app.get("/inquiries", async (req, res) => {
       query = query.where("check", "==", check === "true");
     }
 
-    if (status) {
-      query = query.where("status", "==", status);
-    }
-
     if (category) {
       query = query.where("category", "==", category);
     }
 
-    // Order by creation date (newest first)
-    query = query.orderBy("createdAt", "desc");
-
-    // Apply pagination
-    const limitNum = parseInt(limit, 10);
-    const offsetNum = parseInt(offset, 10);
-
-    if (offsetNum > 0) {
-      const offsetSnapshot = await query.limit(offsetNum).get();
-      if (!offsetSnapshot.empty) {
-        const lastDoc = offsetSnapshot.docs[offsetSnapshot.docs.length - 1];
-        query = query.startAfter(lastDoc);
-      }
+    if (start_date) {
+      query = query.where("createdAt", ">=", new Date(`${start_date}T00:00:00+09:00`));
     }
 
-    query = query.limit(limitNum);
+    if (end_date) {
+      const endExclusive = new Date(`${end_date}T00:00:00+09:00`);
+      endExclusive.setDate(endExclusive.getDate() + 1);
+      query = query.where("createdAt", "<", endExclusive);
+    }
 
     const queryStartTime = Date.now();
     const snapshot = await query.get();
     const queryDuration = Date.now() - queryStartTime;
 
-    const inquiries = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        // Convert Firestore Timestamp to ISO string
-        createdAt: data.createdAt?.toDate().toISOString(),
-        updatedAt: data.updatedAt?.toDate().toISOString(),
-        // Add status field if missing (backward compatibility)
-        status: data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')),
-      };
-    });
+    const filteredInquiries = snapshot.docs
+      .map(mapInquiryDocument)
+      .filter((inquiry) => !status || inquiry.status === status)
+      .sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+    const total = filteredInquiries.length;
+    const inquiries = filteredInquiries.slice(offsetNum, offsetNum + limitNum);
 
     const duration = Date.now() - startTime;
-    console.log(`[Firestore] Query completed in ${queryDuration}ms, total ${duration}ms, returned ${inquiries.length} items`);
+    console.log(`[Firestore] Query completed in ${queryDuration}ms, total ${duration}ms, returned ${inquiries.length}/${total} items`);
 
     res.json({
       status: "ok",
       data: inquiries,
       count: inquiries.length,
+      total,
+      limit: limitNum,
+      offset: offsetNum,
+      hasMore: offsetNum + inquiries.length < total,
     });
   } catch (error) {
     console.error("Error fetching inquiries:", error);
@@ -1041,7 +1403,7 @@ app.get("/inquiries/stats", async (req, res) => {
 
     snapshot.docs.forEach((doc) => {
       const data = doc.data();
-      const status = data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')); // Fallback for old data + 'new' → 'unread' migration
+      const status = resolveInquiryStatus(data); // Fallback for old data + 'new' → 'unread' migration
 
       if (status === 'unread') unreadCount++;
       else if (status === 'read') readCount++;
@@ -1068,6 +1430,96 @@ app.get("/inquiries/stats", async (req, res) => {
   }
 });
 
+// GET /inquiries/all - Get all unchecked inquiries (unified view)
+app.get("/inquiries/all", async (req, res) => {
+  try {
+    const { limit = "100", offset = "0" } = req.query;
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+    const fetchLimit = limitNum + offsetNum;
+
+    const toISOString = (value) => {
+      if (!value) return null;
+      if (typeof value.toDate === 'function') return value.toDate().toISOString();
+      if (value instanceof Date) return value.toISOString();
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    };
+
+    const websiteSnapshot = await db.collection("inquiries").get();
+    const websiteRows = websiteSnapshot.docs
+      .map((doc) => {
+        const data = doc.data();
+        const status = data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread'));
+
+        return {
+          inquiry_type: 'web_form',
+          id: doc.id,
+          customer_name: data.name || data.customerName || data.company || null,
+          customer_email: data.email || null,
+          phone: data.phone || data.phoneNumber || null,
+          title: data.consultation_type || data.type || data.category || data.subject || 'Website inquiry',
+          content: data.content || data.message || data.memo || null,
+          inquiry_date: toISOString(data.createdAt || data.updatedAt),
+          checked: status !== 'unread',
+          checked_by: data.checkedBy || data.updatedBy || null,
+          checked_at: toISOString(data.checkedAt),
+          status,
+        };
+      })
+      .filter((row) => row.status === 'unread');
+
+    const emailResult = await db_postgres.query(`
+      SELECT
+        id,
+        from_name,
+        from_email,
+        subject,
+        body_text,
+        received_at,
+        "check",
+        status,
+        source,
+        updated_at
+      FROM email_inquiries
+      WHERE is_outgoing = false
+        AND (status = 'unread' OR ("check" = false AND (status IS NULL OR status = 'unread')))
+      ORDER BY received_at DESC
+      LIMIT $1 OFFSET 0
+    `, [
+      fetchLimit,
+    ]);
+    const emailRows = emailResult.rows.map((row) => ({
+      inquiry_type: 'email',
+      id: row.id,
+      customer_name: row.from_name || null,
+      customer_email: row.from_email || null,
+      phone: null,
+      title: row.subject || 'Email inquiry',
+      content: row.body_text || null,
+      inquiry_date: toISOString(row.received_at || row.updated_at),
+      checked: row.check,
+      checked_by: null,
+      checked_at: null,
+      status: row.status || (row.check ? 'read' : 'unread'),
+      source: row.source,
+    }));
+
+    const rows = [...websiteRows, ...emailRows]
+      .sort((a, b) => new Date(b.inquiry_date || 0) - new Date(a.inquiry_date || 0))
+      .slice(offsetNum, offsetNum + limitNum);
+
+    res.json({
+      status: "ok",
+      data: rows,
+      count: rows.length,
+    });
+  } catch (error) {
+    console.error("Error fetching all inquiries:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
 // GET /inquiries/:id - Get single inquiry by ID
 app.get("/inquiries/:id", async (req, res) => {
   try {
@@ -1086,9 +1538,9 @@ app.get("/inquiries/:id", async (req, res) => {
       data: {
         id: doc.id,
         ...data,
-        status: data.status === 'new' ? 'unread' : (data.status || (data.check ? 'responded' : 'unread')),
-        createdAt: data.createdAt?.toDate().toISOString(),
-        updatedAt: data.updatedAt?.toDate().toISOString(),
+        status: resolveInquiryStatus(data),
+        createdAt: firestoreValueToISOString(data.createdAt),
+        updatedAt: firestoreValueToISOString(data.updatedAt),
       },
     });
   } catch (error) {
@@ -1116,6 +1568,32 @@ app.patch("/inquiries/:id", async (req, res) => {
       return res.status(400).json({ error: "bad_request", message: "No valid fields to update" });
     }
 
+    if (updates.status !== undefined && !INQUIRY_STATUS_VALUES.has(updates.status)) {
+      return res.status(400).json({
+        error: "invalid_status",
+        message: "Invalid inquiry status",
+        allowed: [...INQUIRY_STATUS_VALUES],
+      });
+    }
+
+    if (updates.check !== undefined && typeof updates.check !== 'boolean') {
+      return res.status(400).json({
+        error: "invalid_check",
+        message: "check must be a boolean",
+      });
+    }
+
+    if (
+      updates.status !== undefined &&
+      updates.check !== undefined &&
+      updates.check !== (updates.status !== 'unread')
+    ) {
+      return res.status(400).json({
+        error: "inconsistent_status",
+        message: "status and check values are inconsistent",
+      });
+    }
+
     // Sync status and check fields for backward compatibility
     if (updates.status !== undefined && updates.check === undefined) {
       // status 업데이트 시 check도 자동 동기화
@@ -1139,12 +1617,17 @@ app.patch("/inquiries/:id", async (req, res) => {
 
     await docRef.update(updates);
 
-    // Broadcast inquiry update event via WebSocket Relay
-    global.broadcastEvent('consultation:updated', {
-      id: id,
-      updates: updates,
-      timestamp: new Date().toISOString(),
-    });
+    if (global.broadcastEvent) {
+      const broadcastUpdates = {
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+      global.broadcastEvent('consultation:updated', {
+        id,
+        ...doc.data(),
+        ...broadcastUpdates,
+      });
+    }
 
     res.json({
       status: "ok",
@@ -1154,6 +1637,77 @@ app.patch("/inquiries/:id", async (req, res) => {
   } catch (error) {
     console.error("Error updating inquiry:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// POST /inquiries/:id/respond-sms - Send SMS response and mark inquiry responded after provider success
+app.post("/inquiries/:id/respond-sms", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message, phone, msg_type, title, testmode_yn } = req.body;
+
+    const docRef = db.collection("inquiries").doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: "not_found", message: "Inquiry not found" });
+    }
+
+    const inquiry = doc.data();
+    const currentStatus = resolveInquiryStatus(inquiry);
+    if (currentStatus === 'responded') {
+      return res.status(409).json({
+        error: "already_responded",
+        message: "Inquiry has already been responded to",
+      });
+    }
+
+    const receiver = phone || inquiry.phone || inquiry.phoneNumber;
+    const smsResult = await sendSmsViaRelay({
+      receiver,
+      msg: message,
+      msg_type,
+      title,
+      testmode_yn,
+    }, req.user.email);
+
+    const updates = {
+      status: 'responded',
+      check: true,
+      respondedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.user.email,
+    };
+
+    await docRef.update(updates);
+
+    if (global.broadcastEvent) {
+      const broadcastUpdates = {
+        ...updates,
+        updatedAt: new Date().toISOString(),
+        respondedAt: new Date().toISOString(),
+      };
+      global.broadcastEvent('consultation:updated', {
+        id,
+        ...inquiry,
+        ...broadcastUpdates,
+      });
+    }
+
+    res.json({
+      status: "ok",
+      data: {
+        inquiryId: id,
+        previousStatus: currentStatus,
+        updated: {
+          status: 'responded',
+          check: true,
+        },
+        sms: smsResult,
+      },
+    });
+  } catch (error) {
+    console.error("Inquiry SMS response failed:", error);
+    sendApiError(res, error);
   }
 });
 
@@ -1296,6 +1850,10 @@ app.delete("/inquiries/:id", async (req, res) => {
 
     await docRef.delete();
 
+    if (global.broadcastEvent) {
+      global.broadcastEvent('consultation:deleted', { id });
+    }
+
     console.log(`[Delete] Inquiry ${id} deleted by ${req.user.email}`);
 
     res.json({
@@ -1321,7 +1879,7 @@ app.patch("/users/me", auth.authenticateJWT, async (req, res) => {
     if (displayName === undefined) {
       return res.status(400).json({
         error: "bad_request",
-        message: "Missing displayName field"
+        message: "이름을 입력해 주세요."
       });
     }
 
@@ -1331,8 +1889,10 @@ app.patch("/users/me", auth.authenticateJWT, async (req, res) => {
     });
 
     if (!updatedAdmin) {
-      return res.status(404).json({ error: "not_found", message: "User not found" });
+      return res.status(404).json({ error: "not_found", message: "사용자를 찾을 수 없습니다." });
     }
+
+    await syncAdminUserToPostgres(updatedAdmin);
 
     // Convert Firestore timestamps to ISO strings for JSON serialization
     res.json({
@@ -1349,7 +1909,7 @@ app.patch("/users/me", auth.authenticateJWT, async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating user:", error);
-    res.status(500).json({ error: "internal_error", message: "Internal server error" });
+    res.status(500).json({ error: "internal_error", message: "서버 오류가 발생했습니다." });
   }
 });
 
@@ -1360,7 +1920,7 @@ app.get("/users/me", auth.authenticateJWT, async (req, res) => {
     const adminUser = await firestoreAdmin.getAdminByEmail(req.user.email);
 
     if (!adminUser) {
-      return res.status(404).json({ error: "not_found", message: "User not found" });
+      return res.status(404).json({ error: "not_found", message: "사용자를 찾을 수 없습니다." });
     }
 
     // Convert Firestore timestamps to ISO strings for JSON serialization
@@ -1378,7 +1938,7 @@ app.get("/users/me", auth.authenticateJWT, async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching user:", error);
-    res.status(500).json({ error: "internal_error", message: "Internal server error" });
+    res.status(500).json({ error: "internal_error", message: "서버 오류가 발생했습니다." });
   }
 });
 
@@ -1389,12 +1949,16 @@ app.get("/users/me", auth.authenticateJWT, async (req, res) => {
 // GET /memos - List memos with search and pagination
 app.get("/memos", auth.authenticateJWT, async (req, res) => {
   try {
-    const { search, author, important, limit = "50", offset = "0" } = req.query;
+    const { search, author, important, active, limit = "50", offset = "0" } = req.query;
+    const limitNum = parsePaginationParam(limit, 50, { min: 1, max: 500 });
+    const offsetNum = parsePaginationParam(offset, 0, { min: 0, max: 100000 });
 
-    let query = `
+    const selectClause = `
       SELECT m.id, m.title, m.content, m.important, m.author,
              m.created_at, m.updated_at, m.expire_date,
              COALESCE(u.display_name, m.author) as author_name
+    `;
+    let fromClause = `
       FROM memos m
       LEFT JOIN users u ON m.author = u.email
       WHERE m.deleted_at IS NULL
@@ -1404,41 +1968,83 @@ app.get("/memos", auth.authenticateJWT, async (req, res) => {
 
     // Search filter (title or content)
     if (search) {
-      query += ` AND (m.title ILIKE $${paramIndex} OR m.content ILIKE $${paramIndex})`;
+      fromClause += ` AND (m.title ILIKE $${paramIndex} OR m.content ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     // Author filter
     if (author) {
-      query += ` AND m.author = $${paramIndex}`;
+      fromClause += ` AND m.author = $${paramIndex}`;
       params.push(author);
       paramIndex++;
     }
 
     // Important filter
     if (important !== undefined) {
-      query += ` AND m.important = $${paramIndex}`;
+      fromClause += ` AND m.important = $${paramIndex}`;
       params.push(important === 'true');
       paramIndex++;
     }
 
+    // Active memo filter must be applied before pagination so expired rows do not crowd out active rows.
+    if (active === 'true') {
+      fromClause += ` AND (m.expire_date IS NULL OR m.expire_date >= CURRENT_DATE)`;
+    }
+
+    const countQuery = `SELECT COUNT(*)::int AS total ${fromClause}`;
+    const countResult = await db_postgres.query(countQuery, params);
+    const total = countResult.rows[0]?.total || 0;
+
     // Order by creation date (newest first)
-    query += ` ORDER BY m.created_at DESC`;
+    let query = `${selectClause} ${fromClause} ORDER BY m.created_at DESC`;
 
     // Pagination
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit, 10), parseInt(offset, 10));
+    params.push(limitNum, offsetNum);
 
     const result = await db_postgres.query(query, params);
 
     res.json({
       status: "ok",
-      data: result.rows,
+      data: result.rows.map(decorateAuthorName),
       count: result.rows.length,
+      total,
+      limit: limitNum,
+      offset: offsetNum,
+      hasMore: offsetNum + result.rows.length < total,
     });
   } catch (error) {
     console.error("Error fetching memos:", error);
+    res.status(500).json({ error: "internal_error", message: error.message });
+  }
+});
+
+// GET /memos/:id - Get one memo
+app.get("/memos/:id", auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      SELECT m.*, COALESCE(u.display_name, m.author) as author_name
+      FROM memos m
+      LEFT JOIN users u ON m.author = u.email
+      WHERE m.id = $1 AND m.deleted_at IS NULL
+      LIMIT 1
+    `;
+
+    const result = await db_postgres.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "메모를 찾을 수 없습니다." });
+    }
+
+    res.json({
+      status: "ok",
+      data: decorateAuthorName(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Error fetching memo:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
   }
 });
@@ -1451,7 +2057,7 @@ app.post("/memos", auth.authenticateJWT, async (req, res) => {
     if (!title || !content) {
       return res.status(400).json({
         error: "bad_request",
-        message: "Missing required fields: title, content"
+        message: "제목과 내용을 입력해 주세요."
       });
     }
 
@@ -1479,14 +2085,15 @@ app.post("/memos", auth.authenticateJWT, async (req, res) => {
     `;
     const memoWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
 
-    // WebSocket broadcast
+    const createdMemo = decorateAuthorName(memoWithAuthor.rows[0]);
+
     if (global.broadcastEvent) {
-      global.broadcastEvent('memo:created', memoWithAuthor.rows[0]);
+      global.broadcastEvent('memo:created', createdMemo);
     }
 
     res.json({
       status: "ok",
-      data: memoWithAuthor.rows[0],
+      data: createdMemo,
     });
   } catch (error) {
     console.error("Error creating memo:", error);
@@ -1499,6 +2106,19 @@ app.patch("/memos/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, content, important, expire_date } = req.body;
+
+    const existingResult = await db_postgres.query(
+      `SELECT id, author FROM memos WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "메모를 찾을 수 없습니다." });
+    }
+
+    if (!isAdminRole(req.user.role) && existingResult.rows[0].author !== req.user.email) {
+      return res.status(403).json({ error: "forbidden", message: "이 메모를 수정할 권한이 없습니다." });
+    }
 
     const updates = [];
     const params = [];
@@ -1522,7 +2142,7 @@ app.patch("/memos/:id", auth.authenticateJWT, async (req, res) => {
     }
 
     if (updates.length === 0) {
-      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+      return res.status(400).json({ error: "bad_request", message: "수정할 내용이 없습니다." });
     }
 
     params.push(id);
@@ -1535,18 +2155,22 @@ app.patch("/memos/:id", auth.authenticateJWT, async (req, res) => {
 
     const result = await db_postgres.query(query, params);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "not_found", message: "Memo not found" });
-    }
+    const selectQuery = `
+      SELECT m.*, COALESCE(u.display_name, m.author) as author_name
+      FROM memos m
+      LEFT JOIN users u ON m.author = u.email
+      WHERE m.id = $1
+    `;
+    const memoWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
+    const updatedMemo = decorateAuthorName(memoWithAuthor.rows[0]);
 
-    // WebSocket broadcast
     if (global.broadcastEvent) {
-      global.broadcastEvent('memo:updated', result.rows[0]);
+      global.broadcastEvent('memo:updated', updatedMemo);
     }
 
     res.json({
       status: "ok",
-      data: result.rows[0],
+      data: updatedMemo,
     });
   } catch (error) {
     console.error("Error updating memo:", error);
@@ -1559,6 +2183,19 @@ app.delete("/memos/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
 
+    const existingResult = await db_postgres.query(
+      `SELECT id, author FROM memos WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "메모를 찾을 수 없습니다." });
+    }
+
+    if (!isAdminRole(req.user.role) && existingResult.rows[0].author !== req.user.email) {
+      return res.status(403).json({ error: "forbidden", message: "이 메모를 삭제할 권한이 없습니다." });
+    }
+
     const query = `
       UPDATE memos
       SET deleted_at = CURRENT_TIMESTAMP
@@ -1568,18 +2205,13 @@ app.delete("/memos/:id", auth.authenticateJWT, async (req, res) => {
 
     const result = await db_postgres.query(query, [id]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "not_found", message: "Memo not found" });
-    }
-
-    // WebSocket broadcast
     if (global.broadcastEvent) {
-      global.broadcastEvent('memo:deleted', { id: parseInt(id) });
+      global.broadcastEvent('memo:deleted', { id: result.rows[0].id });
     }
 
     res.json({
       status: "ok",
-      message: "Memo deleted successfully",
+      message: "메모를 삭제했습니다.",
     });
   } catch (error) {
     console.error("Error deleting memo:", error);
@@ -1591,15 +2223,65 @@ app.delete("/memos/:id", auth.authenticateJWT, async (req, res) => {
 // SCHEDULES API (PostgreSQL)
 // ============================================
 
+function normalizeScheduleType(type) {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'company' || normalized === '회사') return 'company';
+  if (normalized === 'personal' || normalized === '개인') return 'personal';
+  return null;
+}
+
+function isValidDateOnly(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isValidScheduleTime(value) {
+  if (value === null || value === undefined || value === '') return true;
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+}
+
+function canModifySchedule(user, schedule) {
+  if (isAdminRole(user?.role)) return true;
+  if (schedule.type === 'company') return true;
+  return schedule.author === user?.email;
+}
+
+function canModifyPersonalScheduleTarget(user, schedule, targetType) {
+  if (targetType !== 'personal') return true;
+  return isAdminRole(user?.role) || schedule.author === user?.email;
+}
+
 // GET /schedules - List schedules with filtering
 app.get("/schedules", auth.authenticateJWT, async (req, res) => {
   try {
     const { start_date, end_date, type, author, limit = "100", offset = "0" } = req.query;
+    const limitNum = parsePaginationParam(limit, 100, { min: 1, max: 500 });
+    const offsetNum = parsePaginationParam(offset, 0, { min: 0, max: 100000 });
 
-    let query = `
+    if (start_date && !isValidDateOnly(start_date)) {
+      return res.status(400).json({ error: "bad_request", message: "시작일 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해 주세요." });
+    }
+    if (end_date && !isValidDateOnly(end_date)) {
+      return res.status(400).json({ error: "bad_request", message: "종료일 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해 주세요." });
+    }
+    if (start_date && end_date && end_date < start_date) {
+      return res.status(400).json({ error: "bad_request", message: "종료일은 시작일과 같거나 이후여야 합니다." });
+    }
+
+    const normalizedType = type ? normalizeScheduleType(type) : null;
+    if (type && !normalizedType) {
+      return res.status(400).json({ error: "bad_request", message: "일정 유형이 올바르지 않습니다." });
+    }
+
+    const selectClause = `
       SELECT s.id, s.title, s.time, s.start_date, s.end_date, s.type, s.author,
              s.created_at, s.updated_at,
              COALESCE(u.display_name, s.author) as author_name
+    `;
+    let fromClause = `
       FROM active_schedules s
       LEFT JOIN users u ON s.author = u.email
       WHERE 1=1
@@ -1609,43 +2291,51 @@ app.get("/schedules", auth.authenticateJWT, async (req, res) => {
 
     // Date range filter
     if (start_date) {
-      query += ` AND s.end_date >= $${paramIndex}`;
+      fromClause += ` AND s.end_date >= $${paramIndex}`;
       params.push(start_date);
       paramIndex++;
     }
     if (end_date) {
-      query += ` AND s.start_date <= $${paramIndex}`;
+      fromClause += ` AND s.start_date <= $${paramIndex}`;
       params.push(end_date);
       paramIndex++;
     }
 
     // Type filter
-    if (type) {
-      query += ` AND s.type = $${paramIndex}`;
-      params.push(type);
+    if (normalizedType) {
+      fromClause += ` AND s.type = $${paramIndex}`;
+      params.push(normalizedType);
       paramIndex++;
     }
 
     // Author filter
     if (author) {
-      query += ` AND s.author = $${paramIndex}`;
+      fromClause += ` AND s.author = $${paramIndex}`;
       params.push(author);
       paramIndex++;
     }
 
+    const countQuery = `SELECT COUNT(*)::int AS total ${fromClause}`;
+    const countResult = await db_postgres.query(countQuery, params);
+    const total = countResult.rows[0]?.total || 0;
+
     // Order by start date
-    query += ` ORDER BY s.start_date DESC, s.time`;
+    let query = `${selectClause} ${fromClause} ORDER BY s.start_date ASC, s.time NULLS LAST, s.created_at DESC`;
 
     // Pagination
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit, 10), parseInt(offset, 10));
+    params.push(limitNum, offsetNum);
 
     const result = await db_postgres.query(query, params);
 
     res.json({
       status: "ok",
-      data: result.rows,
+      data: result.rows.map(decorateAuthorName),
       count: result.rows.length,
+      total,
+      limit: limitNum,
+      offset: offsetNum,
+      hasMore: offsetNum + result.rows.length < total,
     });
   } catch (error) {
     console.error("Error fetching schedules:", error);
@@ -1657,12 +2347,26 @@ app.get("/schedules", auth.authenticateJWT, async (req, res) => {
 app.post("/schedules", auth.authenticateJWT, async (req, res) => {
   try {
     const { title, time, start_date, end_date, type } = req.body;
+    const trimmedTitle = typeof title === 'string' ? title.trim() : '';
+    const normalizedType = normalizeScheduleType(type);
 
-    if (!title || !start_date || !end_date || !type) {
+    if (!trimmedTitle || !start_date || !end_date || !type) {
       return res.status(400).json({
         error: "bad_request",
-        message: "Missing required fields: title, start_date, end_date, type"
+        message: "제목, 시작일, 종료일, 일정 유형을 입력해 주세요."
       });
+    }
+    if (!isValidDateOnly(start_date) || !isValidDateOnly(end_date)) {
+      return res.status(400).json({ error: "bad_request", message: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해 주세요." });
+    }
+    if (end_date < start_date) {
+      return res.status(400).json({ error: "bad_request", message: "종료일은 시작일과 같거나 이후여야 합니다." });
+    }
+    if (!normalizedType) {
+      return res.status(400).json({ error: "bad_request", message: "일정 유형이 올바르지 않습니다." });
+    }
+    if (!isValidScheduleTime(time)) {
+      return res.status(400).json({ error: "bad_request", message: "시간 형식이 올바르지 않습니다. HH:mm 형식으로 입력해 주세요." });
     }
 
     const insertQuery = `
@@ -1672,11 +2376,11 @@ app.post("/schedules", auth.authenticateJWT, async (req, res) => {
     `;
 
     const result = await db_postgres.query(insertQuery, [
-      title,
+      trimmedTitle,
       time || null,
       start_date,
       end_date,
-      type,
+      normalizedType,
       req.user.email,
     ]);
 
@@ -1689,14 +2393,15 @@ app.post("/schedules", auth.authenticateJWT, async (req, res) => {
     `;
     const scheduleWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
 
-    // WebSocket broadcast
+    const createdSchedule = decorateAuthorName(scheduleWithAuthor.rows[0]);
+
     if (global.broadcastEvent) {
-      global.broadcastEvent('schedule:created', scheduleWithAuthor.rows[0]);
+      global.broadcastEvent('schedule:created', createdSchedule);
     }
 
     res.json({
       status: "ok",
-      data: scheduleWithAuthor.rows[0],
+      data: createdSchedule,
     });
   } catch (error) {
     console.error("Error creating schedule:", error);
@@ -1710,13 +2415,53 @@ app.patch("/schedules/:id", auth.authenticateJWT, async (req, res) => {
     const { id } = req.params;
     const { title, time, start_date, end_date, type } = req.body;
 
+    const existingResult = await db_postgres.query(
+      `SELECT id, title, time, start_date, end_date, type, author FROM schedules WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "일정을 찾을 수 없습니다." });
+    }
+
+    const existingSchedule = existingResult.rows[0];
+    if (!canModifySchedule(req.user, existingSchedule)) {
+      return res.status(403).json({ error: "forbidden", message: "이 일정을 수정할 권한이 없습니다." });
+    }
+
+    const nextStartDate = start_date !== undefined ? start_date : existingSchedule.start_date.toISOString?.().slice(0, 10) || String(existingSchedule.start_date).slice(0, 10);
+    const nextEndDate = end_date !== undefined ? end_date : existingSchedule.end_date.toISOString?.().slice(0, 10) || String(existingSchedule.end_date).slice(0, 10);
+    const nextType = type !== undefined ? normalizeScheduleType(type) : existingSchedule.type;
+
+    if (title !== undefined && (typeof title !== 'string' || !title.trim())) {
+      return res.status(400).json({ error: "bad_request", message: "일정 제목을 입력해 주세요." });
+    }
+    if (start_date !== undefined && !isValidDateOnly(start_date)) {
+      return res.status(400).json({ error: "bad_request", message: "시작일 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해 주세요." });
+    }
+    if (end_date !== undefined && !isValidDateOnly(end_date)) {
+      return res.status(400).json({ error: "bad_request", message: "종료일 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해 주세요." });
+    }
+    if (nextEndDate < nextStartDate) {
+      return res.status(400).json({ error: "bad_request", message: "종료일은 시작일과 같거나 이후여야 합니다." });
+    }
+    if (type !== undefined && !nextType) {
+      return res.status(400).json({ error: "bad_request", message: "일정 유형이 올바르지 않습니다." });
+    }
+    if (time !== undefined && !isValidScheduleTime(time)) {
+      return res.status(400).json({ error: "bad_request", message: "시간 형식이 올바르지 않습니다. HH:mm 형식으로 입력해 주세요." });
+    }
+    if (!canModifyPersonalScheduleTarget(req.user, existingSchedule, nextType)) {
+      return res.status(403).json({ error: "forbidden", message: "공유 일정을 개인 일정으로 바꾸려면 작성자 또는 관리자 권한이 필요합니다." });
+    }
+
     const updates = [];
     const params = [];
     let paramIndex = 1;
 
     if (title !== undefined) {
       updates.push(`title = $${paramIndex++}`);
-      params.push(title);
+      params.push(title.trim());
     }
     if (time !== undefined) {
       updates.push(`time = $${paramIndex++}`);
@@ -1732,11 +2477,11 @@ app.patch("/schedules/:id", auth.authenticateJWT, async (req, res) => {
     }
     if (type !== undefined) {
       updates.push(`type = $${paramIndex++}`);
-      params.push(type);
+      params.push(nextType);
     }
 
     if (updates.length === 0) {
-      return res.status(400).json({ error: "bad_request", message: "No fields to update" });
+      return res.status(400).json({ error: "bad_request", message: "수정할 내용이 없습니다." });
     }
 
     params.push(id);
@@ -1749,18 +2494,22 @@ app.patch("/schedules/:id", auth.authenticateJWT, async (req, res) => {
 
     const result = await db_postgres.query(query, params);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "not_found", message: "Schedule not found" });
-    }
+    const selectQuery = `
+      SELECT s.*, COALESCE(u.display_name, s.author) as author_name
+      FROM schedules s
+      LEFT JOIN users u ON s.author = u.email
+      WHERE s.id = $1
+    `;
+    const scheduleWithAuthor = await db_postgres.query(selectQuery, [result.rows[0].id]);
+    const updatedSchedule = decorateAuthorName(scheduleWithAuthor.rows[0]);
 
-    // WebSocket broadcast
     if (global.broadcastEvent) {
-      global.broadcastEvent('schedule:updated', result.rows[0]);
+      global.broadcastEvent('schedule:updated', updatedSchedule);
     }
 
     res.json({
       status: "ok",
-      data: result.rows[0],
+      data: updatedSchedule,
     });
   } catch (error) {
     console.error("Error updating schedule:", error);
@@ -1773,6 +2522,19 @@ app.delete("/schedules/:id", auth.authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
 
+    const existingResult = await db_postgres.query(
+      `SELECT id, type, author FROM schedules WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "not_found", message: "일정을 찾을 수 없습니다." });
+    }
+
+    if (!canModifySchedule(req.user, existingResult.rows[0])) {
+      return res.status(403).json({ error: "forbidden", message: "이 일정을 삭제할 권한이 없습니다." });
+    }
+
     const query = `
       UPDATE schedules
       SET deleted_at = CURRENT_TIMESTAMP
@@ -1782,18 +2544,13 @@ app.delete("/schedules/:id", auth.authenticateJWT, async (req, res) => {
 
     const result = await db_postgres.query(query, [id]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "not_found", message: "Schedule not found" });
-    }
-
-    // WebSocket broadcast
     if (global.broadcastEvent) {
-      global.broadcastEvent('schedule:deleted', { id: parseInt(id) });
+      global.broadcastEvent('schedule:deleted', { id: result.rows[0].id });
     }
 
     res.json({
       status: "ok",
-      message: "Schedule deleted successfully",
+      message: "일정을 삭제했습니다.",
     });
   } catch (error) {
     console.error("Error deleting schedule:", error);
@@ -1903,125 +2660,25 @@ app.patch("/web-form-inquiries/:id", auth.authenticateJWT, async (req, res) => {
   }
 });
 
-// ============================================
-// UNIFIED INQUIRIES VIEW
-// ============================================
-
-// GET /inquiries/all - Get all unchecked inquiries (unified view)
-app.get("/inquiries/all", auth.authenticateJWT, async (req, res) => {
-  try {
-    const { limit = "100", offset = "0" } = req.query;
-
-    const query = `
-      SELECT * FROM all_unchecked_inquiries
-      LIMIT $1 OFFSET $2
-    `;
-
-    const result = await db_postgres.query(query, [
-      parseInt(limit, 10),
-      parseInt(offset, 10),
-    ]);
-
-    res.json({
-      status: "ok",
-      data: result.rows,
-      count: result.rows.length,
-    });
-  } catch (error) {
-    console.error("Error fetching all inquiries:", error);
-    res.status(500).json({ error: "internal_error", message: error.message });
-  }
-});
-
 // POST /sms/send - Send SMS via Aligo API (through GCP3 relay)
 app.post("/sms/send", auth.authenticateJWT, async (req, res) => {
   try {
     const { receiver, msg, msg_type, title, testmode_yn } = req.body;
-
-    // Validate required fields
-    if (!receiver || !msg) {
-      return res.status(400).json({
-        error: "bad_request",
-        message: "Missing required fields: receiver, msg"
-      });
-    }
-
-    // Validate environment variables
-    const ALIGO_API_KEY = process.env.ALIGO_API_KEY;
-    const ALIGO_USER_ID = process.env.ALIGO_USER_ID;
-    const ALIGO_SENDER = process.env.ALIGO_SENDER_PHONE;
-
-    if (!ALIGO_API_KEY || !ALIGO_USER_ID || !ALIGO_SENDER) {
-      console.error("Aligo SMS credentials not configured");
-      return res.status(500).json({
-        error: "server_config_error",
-        message: "SMS service not configured"
-      });
-    }
-
-    // Call GCP3 SMS relay server (VM with fixed IP)
-    const RELAY_URL = process.env.RELAY_URL || 'http://136.113.67.193:3000';
-    console.log(`[SMS] Sending via GCP3 relay: ${RELAY_URL}/sms/send`);
-
-    const relayPayload = {
-      key: ALIGO_API_KEY,
-      user_id: ALIGO_USER_ID,
-      sender: ALIGO_SENDER,
-      receiver: receiver,
-      msg: msg,
-    };
-
-    // Add optional parameters
-    if (msg_type) relayPayload.msg_type = msg_type;
-    if (title) relayPayload.title = title;
-    if (testmode_yn) relayPayload.testmode_yn = testmode_yn;
-
-    const aligoResponse = await fetch(`${RELAY_URL}/sms/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(relayPayload),
-    });
-
-    if (!aligoResponse.ok) {
-      const errorText = await aligoResponse.text();
-      console.error("Aligo API request failed:", errorText);
-      return res.status(500).json({
-        error: "sms_provider_error",
-        message: "Failed to send SMS"
-      });
-    }
-
-    const aligoResult = await aligoResponse.json();
-
-    // Check Aligo API result
-    if (aligoResult.result_code < 0) {
-      console.error("Aligo API error:", aligoResult.message);
-      return res.status(500).json({
-        error: "sms_failed",
-        message: aligoResult.message || "SMS send failed"
-      });
-    }
-
-    // Log SMS send activity
-    console.log(`[SMS] Sent by ${req.user.email}: ${aligoResult.success_cnt} success, ${aligoResult.error_cnt} failed`);
+    const smsResult = await sendSmsViaRelay({
+      receiver,
+      msg,
+      msg_type,
+      title,
+      testmode_yn,
+    }, req.user.email);
 
     res.json({
       status: "ok",
-      data: {
-        msg_id: aligoResult.msg_id,
-        success_cnt: aligoResult.success_cnt,
-        error_cnt: aligoResult.error_cnt,
-        msg_type: aligoResult.msg_type,
-      },
+      data: smsResult,
     });
   } catch (error) {
     console.error("SMS send error:", error);
-    return res.status(500).json({
-      error: "internal_error",
-      message: error.message
-    });
+    sendApiError(res, error);
   }
 });
 
@@ -2052,24 +2709,20 @@ db.collection('inquiries').onSnapshot(snapshot => {
         break;
 
       case 'modified':
-        // 상담 확인 (check: true), 메모 수정 등
         console.log(`[Firestore] Inquiry modified: ${change.doc.id}`);
         if (global.broadcastEvent) {
-          global.broadcastEvent('consultation:updated', {
-            id: change.doc.id,
-            updates: inquiryData
-          });
+          global.broadcastEvent('consultation:updated', inquiryData);
         }
+        // 상담 확인 (check: true), 메모 수정 등
+        console.log(`[Firestore] Inquiry modified: ${change.doc.id}`);
         break;
 
       case 'removed':
+        if (global.broadcastEvent) {
+          global.broadcastEvent('consultation:deleted', { id: change.doc.id });
+        }
         // 상담 삭제 (DELETE API 또는 외부 삭제)
         console.log(`[Firestore] Inquiry removed: ${change.doc.id}`);
-        if (global.broadcastEvent) {
-          global.broadcastEvent('consultation:deleted', {
-            id: change.doc.id
-          });
-        }
         break;
     }
   });
@@ -2082,73 +2735,115 @@ console.log('✓ Firestore real-time listener registered for inquiries collectio
 // ============================================
 // Email Inquiries API (Gmail + ZOHO)
 // ============================================
+emailMailClient.registerRoutes(app, auth, asyncHandler);
+
+function mapEmailInquiryRow(row) {
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    source: row.source,
+    from: row.from_email,
+    fromName: row.from_name,
+    to: row.to_email,
+    cc: row.cc_emails,
+    subject: row.subject,
+    body: row.body_text,
+    bodyHtml: row.body_html,
+    hasAttachments: row.has_attachments,
+    receivedAt: row.received_at,
+    check: row.check,
+    status: row.status || (row.check ? 'read' : 'unread'),
+    inReplyTo: row.in_reply_to,
+    references: row.references,
+    threadId: row.thread_id,
+    isOutgoing: row.is_outgoing || false,
+    translationStatus: row.translation_status || 'not_required',
+    detectedLanguage: row.detected_language || null,
+    translatedSubject: row.translated_subject || null,
+    translatedBody: row.translated_body_text || null,
+    translationModel: row.translation_model || null,
+    translationError: row.translation_error || null,
+    translatedAt: row.translated_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
 
 // Get all email inquiries
 app.get('/email-inquiries', auth.authenticateJWT, async (req, res) => {
   try {
-    const { source, check, status, limit = 50, offset = 0, includeOutgoing } = req.query;
+    const { source, check, status, search, limit = 50, offset = 0, includeOutgoing } = req.query;
+    const limitNum = parsePaginationParam(limit, 50, { min: 1, max: 500 });
+    const offsetNum = parsePaginationParam(offset, 0, { min: 0, max: 100000 });
 
     // By default, only fetch incoming emails (is_outgoing = false)
     // Set includeOutgoing=true to fetch all emails (for thread view)
-    let sql = includeOutgoing === 'true'
-      ? 'SELECT * FROM email_inquiries WHERE 1=1'
-      : 'SELECT * FROM email_inquiries WHERE is_outgoing = false';
+    let whereClause = includeOutgoing === 'true'
+      ? 'WHERE 1=1'
+      : 'WHERE is_outgoing = false';
     const values = [];
     let paramIndex = 1;
 
     // Filter by source
     if (source) {
-      sql += ` AND source = $${paramIndex++}`;
+      whereClause += ` AND source = $${paramIndex++}`;
       values.push(source);
     }
 
     // Filter by status (takes priority over check)
     if (status !== undefined) {
-      sql += ` AND status = $${paramIndex++}`;
+      whereClause += ` AND status = $${paramIndex++}`;
       values.push(status);
     }
     // Filter by check status (legacy support)
     else if (check !== undefined) {
-      sql += ` AND "check" = $${paramIndex++}`;
+      whereClause += ` AND "check" = $${paramIndex++}`;
       values.push(check === 'true');
     }
 
+    if (search) {
+      const searchValue = `%${String(search).trim().toLowerCase()}%`;
+      whereClause += ` AND (
+        LOWER(COALESCE(from_name, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(from_email, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(to_email, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(subject, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(body_text, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(body_html, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(translated_subject, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(translated_body_text, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(source, '')) LIKE $${paramIndex}
+        OR LOWER(COALESCE(message_id, '')) LIKE $${paramIndex}
+      )`;
+      values.push(searchValue);
+      paramIndex++;
+    }
+
+    const countSql = `SELECT COUNT(*)::int AS total FROM email_inquiries ${whereClause}`;
+    const countResult = await db_postgres.query(countSql, values);
+    const total = countResult.rows[0]?.total || 0;
+
     // Order and pagination
-    sql += ` ORDER BY received_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    values.push(parseInt(limit), parseInt(offset));
+    const sql = `SELECT * FROM email_inquiries ${whereClause} ORDER BY received_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    values.push(limitNum, offsetNum);
 
     const result = await db_postgres.query(sql, values);
 
-    console.log(`[Email Inquiries] Query returned ${result.rows.length} rows (includeOutgoing=${includeOutgoing}, status=${status}, check=${check})`);
+    console.log(`[Email Inquiries] Query returned ${result.rows.length}/${total} rows (includeOutgoing=${includeOutgoing}, status=${status}, check=${check}, search=${search || ''})`);
     console.log(`[Email Inquiries] SQL: ${sql}`);
     console.log(`[Email Inquiries] Values:`, values);
 
     // Map DB column names to frontend-friendly names
-    const mappedData = result.rows.map(row => ({
-      id: row.id,
-      messageId: row.message_id,
-      source: row.source,
-      from: row.from_email,
-      fromName: row.from_name,
-      to: row.to_email,
-      cc: row.cc_emails,
-      subject: row.subject,
-      body: row.body_text,
-      bodyHtml: row.body_html,
-      hasAttachments: row.has_attachments,
-      receivedAt: row.received_at,
-      check: row.check,
-      // New fields for thread management and status
-      status: row.status || (row.check ? 'read' : 'unread'),
-      inReplyTo: row.in_reply_to,
-      references: row.references,
-      threadId: row.thread_id,
-      isOutgoing: row.is_outgoing || false,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const mappedData = result.rows.map(mapEmailInquiryRow);
 
-    res.json({ data: mappedData });
+    res.json({
+      data: mappedData,
+      count: mappedData.length,
+      total,
+      limit: limitNum,
+      offset: offsetNum,
+      hasMore: offsetNum + mappedData.length < total,
+    });
   } catch (error) {
     console.error('[Email Inquiries] Error fetching inquiries:', error);
     res.status(500).json({ error: 'Failed to fetch email inquiries' });
@@ -2188,6 +2883,56 @@ app.get('/email-inquiries/stats', auth.authenticateJWT, async (req, res) => {
   }
 });
 
+// Get thread-related emails for one email inquiry
+app.get('/email-inquiries/:id/thread', auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentEmail = await db_postgres.query(
+      'SELECT id FROM email_inquiries WHERE id = $1 LIMIT 1',
+      [id]
+    );
+
+    if (currentEmail.rows.length === 0) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Email inquiry not found',
+      });
+    }
+
+    const sql = `
+      WITH current_email AS (
+        SELECT *
+        FROM email_inquiries
+        WHERE id = $1
+        LIMIT 1
+      )
+      SELECT e.*
+      FROM email_inquiries e
+      CROSS JOIN current_email c
+      WHERE e.id <> c.id
+        AND (
+          (c.thread_id IS NOT NULL AND e.thread_id = c.thread_id)
+          OR (c.message_id IS NOT NULL AND e.in_reply_to = c.message_id)
+          OR (c.in_reply_to IS NOT NULL AND e.message_id = c.in_reply_to)
+          OR (c.in_reply_to IS NOT NULL AND e.in_reply_to = c.in_reply_to)
+          OR (c.message_id = ANY(COALESCE(e."references", ARRAY[]::text[])))
+          OR (e.message_id = ANY(COALESCE(c."references", ARRAY[]::text[])))
+        )
+      ORDER BY e.received_at ASC
+      LIMIT 500;
+    `;
+
+    const result = await db_postgres.query(sql, [id]);
+
+    const mappedData = result.rows.map(mapEmailInquiryRow);
+
+    res.json({ data: mappedData, count: mappedData.length });
+  } catch (error) {
+    console.error('[Email Inquiries] Error fetching thread:', error);
+    res.status(500).json({ error: 'Failed to fetch email thread' });
+  }
+});
+
 // Update email inquiry (mark as checked/unchecked or update status)
 app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
   try {
@@ -2195,6 +2940,32 @@ app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
     const { check, status } = req.body;
 
     let updates = {};
+
+    if (status !== undefined && !EMAIL_STATUS_VALUES.has(status)) {
+      return res.status(400).json({
+        error: 'invalid_status',
+        message: 'Invalid email inquiry status',
+        allowed: [...EMAIL_STATUS_VALUES],
+      });
+    }
+
+    if (check !== undefined && typeof check !== 'boolean') {
+      return res.status(400).json({
+        error: 'invalid_check',
+        message: 'check must be a boolean',
+      });
+    }
+
+    if (
+      status !== undefined &&
+      check !== undefined &&
+      check !== (status !== 'unread')
+    ) {
+      return res.status(400).json({
+        error: 'inconsistent_status',
+        message: 'status and check values are inconsistent',
+      });
+    }
 
     // Handle new status field (takes priority)
     if (status !== undefined) {
@@ -2241,35 +3012,10 @@ app.patch('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Email inquiry not found' });
     }
 
-    // Map response to camelCase
-    const row = result.rows[0];
-    const mappedData = {
-      id: row.id,
-      messageId: row.message_id,
-      from: row.from,
-      fromName: row.from_name,
-      toEmail: row.to_email,
-      subject: row.subject,
-      body: row.body,
-      bodyHtml: row.body_html,
-      receivedAt: row.received_at,
-      source: row.source,
-      check: row.check,
-      status: row.status || (row.check ? 'read' : 'unread'),
-      inReplyTo: row.in_reply_to,
-      references: row.references,
-      threadId: row.thread_id,
-      isOutgoing: row.is_outgoing || false,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    };
+    const mappedData = mapEmailInquiryRow(result.rows[0]);
 
-    // Broadcast WebSocket event for real-time updates
     if (global.broadcastEvent) {
-      global.broadcastEvent('email:updated', {
-        id: parseInt(id),
-        updates: mappedData
-      });
+      global.broadcastEvent('email:updated', mappedData);
     }
 
     res.json({ data: mappedData });
@@ -2291,15 +3037,88 @@ app.delete('/email-inquiries/:id', auth.authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Email inquiry not found' });
     }
 
-    // Broadcast WebSocket event for real-time updates
     if (global.broadcastEvent) {
-      global.broadcastEvent('email:deleted', { id: parseInt(id) });
+      global.broadcastEvent('email:deleted', { id: result.rows[0].id });
     }
 
     res.json({ data: result.rows[0] });
   } catch (error) {
     console.error('[Email Inquiries] Error deleting inquiry:', error);
     res.status(500).json({ error: 'Failed to delete email inquiry' });
+  }
+});
+
+// Backfill translations for existing incoming emails in small batches.
+app.post('/email-inquiries/translations/backfill', auth.authenticateJWT, async (req, res) => {
+  try {
+    const limit = parsePaginationParam(req.body?.limit, 25, { min: 1, max: 100 });
+    const force = req.body?.force === true;
+    const statusFilter = force
+      ? ''
+      : `AND COALESCE(translation_status, 'not_required') IN ('not_required', 'failed', 'disabled')`;
+
+    const candidates = await db_postgres.query(`
+      SELECT id
+      FROM email_inquiries
+      WHERE is_outgoing = false
+        ${statusFilter}
+      ORDER BY received_at DESC
+      LIMIT $1;
+    `, [limit]);
+
+    const results = [];
+    for (const row of candidates.rows) {
+      const translated = await translateEmailById(row.id, { force });
+      if (translated) {
+        results.push({
+          id: translated.id,
+          translationStatus: translated.translation_status || 'not_required',
+          detectedLanguage: translated.detected_language || null,
+          translatedAt: translated.translated_at || null,
+          error: translated.translation_error || null,
+        });
+      }
+    }
+
+    res.json({
+      count: results.length,
+      data: results,
+    });
+  } catch (error) {
+    console.error('[Email Translation] Backfill failed:', error);
+    res.status(500).json({
+      error: 'translation_backfill_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Translate or retry translation for one email inquiry
+app.post('/email-inquiries/:id/translate', auth.authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const translated = await translateEmailById(id, { force: true });
+
+    if (!translated) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Email inquiry not found',
+      });
+    }
+
+    const mappedData = mapEmailInquiryRow(translated);
+
+    if (global.broadcastEvent) {
+      global.broadcastEvent('email:updated', mappedData);
+    }
+
+    res.json({ data: mappedData });
+  } catch (error) {
+    console.error('[Email Translation] Error translating inquiry:', error);
+    res.status(500).json({
+      error: 'translation_failed',
+      message: error.message,
+    });
   }
 });
 
@@ -2421,10 +3240,10 @@ app.get('/email-inquiries/:id/attachments/:attachmentId/download', auth.authenti
 });
 
 // Send email response
-app.post('/api/email-response', auth.authenticateJWT, async (req, res) => {
+app.post('/api/email-response', auth.authenticateJWT, asyncHandler(async (req, res) => {
   const result = await zohoRoutes.handleEmailResponse(req.user, req.body);
   res.status(result.status).json(result.body);
-});
+}));
 
 console.log('✓ Email Inquiries API endpoints registered');
 
@@ -2437,7 +3256,9 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
 
     // OAuth endpoints
     app.get('/auth/zoho', zoho.handleAuthStart);
+    app.get('/api/zoho/auth/start', zoho.handleAuthStart);
     app.get('/auth/zoho/callback', zoho.handleAuthCallback);
+    app.get('/api/zoho/auth/callback', zoho.handleAuthCallback);
 
     // Webhook endpoint
     app.post('/api/zoho/webhook', (req, res, next) => {
@@ -2450,11 +3271,10 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
     }, zoho.handleWebhook);
 
     // API endpoints for manual sync (optional)
-    const zohoRoutes = require('./zoho/routes');
-    app.post('/api/zoho/sync', auth.authenticateJWT, async (req, res) => {
+    app.post('/api/zoho/sync', auth.authenticateJWT, asyncHandler(async (req, res) => {
       const result = await zohoRoutes.handleZohoSync(req.user);
       res.status(result.status).json(result.body);
-    });
+    }));
 
     // Perform initial full sync on server start (only once)
     setTimeout(async () => {
@@ -2513,14 +3333,35 @@ if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_ENABLED === 'true') {
   console.log('[ZOHO] Integration disabled (set ZOHO_ENABLED=true and configure credentials to enable)');
 }
 
+// Express 4 does not automatically forward rejected async handlers.
+app.use((error, req, res, next) => {
+  console.error(`[API Error] ${req.method} ${req.path}:`, error);
+
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  const statusCode = error.statusCode || error.status || 500;
+  res.status(statusCode).json({
+    error: statusCode >= 500 ? 'internal_server_error' : 'request_error',
+    message: statusCode >= 500 ? 'Internal server error' : error.message,
+  });
+});
+
 // ============================================
 // Start Server
 // ============================================
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
+databaseReadyPromise.then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
   console.log("=".repeat(60));
   console.log(`✓ APS Admin Local Backend Server running on port ${PORT}`);
   console.log(`✓ Health check: http://localhost:${PORT}/`);
   console.log(`✓ WebSocket (Socket.IO) ready on same port`);
   console.log("=".repeat(60));
+  emailMailClient.startScheduledEmailDispatcher();
+  });
+}).catch((error) => {
+  console.error('[DB] Startup schema preparation failed:', error.message);
+  process.exit(1);
 });

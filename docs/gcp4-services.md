@@ -2,15 +2,19 @@
 
 GCP VM (aligo-proxy, us-central1-a)에서 실행 중인 서비스들
 
+> Current production Electron app traffic does not use `ws-relay`.
+> The app connects directly to the backend through Cloudflare Tunnel.
+> Keep this document only for legacy relay operations and SMS/power-state reference.
+
 ## 실행 중인 서비스
 
 | 서비스 | 포트 | 설명 |
 |--------|------|------|
-| ws-relay | 8080 | WebSocket 중계 서버 (Backend ↔ Client) |
+| ws-relay | 8080 | 레거시 WebSocket 중계 서버 |
 | power-state | 3001 | ON/OFF 상태 관리 서비스 |
 | sms-relay | 3000 | SMS 중계 서비스 |
 
-## WebSocket Relay - Development 모드 사용법
+## Legacy WebSocket Relay - Development 모드 사용법
 
 ### 개요
 ws-relay는 Production과 Development 환경을 분리하여 운영할 수 있습니다.
@@ -23,7 +27,7 @@ ws-relay는 Production과 Development 환경을 분리하여 운영할 수 있�
 
 ```bash
 # WebSocket Relay Server (GCP4)
-RELAY_WS_URL=ws://136.113.67.193:8080
+WS_RELAY_URL=ws://136.113.67.193:8080
 BACKEND_VERSION=1.0.0
 BACKEND_INSTANCE_ID=backend-office-pc-1
 RELAY_ENVIRONMENT=development  # ← production 또는 development
@@ -33,7 +37,7 @@ RELAY_ENVIRONMENT=development  # ← production 또는 development
 
 ```bash
 # WebSocket Relay URL (GCP VM 릴레이 서버 사용)
-VITE_WS_RELAY_URL=ws://136.113.67.193:8080
+VITE_WS_URL=ws://136.113.67.193:8080
 
 # WebSocket Relay Environment
 VITE_RELAY_ENVIRONMENT=development  # ← production 또는 development

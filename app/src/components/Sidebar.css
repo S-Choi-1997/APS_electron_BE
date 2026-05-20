@@ -111,8 +111,11 @@
   display: flex;
   align-items: center;
   gap: 0.875rem;
+  width: 100%;
   padding: 0.75rem;
+  border: 0;
   border-radius: 10px;
+  background: transparent;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -138,6 +141,7 @@
 .user-details {
   flex: 1;
   min-width: 0;
+  text-align: left;
 }
 
 .user-name {

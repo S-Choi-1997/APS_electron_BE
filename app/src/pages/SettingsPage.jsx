@@ -3,8 +3,15 @@
  */
 
 import { useState, useEffect } from 'react';
-import { getCurrentUser, onAuthStateChanged } from '../auth/authManager';
+import {
+  getCurrentUser,
+  onAuthStateChanged,
+  setAutoLoginPreference,
+  updateDisplayName as updateAuthDisplayName,
+} from '../auth/authManager';
 import { updateDisplayName as updateDisplayNameAPI } from '../services/userService';
+import { getApiHealthDetails } from '../config/api';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { getNotificationSettings, updateNotificationSettings } from '../utils/notificationHelper';
 import '../components/css/PageLayout.css';
 import './SettingsPage.css';
@@ -19,8 +26,11 @@ function SettingsPage() {
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [appVersion, setAppVersion] = useState('-');
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null); // 'checking', 'available', 'not-available', 'error'
+  const [diagnosticStatus, setDiagnosticStatus] = useState(null); // 'copying', 'copied', 'error'
+  const [diagnosticMessage, setDiagnosticMessage] = useState('');
 
   // 인증 상태 변경 감지
   useEffect(() => {
@@ -72,6 +82,14 @@ function SettingsPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (window.electron?.getAutoUpdateEnabled) {
+      window.electron.getAutoUpdateEnabled()
+        .then((enabled) => setAutoUpdateEnabled(Boolean(enabled)))
+        .catch(() => setAutoUpdateEnabled(false));
+    }
+  }, []);
+
   // 업데이트 없음 이벤트 리스너
   useEffect(() => {
     if (!window.electron) return;
@@ -94,6 +112,11 @@ function SettingsPage() {
 
   // 수동 업데이트 확인
   const handleCheckForUpdates = async () => {
+    if (!autoUpdateEnabled) {
+      setUpdateStatus('disabled');
+      return;
+    }
+
     if (!window.electron?.checkForUpdates) {
       alert('업데이트 확인은 설치된 앱에서만 가능합니다.');
       return;
@@ -164,13 +187,12 @@ function SettingsPage() {
       // Backend API call to update displayName
       const auth = { currentUser: user };
       const updatedUserInfo = await updateDisplayNameAPI(displayName, auth);
+      const savedDisplayName = updatedUserInfo.displayName || updatedUserInfo.display_name || displayName.trim();
 
       // Update local user state with backend response
-      const updatedUser = {
-        ...user,
-        displayName: updatedUserInfo.display_name,
-      };
+      const updatedUser = updateAuthDisplayName(savedDisplayName);
       setUser(updatedUser);
+      setDisplayName(savedDisplayName);
 
       setIsEditingName(false);
       setSaveSuccess(true);
@@ -184,6 +206,59 @@ function SettingsPage() {
   const handleCancelEdit = () => {
     setDisplayName(user?.displayName || '');
     setIsEditingName(false);
+  };
+
+  const getPlatformLabel = () => {
+    if (window.electron?.platform === 'win32') return 'Windows';
+    if (window.electron?.platform === 'darwin') return 'macOS';
+    if (window.electron?.platform === 'linux') return 'Linux';
+    return 'Web';
+  };
+
+  const handleCopyDiagnostics = async () => {
+    setDiagnosticStatus('copying');
+    setDiagnosticMessage('진단 정보를 확인하는 중입니다.');
+
+    try {
+      const health = await getApiHealthDetails();
+
+      const generatedAt = new Date().toISOString();
+      const healthData = health.data || {};
+      const lines = [
+        'APS Admin Diagnostics',
+        `GeneratedAt: ${generatedAt}`,
+        `AppVersion: v${appVersion}`,
+        `Platform: ${getPlatformLabel()}`,
+        `ElectronPlatform: ${window.electron?.platform || 'unavailable'}`,
+        `LoginState: ${user ? 'signed-in' : 'signed-out'}`,
+        `UserEmail: ${user?.email || '-'}`,
+        `UserProvider: ${user?.provider || '-'}`,
+        `AutoLogin: ${autoLogin ? 'enabled' : 'disabled'}`,
+        `AutoUpdate: ${autoUpdateEnabled ? 'enabled' : 'disabled'}`,
+        `Startup: ${window.electron?.getStartupEnabled ? (startupEnabled ? 'enabled' : 'disabled') : 'unavailable'}`,
+        `Notification: ${notificationEnabled ? 'enabled' : 'disabled'}`,
+        `BackendHealth: ${health.ok ? 'ok' : 'failed'}`,
+        `BackendHttpStatus: ${health.httpStatus ?? '-'}`,
+        `BackendLatencyMs: ${health.elapsedMs}`,
+        `BackendVersion: ${healthData.version || healthData.backendVersion || '-'}`,
+      ];
+
+      if (health.error) {
+        lines.push(`BackendError: ${health.error}`);
+      }
+
+      const copied = await copyTextToClipboard(lines.join('\n'));
+      if (!copied) {
+        throw new Error('클립보드 복사에 실패했습니다.');
+      }
+
+      setDiagnosticStatus('copied');
+      setDiagnosticMessage(`진단 정보를 복사했습니다. 백엔드 상태: ${health.ok ? '정상' : '실패'}`);
+    } catch (error) {
+      console.error('[Settings] Failed to copy diagnostics:', error);
+      setDiagnosticStatus('error');
+      setDiagnosticMessage(`진단 정보 복사 실패: ${error.message}`);
+    }
   };
 
   return (
@@ -247,7 +322,7 @@ function SettingsPage() {
                   onChange={(e) => {
                     const newValue = e.target.checked;
                     setAutoLogin(newValue);
-                    localStorage.setItem('aps-auto-login', newValue.toString());
+                    setAutoLoginPreference(newValue);
                   }}
                 />
                 <span className="toggle-slider"></span>
@@ -313,7 +388,7 @@ function SettingsPage() {
               <button
                 className="btn-update"
                 onClick={handleCheckForUpdates}
-                disabled={isCheckingUpdate}
+                disabled={!autoUpdateEnabled || isCheckingUpdate}
               >
                 {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
               </button>
@@ -327,11 +402,27 @@ function SettingsPage() {
             <div className="setting-item">
               <div className="setting-label">플랫폼</div>
               <div className="setting-value">
-                {window.electron?.platform === 'win32' ? 'Windows' :
-                 window.electron?.platform === 'darwin' ? 'macOS' :
-                 window.electron?.platform === 'linux' ? 'Linux' : 'Web'}
+                {getPlatformLabel()}
               </div>
             </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <div className="setting-label">진단 정보</div>
+                <div className="setting-description">버전, 로그인 상태, 백엔드 연결 상태를 복사합니다</div>
+              </div>
+              <button
+                className="btn-diagnostics"
+                onClick={handleCopyDiagnostics}
+                disabled={diagnosticStatus === 'copying'}
+              >
+                {diagnosticStatus === 'copying' ? '확인 중...' : '진단 정보 복사'}
+              </button>
+            </div>
+            {diagnosticMessage && (
+              <div className={`diagnostic-status ${diagnosticStatus === 'error' ? 'error' : 'success'}`}>
+                {diagnosticMessage}
+              </div>
+            )}
             {window.electron?.restartApp && (
               <div className="setting-item">
                 <div className="setting-info">

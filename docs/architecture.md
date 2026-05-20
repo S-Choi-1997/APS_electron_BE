@@ -1,84 +1,103 @@
-# 시스템 아키텍처
+# System Architecture
 
-## 전체 구성
+## Current Production Path
 
-```
-[고객 브라우저]
-      │ 상담 신청 (reCAPTCHA)
-      ▼
-┌─────────────────────────────────────┐
-│  customer-api/ (GCP Cloud Run)      │
-│  공개 상담 접수 API                  │
-│  → Firestore에 직접 저장            │
-└─────────────────────────────────────┘
+Normal Electron app traffic connects directly to the backend through Cloudflare Tunnel.
 
-[관리자 PC]
-      │ 실행
-      ▼
-┌─────────────────────────────────────┐
-│  Electron 데스크탑 앱               │
-│  app/src/ (React 18) + app/electron/│
-│  Windows 설치형 앱 (.exe)           │
-└──────────────┬──────────────────────┘
-               │ HTTP/WebSocket (IPC 브릿지)
-               │
-               ▼ (프로덕션)
-┌─────────────────────────────────────┐
-│  relay/ (GCP4, 136.113.67.193:8080)│
-│  HTTP-over-WebSocket 터널           │
-│  RELAY_ENVIRONMENT로 백엔드 라우팅  │
-└──────────────┬──────────────────────┘
-               │ WebSocket (아웃바운드)
-               ▼
-┌─────────────────────────────────────┐
-│  backend/ (NAS Docker)              │
-│  Express + Socket.IO                │
-│  포트 3001 (외부 노출 안 됨)         │
-│  ├── PostgreSQL: 메모, 일정          │
-│  ├── Firestore: 상담 데이터          │
-│  ├── GCP Storage: 첨부파일          │
-│  └── → sms-relay/ 로 SMS 전달       │
-└──────────────┬──────────────────────┘
-               │ HTTP POST
-               ▼
-┌─────────────────────────────────────┐
-│  sms-relay/ (GCP3, 포트 3000)      │
-│  고정 IP VM → Aligo SMS API         │
-│  IP: 136.113.67.193:3000            │
-└─────────────────────────────────────┘
+```text
+Electron app
+  -> HTTPS / WSS
+  -> Cloudflare backend hostname
+  -> Cloudflare Tunnel
+  -> backend server:3001
+  -> Express REST API + Socket.IO
 ```
 
-## GCP4 Relay (HTTP-over-WebSocket 터널)
+The old GCP relay `/proxy` path is not the current app traffic path.
 
-백엔드(NAS)는 인터넷에 직접 노출되지 않고, GCP VM의 Relay 서버에 Socket.IO 클라이언트로 아웃바운드 연결합니다.
-
-```
-Electron → HTTP → GCP4 Relay (8080) → http:request 이벤트 → backend
-backend → http:response 이벤트 → GCP4 Relay → HTTP 응답 → Electron
+```text
+Do not use:
+Electron app -> old GCP relay /proxy -> relay -> backend
 ```
 
-- `RELAY_WS_URL`: `ws://136.113.67.193:8080`
-- `RELAY_ENVIRONMENT`: `production` | `development` — 어떤 백엔드 인스턴스로 라우팅할지 결정
-- `BACKEND_INSTANCE_ID`: 백엔드 등록 ID
+## Components
 
-## 개발 환경 vs 프로덕션
+### Electron App (`app/`)
 
-| 항목 | 개발 | 프로덕션 |
-|------|------|---------|
-| API 타겟 | GCP2 Cloud Run (VITE_API_URL) | GCP4 Relay (136.113.67.193:8080/proxy) |
-| WebSocket | GCP4 Relay | GCP4 Relay |
-| RELAY_ENVIRONMENT | development | production |
-| 백엔드 위치 | GCP2 Cloud Run | NAS (192.168.0.100:3001) |
+- React renderer under `app/src/`
+- Electron main/preload under `app/electron/`
+- REST calls use the runtime AppConfig from Electron main.
+- Socket.IO is managed by Electron main and connects to the backend `wsBaseUrl`.
+- Release builds are created locally on the sub PC with `npm run electron:build`.
 
-## 데이터 흐름
+### Backend (`backend/`)
 
-| 데이터 | 저장소 |
-|--------|--------|
-| 상담 문의 (inquiries) | GCP Firestore |
-| 첨부파일 | GCP Cloud Storage |
-| 팀 메모, 일정 | PostgreSQL (NAS) |
-| 이메일 문의 | PostgreSQL (email_inquiries 테이블) |
+- Node.js + Express + Socket.IO
+- Listens on port `3001` in the container
+- Serves both REST API and direct WebSocket clients on the same server
+- Uses JWT auth for API and Socket.IO handshakes
+- Broadcasts real-time events directly to connected Electron clients
+- Can still contain legacy relay-client code, but production direct deployment sets `WS_RELAY_ENABLED=false`
 
-## 자동 삭제 (개인정보보호)
+### NAS Deployment (`nas-deploy/`)
 
-`cleanup/` Cloud Function: 매일 02:00 KST 실행 → 179일 지난 Firestore 문서 + Storage 파일 삭제
+- Runs PostgreSQL and the backend container with Docker Compose
+- Pulls the backend from Docker Hub:
+
+```yaml
+image: choho97/aps-admin-backend:${BACKEND_IMAGE_TAG}
+```
+
+- `git pull` updates deployment files.
+- `docker-compose pull aps-backend` updates the running backend image.
+- A backend source change is not deployed until a new Docker image is built, pushed, and selected with `BACKEND_IMAGE_TAG`.
+
+### Cloudflare Tunnel
+
+Cloudflare exposes the backend domain and forwards traffic to the backend server:
+
+```yaml
+hostname: your-cloudflare-backend-domain
+service: http://localhost:3001
+```
+
+The app should use:
+
+```env
+VITE_API_URL=https://your-cloudflare-backend-domain
+VITE_BACKEND_ENVIRONMENT=production
+```
+
+`VITE_WS_URL` is optional because the app derives `wss://your-cloudflare-backend-domain` from the API URL.
+
+### Customer API (`customer-api/`)
+
+The public web consultation intake API remains independent on GCP Cloud Run. It stores consultation data in Firestore and is not part of the Electron app direct backend path.
+
+### SMS Relay (`sms-relay/`)
+
+SMS still uses the fixed-IP relay path through `SMS_RELAY_URL`. This is separate from the old app traffic relay.
+
+## Data Stores
+
+| Data | Store |
+|------|-------|
+| Website consultations (`inquiries`) | GCP Firestore |
+| Consultation attachments | GCP Cloud Storage |
+| Memos and schedules | PostgreSQL on NAS |
+| Email inquiries | PostgreSQL on NAS |
+| Admin users | Firestore |
+
+## Deployment Summary
+
+```text
+Sub PC:
+  cd app
+  npm run electron:build
+  -> app/dist/ installer artifacts
+
+Backend server:
+  cd nas-deploy
+  docker-compose pull aps-backend
+  docker-compose up -d
+```

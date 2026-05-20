@@ -16,7 +16,10 @@ export async function getCurrentUserInfo(auth) {
     method: 'GET',
   }, auth);
 
-  return response.data;
+  return {
+    ...response.data,
+    displayName: response.data.displayName || response.data.display_name || response.data.email,
+  };
 }
 
 /**
@@ -31,5 +34,8 @@ export async function updateDisplayName(displayName, auth) {
     body: JSON.stringify({ displayName }),
   }, auth);
 
-  return response.data;
+  return {
+    ...response.data,
+    displayName: response.data.displayName || response.data.display_name || displayName,
+  };
 }

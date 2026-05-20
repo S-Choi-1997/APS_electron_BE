@@ -4,7 +4,7 @@
  * PostgreSQL 백엔드와 통신하는 메모 관련 API
  */
 
-import { apiRequest, API_ENDPOINTS } from '../config/api.js';
+import { apiRequest } from '../config/api.js';
 
 /**
  * 메모 목록 조회
@@ -13,13 +13,34 @@ import { apiRequest, API_ENDPOINTS } from '../config/api.js';
  * @returns {Promise<Array>} 메모 목록
  */
 export async function fetchMemos(auth, options = {}) {
+  const pageSize = Number(options.pageSize || options.limit || 500);
+  const allMemos = [];
+  let offset = Number(options.offset || 0);
+
+  while (true) {
+    const page = await fetchMemoPage(auth, {
+      ...options,
+      limit: pageSize,
+      offset,
+    });
+
+    allMemos.push(...page.items);
+    if (!page.hasMore) break;
+    offset += page.limit || pageSize;
+  }
+
+  return allMemos;
+}
+
+export async function fetchMemoPage(auth, options = {}) {
   const queryParams = new URLSearchParams();
 
   if (options.search) queryParams.append('search', options.search);
   if (options.author) queryParams.append('author', options.author);
   if (options.important !== undefined) queryParams.append('important', options.important);
+  if (options.active !== undefined) queryParams.append('active', options.active);
   if (options.limit) queryParams.append('limit', options.limit);
-  if (options.offset) queryParams.append('offset', options.offset);
+  if (options.offset !== undefined) queryParams.append('offset', options.offset);
 
   const endpoint = `/memos${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
@@ -27,7 +48,29 @@ export async function fetchMemos(auth, options = {}) {
     method: 'GET',
   }, auth);
 
-  return response.data || [];
+  const items = response.data || [];
+  return {
+    items,
+    total: Number(response.total ?? response.count ?? items.length),
+    count: Number(response.count ?? items.length),
+    limit: Number(response.limit ?? options.limit ?? items.length),
+    offset: Number(response.offset ?? options.offset ?? 0),
+    hasMore: Boolean(response.hasMore),
+  };
+}
+
+/**
+ * 메모 상세 조회
+ * @param {number|string} id - 메모 ID
+ * @param {Object} auth - 인증 정보 { currentUser }
+ * @returns {Promise<Object>} 메모 상세
+ */
+export async function fetchMemo(id, auth) {
+  const response = await apiRequest(`/memos/${id}`, {
+    method: 'GET',
+  }, auth);
+
+  return response.data;
 }
 
 /**

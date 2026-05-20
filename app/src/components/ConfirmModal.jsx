@@ -1,15 +1,15 @@
 import React from 'react';
 import './ConfirmModal.css';
 
-const ConfirmModal = ({ isOpen, onClose, onConfirm, consultation }) => {
+const ConfirmModal = ({ isOpen, onClose, onConfirm, consultation, isConfirming = false }) => {
   if (!isOpen || !consultation) return null;
 
   return (
-    <div className="confirm-modal-overlay" onClick={onClose}>
+    <div className="confirm-modal-overlay" onClick={isConfirming ? undefined : onClose}>
       <div className="confirm-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-modal-header">
           <h2>문자 발송 확인</h2>
-          <button className="confirm-modal-close" onClick={onClose}>×</button>
+          <button className="confirm-modal-close" onClick={onClose} disabled={isConfirming}>×</button>
         </div>
 
         <div className="confirm-modal-body">
@@ -25,16 +25,16 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, consultation }) => {
             </div>
           </div>
           <div className="confirm-modal-warning">
-            ⚠ 한 번 확인하면 취소할 수 없습니다.
+            발송 성공 후 상담 상태가 응답 완료로 변경됩니다.
           </div>
         </div>
 
         <div className="confirm-modal-footer">
-          <button className="confirm-modal-btn cancel" onClick={onClose}>
+          <button className="confirm-modal-btn cancel" onClick={onClose} disabled={isConfirming}>
             취소
           </button>
-          <button className="confirm-modal-btn confirm" onClick={onConfirm}>
-            문자 발송
+          <button className="confirm-modal-btn confirm" onClick={onConfirm} disabled={isConfirming}>
+            {isConfirming ? '발송 중...' : '문자 발송'}
           </button>
         </div>
       </div>

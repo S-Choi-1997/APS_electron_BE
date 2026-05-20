@@ -1,27 +1,29 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { emailQueryKeys } from './queries/emailQueryKeys';
+import { inquiryQueryKeys } from './queries/inquiryQueryKeys';
+import { memoQueryKeys } from './queries/memoQueryKeys';
+import { scheduleQueryKeys } from './queries/scheduleQueryKeys';
+import { normalizeEmailInquiry } from '../services/emailInquiryService';
+import { transformInquiry } from '../services/inquiryService';
+import { normalizeMemo } from './queries/useMemos';
+import { normalizeSchedule } from './queries/useSchedules';
+import { removeItemById, replaceItemById, updateCollectionData } from './queries/queryUtils';
 
-const QUERY_KEYS = {
-  consultations: ['consultations'],
-  memos: ['memos'],
-  schedules: ['schedules'],
-};
+function updateCollectionCaches(queryClient, queryKeyFactories, updater) {
+  queryKeyFactories.forEach((queryKey) => {
+    queryClient.setQueriesData({ queryKey }, (oldData) => updateCollectionData(oldData, updater));
+  });
+}
 
-function safeCall(callback, ...args) {
-  if (typeof callback !== 'function') return;
-
-  try {
-    callback(...args);
-  } catch (error) {
-    console.error('[WebSocketSync] Callback failed:', error);
-  }
+function refreshActiveCollections(queryClient, queryKeys) {
+  queryKeys.forEach((queryKey) => {
+    queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+  });
 }
 
 export function useWebSocketSync({
   enabled = true,
-  onConsultationsChanged,
-  onStatsChanged,
 } = {}) {
   const queryClient = useQueryClient();
 
@@ -36,8 +38,8 @@ export function useWebSocketSync({
     console.log('[WebSocketSync] Setting up event listeners');
 
     const cleanups = [];
-    const invalidate = (queryKey) => {
-      queryClient.invalidateQueries({ queryKey });
+    const invalidate = (queryKey, options = {}) => {
+      queryClient.invalidateQueries({ queryKey, ...options });
     };
 
     const register = (eventName, handler) => {
@@ -48,22 +50,99 @@ export function useWebSocketSync({
       if (cleanup) cleanups.push(cleanup);
     };
 
+    const invalidateDetail = (queryKeyFactory, payload) => {
+      if (payload?.id === undefined || !queryKeyFactory?.detail) return;
+      invalidate(queryKeyFactory.detail(payload.id));
+    };
+
     const handleConsultationEvent = (payload, eventName) => {
-      invalidate(QUERY_KEYS.consultations);
-      safeCall(onConsultationsChanged, payload, eventName);
+      if (eventName === 'consultation:updated' && payload?.id !== undefined) {
+        const nextInquiry = transformInquiry(payload);
+        updateCollectionCaches(queryClient, [
+          inquiryQueryKeys.lists(),
+          inquiryQueryKeys.allLists(),
+          inquiryQueryKeys.pages(),
+        ], (items) => replaceItemById(items, payload.id, nextInquiry));
+        queryClient.setQueryData(inquiryQueryKeys.detail(payload.id), (oldData) => (oldData ? { ...oldData, ...nextInquiry } : oldData));
+      } else if (eventName === 'consultation:deleted' && payload?.id !== undefined) {
+        updateCollectionCaches(queryClient, [
+          inquiryQueryKeys.lists(),
+          inquiryQueryKeys.allLists(),
+          inquiryQueryKeys.pages(),
+        ], (items) => removeItemById(items, payload.id));
+        queryClient.removeQueries({ queryKey: inquiryQueryKeys.detail(payload.id) });
+      } else {
+        refreshActiveCollections(queryClient, [inquiryQueryKeys.lists(), inquiryQueryKeys.allLists(), inquiryQueryKeys.pages()]);
+      }
+      invalidate(inquiryQueryKeys.stats());
+      invalidateDetail(inquiryQueryKeys, payload);
     };
 
     const handleEmailEvent = (payload, eventName) => {
-      invalidate(emailQueryKeys.all);
-      safeCall(onStatsChanged, payload, eventName);
+      if (eventName === 'email:updated' && payload?.id !== undefined) {
+        const nextEmail = normalizeEmailInquiry(payload);
+        updateCollectionCaches(queryClient, [
+          emailQueryKeys.lists(),
+          emailQueryKeys.pages(),
+        ], (items) => replaceItemById(items, payload.id, nextEmail));
+        queryClient.setQueryData(emailQueryKeys.thread(payload.id), (oldData) => (
+          Array.isArray(oldData) ? replaceItemById(oldData, payload.id, nextEmail) : oldData
+        ));
+      } else if (eventName === 'email:deleted' && payload?.id !== undefined) {
+        updateCollectionCaches(queryClient, [
+          emailQueryKeys.lists(),
+          emailQueryKeys.pages(),
+        ], (items) => removeItemById(items, payload.id));
+        queryClient.removeQueries({ queryKey: emailQueryKeys.detail(payload.id) });
+      } else {
+        refreshActiveCollections(queryClient, [emailQueryKeys.lists(), emailQueryKeys.pages()]);
+      }
+      invalidate(emailQueryKeys.stats());
+      invalidate(emailQueryKeys.drafts());
+      invalidate(emailQueryKeys.scheduled());
+      invalidate(emailQueryKeys.folders());
+      invalidate(emailQueryKeys.labels());
+      invalidateDetail(emailQueryKeys, payload);
     };
 
-    const handleMemoEvent = () => {
-      invalidate(QUERY_KEYS.memos);
+    const handleMemoEvent = (payload, eventName) => {
+      if (eventName === 'memo:updated' && payload?.id !== undefined) {
+        const nextMemo = normalizeMemo(payload);
+        updateCollectionCaches(queryClient, [
+          memoQueryKeys.lists(),
+          memoQueryKeys.pages(),
+        ], (items) => replaceItemById(items, payload.id, nextMemo));
+        queryClient.setQueryData(memoQueryKeys.detail(payload.id), (oldData) => (oldData ? { ...oldData, ...nextMemo } : oldData));
+      } else if (eventName === 'memo:deleted' && payload?.id !== undefined) {
+        updateCollectionCaches(queryClient, [
+          memoQueryKeys.lists(),
+          memoQueryKeys.pages(),
+        ], (items) => removeItemById(items, payload.id));
+        queryClient.removeQueries({ queryKey: memoQueryKeys.detail(payload.id) });
+      } else {
+        refreshActiveCollections(queryClient, [memoQueryKeys.lists(), memoQueryKeys.pages()]);
+      }
+      invalidateDetail(memoQueryKeys, payload);
     };
 
-    const handleScheduleEvent = () => {
-      invalidate(QUERY_KEYS.schedules);
+    const handleScheduleEvent = (payload, eventName) => {
+      if (eventName === 'schedule:updated' && payload?.id !== undefined) {
+        const nextSchedule = normalizeSchedule(payload);
+        updateCollectionCaches(queryClient, [
+          scheduleQueryKeys.lists(),
+          scheduleQueryKeys.pages(),
+        ], (items) => replaceItemById(items, payload.id, nextSchedule));
+        queryClient.setQueryData(scheduleQueryKeys.detail(payload.id), (oldData) => (oldData ? { ...oldData, ...nextSchedule } : oldData));
+      } else if (eventName === 'schedule:deleted' && payload?.id !== undefined) {
+        updateCollectionCaches(queryClient, [
+          scheduleQueryKeys.lists(),
+          scheduleQueryKeys.pages(),
+        ], (items) => removeItemById(items, payload.id));
+        queryClient.removeQueries({ queryKey: scheduleQueryKeys.detail(payload.id) });
+      } else {
+        refreshActiveCollections(queryClient, [scheduleQueryKeys.lists(), scheduleQueryKeys.pages()]);
+      }
+      invalidateDetail(scheduleQueryKeys, payload);
     };
 
     [
@@ -76,6 +155,7 @@ export function useWebSocketSync({
       'email:created',
       'email:updated',
       'email:deleted',
+      'email:sync-completed',
     ].forEach((eventName) => register(eventName, handleEmailEvent));
 
     [
@@ -95,12 +175,19 @@ export function useWebSocketSync({
         console.log('[WebSocketSync] WebSocket status changed:', status);
         if (!status?.connected) return;
 
-        invalidate(QUERY_KEYS.consultations);
-        invalidate(QUERY_KEYS.memos);
-        invalidate(QUERY_KEYS.schedules);
-        invalidate(emailQueryKeys.all);
-        safeCall(onConsultationsChanged, null, 'websocket:reconnected');
-        safeCall(onStatsChanged, null, 'websocket:reconnected');
+        refreshActiveCollections(queryClient, [
+          inquiryQueryKeys.lists(),
+          inquiryQueryKeys.allLists(),
+          inquiryQueryKeys.pages(),
+          inquiryQueryKeys.stats(),
+          memoQueryKeys.lists(),
+          memoQueryKeys.pages(),
+          scheduleQueryKeys.lists(),
+          scheduleQueryKeys.pages(),
+          emailQueryKeys.lists(),
+          emailQueryKeys.pages(),
+          emailQueryKeys.stats(),
+        ]);
       });
       if (cleanup) cleanups.push(cleanup);
     }
@@ -109,7 +196,7 @@ export function useWebSocketSync({
       console.log('[WebSocketSync] Cleaning up event listeners');
       cleanups.forEach((cleanup) => cleanup?.());
     };
-  }, [enabled, onConsultationsChanged, onStatsChanged, queryClient]);
+  }, [enabled, queryClient]);
 }
 
 export default useWebSocketSync;

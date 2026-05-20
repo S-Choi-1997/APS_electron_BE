@@ -240,6 +240,23 @@
   overflow-x: hidden;
 }
 
+.schedule-empty-state {
+  margin-top: 0.75rem;
+  padding: 0.875rem;
+  color: #6b7280;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.schedule-empty-state.error {
+  color: #b91c1c;
+  background: #fff5f5;
+  border-color: #fecaca;
+}
+
 .schedule-list::-webkit-scrollbar {
   width: 6px;
 }

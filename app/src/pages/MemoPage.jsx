@@ -10,10 +10,15 @@
 
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
-import { useQuery } from '@tanstack/react-query';
 import Modal from '../components/Modal';
-import { auth } from '../auth/authManager';
-import { fetchMemos, createMemo, updateMemo, deleteMemo } from '../services/memoService';
+import Pagination from '../components/Pagination';
+import useDebounce from '../hooks/useDebounce';
+import {
+  useCreateMemo,
+  useDeleteMemo,
+  useMemoPage,
+  useUpdateMemo,
+} from '../hooks/queries/useMemos';
 import '../components/css/PageLayout.css';
 import './MemoPage.css';
 
@@ -25,6 +30,10 @@ function MemoPage({ user }) {
   const [selectedMemo, setSelectedMemo] = useState(null);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  const MEMOS_PER_PAGE = 20;
 
   const [memoForm, setMemoForm] = useState({
     title: '',
@@ -33,25 +42,34 @@ function MemoPage({ user }) {
     expire_date: '',
   });
 
-  const { data: memos = [], refetch: refetchMemos } = useQuery({
-    queryKey: ['memos'],
-    queryFn: async () => {
-      const data = await fetchMemos(auth);
+  const memoFilters = {
+    search: debouncedSearchTerm.trim() || undefined,
+    limit: MEMOS_PER_PAGE,
+    offset: (currentPage - 1) * MEMOS_PER_PAGE,
+  };
+  const {
+    data: memoPage = { items: [], total: 0, count: 0, limit: MEMOS_PER_PAGE, offset: 0, hasMore: false },
+    isLoading: memosLoading,
+    isError: memosError,
+    error: memosErrorDetail,
+    refetch: refetchMemos,
+  } = useMemoPage(memoFilters, { enabled: !!user });
+  const memos = memoPage.items || [];
+  const totalMemos = memoPage.total || 0;
+  const totalPages = Math.ceil(totalMemos / MEMOS_PER_PAGE);
+  const createMemoMutation = useCreateMemo();
+  const updateMemoMutation = useUpdateMemo();
+  const deleteMemoMutation = useDeleteMemo();
 
-      return data.map(memo => ({
-        id: memo.id,
-        title: memo.title,
-        content: memo.content,
-        important: memo.important,
-        createdAt: new Date(memo.created_at),
-        author: memo.author,
-        author_name: memo.author_name,
-        expire_date: memo.expire_date,
-      }));
-    },
-    staleTime: 30000,
-    enabled: !!user,
-  });
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // 자정(날짜 변경) 감지 - 메모 만료 처리를 위한 자동 새로고침
   useEffect(() => {
@@ -67,7 +85,7 @@ function MemoPage({ user }) {
 
       const timer = setTimeout(() => {
         console.log('[MemoPage] 날짜 변경 감지 - 메모 새로고침');
-        loadMemos(); // 만료된 메모 필터링
+        refetchMemos();
 
         // 다음 자정을 위해 재귀 호출
         checkMidnight();
@@ -80,12 +98,7 @@ function MemoPage({ user }) {
 
     // 컴포넌트 언마운트 시 타이머 정리
     return () => clearTimeout(timer);
-  }, []);
-
-  // 메모 데이터 로드
-  const loadMemos = async () => {
-    await refetchMemos();
-  };
+  }, [refetchMemos]);
 
   // URL 자동 링크 변환 함수 (XSS 방지)
   const linkifyContent = (text) => {
@@ -158,10 +171,7 @@ function MemoPage({ user }) {
         // author is automatically set by backend using req.user.email
       };
 
-      await createMemo(memoData, auth);
-
-      // 메모 목록 새로고침
-      await loadMemos();
+      await createMemoMutation.mutateAsync(memoData);
 
       setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowCreateModal(false);
@@ -204,10 +214,7 @@ function MemoPage({ user }) {
         expire_date: memoForm.expire_date || null,
       };
 
-      await updateMemo(selectedMemo.id, updates, auth);
-
-      // 메모 목록 새로고침
-      await loadMemos();
+      await updateMemoMutation.mutateAsync({ id: selectedMemo.id, updates });
 
       setMemoForm({ title: '', content: '', important: false, expire_date: '' });
       setShowEditModal(false);
@@ -228,10 +235,7 @@ function MemoPage({ user }) {
   const handleMemoDelete = async () => {
     if (deleteTarget) {
       try {
-        await deleteMemo(deleteTarget.id, auth);
-
-        // 메모 목록 새로고침
-        await loadMemos();
+        await deleteMemoMutation.mutateAsync(deleteTarget.id);
 
         setShowDetailModal(false);
         setShowDeleteConfirmModal(false);
@@ -264,7 +268,28 @@ function MemoPage({ user }) {
 
       <div className="memo-page-content">
         <div className="memo-list-container">
-          {groupMemosByDate(memos).map((item, index) => {
+          <div className="memo-toolbar">
+            <input
+              className="memo-search-input"
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="메모 검색"
+            />
+            <div className="memo-list-count">
+              전체 {totalMemos}건
+            </div>
+          </div>
+
+          {memosLoading ? (
+            <div className="memo-list-state">메모를 불러오는 중입니다.</div>
+          ) : memosError ? (
+            <div className="memo-list-state error">
+              {memosErrorDetail?.message || '메모를 불러오지 못했습니다.'}
+            </div>
+          ) : memos.length === 0 ? (
+            <div className="memo-list-state">표시할 메모가 없습니다.</div>
+          ) : groupMemosByDate(memos).map((item, index) => {
             if (item.type === 'divider') {
               return (
                 <div key={`divider-${index}`} className="date-divider">
@@ -280,7 +305,7 @@ function MemoPage({ user }) {
                     {memo.important && <span className="memo-badge important">중요</span>}
                     {memo.title}
                   </div>
-                  <span className="memo-author">작성자: {memo.author_name || memo.author || '사용자'}</span>
+                  <span className="memo-author">작성자: {memo.authorDisplayName || '사용자'}</span>
                 </div>
                 <div className="memopage-card-content" dangerouslySetInnerHTML={{ __html: linkifyContent(memo.content) }} />
                 <div className="memopage-card-footer">
@@ -289,6 +314,14 @@ function MemoPage({ user }) {
               </div>
             );
           })}
+
+          {!memosLoading && !memosError && totalPages > 1 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+          )}
         </div>
       </div>
 
@@ -420,7 +453,7 @@ function MemoPage({ user }) {
             <div className="memo-detail-meta">
               <div className="meta-item">
                 <span className="meta-label">작성자:</span>
-                <span>{selectedMemo.author}</span>
+                <span>{selectedMemo.authorDisplayName || '사용자'}</span>
               </div>
               <div className="meta-item">
                 <span className="meta-label">작성일:</span>

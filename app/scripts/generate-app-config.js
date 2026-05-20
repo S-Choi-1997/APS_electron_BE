@@ -69,8 +69,8 @@ function deriveWebSocketUrl(restBaseUrl) {
 
 const dotEnv = readDotEnv(envPath);
 const restBaseUrl = getValue(dotEnv, 'APS_API_URL', 'VITE_API_URL');
-const configuredWsUrl = getValue(dotEnv, 'APS_WS_URL', 'VITE_WS_URL', 'VITE_WS_RELAY_URL');
-const environment = getValue(dotEnv, 'APS_BACKEND_ENVIRONMENT', 'VITE_BACKEND_ENVIRONMENT', 'VITE_RELAY_ENVIRONMENT') || 'production';
+const configuredWsUrl = getValue(dotEnv, 'APS_WS_URL', 'VITE_WS_URL');
+const environment = getValue(dotEnv, 'APS_BACKEND_ENVIRONMENT', 'VITE_BACKEND_ENVIRONMENT') || 'production';
 
 if (!restBaseUrl) {
   if (fs.existsSync(outputPath)) {

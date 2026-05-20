@@ -41,14 +41,18 @@ body {
 .app-container {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background-color: #f6f8fc;
 }
 
 .app-content-wrapper {
   display: flex;
-  flex: 1;
-  min-height: calc(100vh - 40px); /* 전체 높이 - 타이틀바 높이 */
+  flex: 1 1 auto;
+  height: calc(100vh - 40px); /* 전체 높이 - 타이틀바 높이 */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .main-wrapper {
@@ -56,7 +60,9 @@ body {
   margin-left: 280px; /* Sidebar width */
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 전역 커스텀 스크롤바 - 모든 스크롤바에 적용 */
@@ -101,10 +107,60 @@ body {
   font-size: 15px;
 }
 
+.window-loading {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  color: #374151;
+  text-align: center;
+  background: #f6f8fc;
+}
+
+.window-loading p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.window-loading-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.window-loading-actions button {
+  min-width: 96px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.window-loading-actions button:hover {
+  background: #f3f4f6;
+}
+
 .main-content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   overflow-y: auto;
+}
+
+.main-content.email-client-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .content-container {

@@ -18,11 +18,40 @@ const firestoreAdmin = require('./firestore-admin');
 const db = require('./db'); // PostgreSQL connection
 
 // JWT configuration
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-this-in-production';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-this-too';
+const DEFAULT_JWT_SECRET = 'your-super-secret-key-change-this-in-production';
+const DEFAULT_JWT_REFRESH_SECRET = 'your-refresh-secret-key-change-this-too';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || DEFAULT_JWT_REFRESH_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
+const JWT_ALGORITHM = 'HS256';
 const BCRYPT_ROUNDS = 12;
+
+function assertProductionJwtSecret(name, value, defaultValue) {
+  const isMissing = !value;
+  const isDefault = value === defaultValue;
+  const isPlaceholder = value.includes('replace_with_') || value.includes('change-this');
+  const isTooShort = value.length < 32;
+
+  if (isMissing || isDefault || isPlaceholder || isTooShort) {
+    throw new Error(`${name} must be set to a non-placeholder secret of at least 32 characters in production`);
+  }
+}
+
+if (process.env.NODE_ENV === 'production') {
+  assertProductionJwtSecret('JWT_SECRET', JWT_SECRET, DEFAULT_JWT_SECRET);
+  assertProductionJwtSecret('JWT_REFRESH_SECRET', JWT_REFRESH_SECRET, DEFAULT_JWT_REFRESH_SECRET);
+}
+
+function verifyAccessToken(token) {
+  const decoded = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+
+  return {
+    email: decoded.email,
+    role: decoded.role || 'user',
+    provider: 'local',
+  };
+}
 
 /**
  * Get admin user by email from Firestore
@@ -132,12 +161,13 @@ async function generateTokens(user, userAgent = null, ipAddress = null) {
 
   const accessToken = jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
+    algorithm: JWT_ALGORITHM,
   });
 
   const refreshToken = jwt.sign(
     { email: user.email, role: user.role || 'user' },
     JWT_REFRESH_SECRET,
-    { expiresIn: JWT_REFRESH_EXPIRES_IN }
+    { expiresIn: JWT_REFRESH_EXPIRES_IN, algorithm: JWT_ALGORITHM }
   );
 
   // Store refresh token in PostgreSQL
@@ -160,7 +190,7 @@ async function refreshAccessToken(oldRefreshToken, userAgent = null, ipAddress =
 
   // Verify JWT signature
   return new Promise((resolve, reject) => {
-    jwt.verify(oldRefreshToken, JWT_REFRESH_SECRET, async (err, decoded) => {
+    jwt.verify(oldRefreshToken, JWT_REFRESH_SECRET, { algorithms: [JWT_ALGORITHM] }, async (err, decoded) => {
       if (err) {
         // Delete invalid token from DB
         await deleteRefreshToken(oldRefreshToken);
@@ -171,14 +201,14 @@ async function refreshAccessToken(oldRefreshToken, userAgent = null, ipAddress =
       const accessToken = jwt.sign(
         { email: decoded.email, role: decoded.role || 'user' },
         JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
+        { expiresIn: JWT_EXPIRES_IN, algorithm: JWT_ALGORITHM }
       );
 
       // 🎯 Generate NEW refresh token (rolling refresh)
       const newRefreshToken = jwt.sign(
         { email: decoded.email, role: decoded.role || 'user' },
         JWT_REFRESH_SECRET,
-        { expiresIn: JWT_REFRESH_EXPIRES_IN }
+        { expiresIn: JWT_REFRESH_EXPIRES_IN, algorithm: JWT_ALGORITHM }
       );
 
       // Remove old refresh token from DB
@@ -235,7 +265,7 @@ const authenticateJWT = async (req, res, next) => {
     const token = authHeader.split('Bearer ')[1];
 
     // Verify JWT token
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] }, (err, decoded) => {
       if (err) {
         console.error('[Auth] JWT verification failed:', err.message);
         return res.status(401).json({
@@ -278,6 +308,7 @@ module.exports = {
   revokeRefreshToken,
   hashPassword,
   verifyPassword,
+  verifyAccessToken,
   authenticateJWT,
   cleanupExpiredTokens,
 };

@@ -1,6 +1,21 @@
 #!/bin/bash
 # APS Backend Quick Start Script
-# 사용법: ./quick-start.sh
+# 사용법: ./quick-start.sh 1.3.2
+
+set -e
+
+IMAGE_TAG="$1"
+if [ -z "$IMAGE_TAG" ]; then
+    echo "Usage: ./quick-start.sh 1.3.2"
+    exit 1
+fi
+
+if [ "$IMAGE_TAG" = "latest" ]; then
+    echo "Error: 운영/검증 실행에는 latest 대신 명시 태그를 사용하세요. 예: 1.3.2"
+    exit 1
+fi
+
+IMAGE="choho97/aps-admin-backend:$IMAGE_TAG"
 
 echo "======================================================"
 echo "  APS Admin Backend - Quick Start"
@@ -34,25 +49,23 @@ if [ "$(docker ps -aq -f name=aps-admin-backend)" ]; then
     docker rm aps-admin-backend 2>/dev/null
 fi
 
-# 최신 이미지 다운로드
-echo "Docker Hub에서 최신 이미지 다운로드 중..."
-docker pull choho97/aps-admin-backend:latest
+# 지정 이미지 다운로드
+echo "Docker Hub에서 이미지 다운로드 중: $IMAGE"
+docker pull "$IMAGE"
 
 # 컨테이너 실행
 echo ""
 echo "컨테이너 실행 중..."
-docker run -d \
+if docker run -d \
   --name aps-admin-backend \
   --restart unless-stopped \
   -p 3001:3001 \
   --env-file .env \
   -e GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json \
   -v "$(pwd)/service-account.json:/app/service-account.json:ro" \
-  choho97/aps-admin-backend:latest
+  "$IMAGE"; then
 
-# 결과 확인
 echo ""
-if [ $? -eq 0 ]; then
     echo "======================================================"
     echo "✅ 백엔드 서버가 시작되었습니다!"
     echo "======================================================"

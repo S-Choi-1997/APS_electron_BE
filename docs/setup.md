@@ -1,90 +1,109 @@
-# 개발 환경 세팅
+# Setup
 
-## 사전 조건
+## Prerequisites
 
-- Node.js 18+
-- Docker Desktop (backend/ 로컬 실행 시)
-- Git
+- Node.js 20+
+- npm
+- Docker and Docker Compose on the NAS/backend server
+- Cloudflare Tunnel connected to the backend server
 
-## Electron 앱 (`app/`)
+## Electron App (`app/`)
+
+All app commands run from `app/`.
 
 ```bash
 cd app
-
 npm install
-
-# 개발 모드 (Vite + Electron + HMR)
 npm run electron:dev
-
-# 빌드
 npm run electron:build
-
-# GitHub Release 생성
-npm run release
 ```
 
-### 환경 변수 (`app/.env.development`)
+The active release path is local app build on the sub PC. Do not use GitHub Actions for app release builds.
 
-```
-VITE_API_URL=https://inquiryapi-mbi34yrklq-uc.a.run.app   # GCP2 개발용 API
-VITE_GOOGLE_CLIENT_ID=...
-VITE_NAVER_CLIENT_ID=...
-VITE_NAVER_REDIRECT_URI=http://localhost:5173/naver-callback.html
-VITE_RELAY_ENVIRONMENT=development
-```
+### App Environment
 
-### 환경 변수 (`app/.env.production`)
+For local development, create or edit `app/.env`:
 
-```
-VITE_API_URL=http://136.113.67.193:8080/proxy   # GCP4 Relay
-VITE_RELAY_ENVIRONMENT=production
+```env
+VITE_API_URL=https://your-cloudflare-backend-domain
+VITE_BACKEND_ENVIRONMENT=production
 ```
 
-## Backend (NAS Docker)
+Optional:
+
+```env
+VITE_WS_URL=wss://your-cloudflare-backend-domain
+```
+
+If `VITE_WS_URL` is omitted, the packaged app derives it from `VITE_API_URL`.
+
+For release builds, use `scripts/build-app-release.ps1`. The release script writes a temporary env file through `APS_APP_CONFIG_ENV_FILE`; do not hand-edit `app/.env` as the release source of truth.
+
+Do not use the old relay values for new app builds:
+
+```env
+VITE_API_URL=<old GCP relay /proxy URL>
+VITE_WS_URL=<direct backend websocket URL>
+VITE_RELAY_ENVIRONMENT=<old relay environment>
+```
+
+## Cloudflare Tunnel
+
+Cloudflare should route the backend hostname to the backend server port:
+
+```yaml
+hostname: your-cloudflare-backend-domain
+service: http://localhost:3001
+```
+
+If the tunnel runs on another machine in the same network, point it at the backend server IP:
+
+```yaml
+service: http://192.168.x.x:3001
+```
+
+Verify from outside the backend server:
 
 ```bash
-cd backend/
+curl https://your-cloudflare-backend-domain/
+```
 
-# .env 파일 생성 (.env.example 참조)
-cp .env.example .env
+The response should include:
 
-# Docker로 실행
+```json
+{
+  "wsRelayEnabled": false,
+  "directWebSocket": {
+    "enabled": true
+  }
+}
+```
+
+## Backend Deployment (`nas-deploy/`)
+
+The backend server runs the Docker Hub image selected by `BACKEND_IMAGE_TAG`. It does not build backend source during deployment.
+
+```bash
+cd nas-deploy
+test -f .env || cp .env.example .env
+# edit .env with real secrets, API credentials, and BACKEND_IMAGE_TAG
+docker-compose pull aps-backend
 docker-compose up -d
-
-# 로그 확인
 docker-compose logs -f aps-backend
 ```
 
-### backend/.env 주요 항목
+Required deployment facts:
 
-```
-PORT=3001
-DATABASE_URL=postgresql://...
-RELAY_WS_URL=ws://136.113.67.193:8080
-RELAY_ENVIRONMENT=production
-BACKEND_INSTANCE_ID=nas-backend
-RELAY_URL=http://136.113.67.193:3000/sms/send
-JWT_SECRET=...
+```env
+BACKEND_IMAGE_TAG=1.3.1
+WS_RELAY_ENABLED=false
+BACKEND_ENVIRONMENT=production
 ```
 
-Docker Hub: `choho97/aps-admin-backend:dev` (GitHub Actions 자동 빌드)
+Use a concrete image tag. Avoid `latest` unless you intentionally want the newest pushed image.
 
-## SMS Relay (`sms-relay/`)
+## Remaining External Services
 
-GCP3 VM에서 운영 중. 수정 시:
-
-```bash
-gcloud compute ssh aligo-proxy --zone=us-central1-a
-cd ~/sms-relay
-# 파일 수정 후
-sudo systemctl restart sms-relay
-sudo systemctl status sms-relay
-```
-
-## Customer API (`customer-api/`)
-
-GCP Cloud Run에 독립 배포. 수정 시 Cloud Run에 별도 배포 필요.
-
-## Cleanup (`cleanup/`)
-
-GCP Cloud Function. 수정 시 `gcloud functions deploy`로 별도 배포.
+- SMS still uses `SMS_RELAY_URL` and the fixed-IP SMS relay.
+- `customer-api/` remains an independent Cloud Run service for public web consultation intake.
+- `cleanup/` remains an independent Cloud Function.

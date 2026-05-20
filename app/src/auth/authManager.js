@@ -6,14 +6,20 @@
  */
 
 import * as localAuth from './localAuth';
+import { setAuthSessionRestorer } from '../config/api';
 import { getCurrentUserInfo } from '../services/userService';
 
 // Global state for current user
 let currentUser = null;
 let authStateListeners = [];
+let restoreSessionPromise = null;
 
 const notifyAuthListeners = (user) => {
   authStateListeners.forEach((listener) => listener(user));
+};
+
+const resolveDisplayName = (userInfo, fallback = '') => {
+  return userInfo?.displayName || userInfo?.display_name || userInfo?.name || fallback;
 };
 
 /**
@@ -25,16 +31,17 @@ export async function signInWithLocal(email, password) {
   // Fetch user info from backend to get displayName
   try {
     const userInfo = await getCurrentUserInfo({ currentUser: user });
-    user.displayName = userInfo.display_name || '';
+    user.displayName = resolveDisplayName(userInfo, user.displayName || user.email);
+    user.name = user.displayName;
   } catch (error) {
     console.warn('[AuthManager] Failed to fetch user info from backend:', error);
     user.displayName = user.displayName || user.email;
+    user.name = user.displayName;
   }
 
   currentUser = user;
 
-  // Save to localStorage for Electron IPC access
-  localStorage.setItem('currentUser', JSON.stringify(user));
+  localAuth.setCurrentUser(currentUser);
 
   // Update last login email (if email saving feature was ever used)
   if (localStorage.getItem('aps-saved-email') !== null) {
@@ -48,10 +55,8 @@ export async function signInWithLocal(email, password) {
 /**
  * Sign out from current provider
  */
-export function signOut() {
-  if (currentUser && currentUser.provider === 'local') {
-    localAuth.signOut();
-  }
+export async function signOut() {
+  const localSignOutPromise = localAuth.signOut();
 
   // Clear auth data from localStorage
   localStorage.removeItem('currentUser');
@@ -64,6 +69,8 @@ export function signOut() {
   if (window.electron && window.electron.closeAllStickyWindows) {
     window.electron.closeAllStickyWindows();
   }
+
+  await localSignOutPromise;
 
   console.log('[AuthManager] Signed out');
 }
@@ -86,7 +93,7 @@ export function getCurrentUser() {
  */
 export function updateDisplayName(displayName) {
   if (!currentUser) {
-    throw new Error('No user is currently signed in');
+    throw new Error('현재 로그인된 사용자가 없습니다.');
   }
 
   const trimmedName = displayName.trim();
@@ -97,12 +104,36 @@ export function updateDisplayName(displayName) {
     displayName: trimmedName,
   };
 
-  // Update currentUser in localStorage for Electron IPC access
-  localStorage.setItem('currentUser', JSON.stringify(currentUser));
+  localAuth.setCurrentUser(currentUser);
 
   // Notify listeners
   notifyAuthListeners(currentUser);
 
+  return currentUser;
+}
+
+export function setExternalAuthSession(user, options = {}) {
+  const { persist = false, syncElectron = false } = options;
+
+  if (!user) {
+    currentUser = null;
+    localAuth.setCurrentUser(null, { persist, syncElectron });
+    notifyAuthListeners(null);
+    return null;
+  }
+
+  const displayName = resolveDisplayName(user, user.email);
+  currentUser = {
+    ...user,
+    displayName,
+    name: displayName,
+    provider: user.provider || 'local',
+    idToken: user.idToken || user.accessToken,
+    accessToken: user.accessToken || user.idToken,
+  };
+
+  localAuth.setCurrentUser(currentUser, { persist, syncElectron });
+  notifyAuthListeners(currentUser);
   return currentUser;
 }
 
@@ -117,19 +148,28 @@ export function onAuthStateChanged(callback) {
   // Immediately call with current state
   callback(currentUser);
 
-  // Subscribe to local auth
-  const unsubscribeLocal = localAuth.onAuthStateChanged((user) => {
-    if (user) {
-      currentUser = user;
-      notifyAuthListeners(user);
-    }
-  });
-
-  // Return combined unsubscribe function
   return () => {
     authStateListeners = authStateListeners.filter((listener) => listener !== callback);
-    unsubscribeLocal();
   };
+}
+
+export function isAutoLoginEnabled() {
+  return localStorage.getItem('aps-auto-login') === 'true';
+}
+
+export function setAutoLoginPreference(enabled) {
+  const normalizedEnabled = Boolean(enabled);
+  localStorage.setItem('aps-auto-login', normalizedEnabled.toString());
+
+  if (normalizedEnabled) {
+    if (currentUser) {
+      localAuth.setCurrentUser(currentUser, { persist: true, syncElectron: false });
+    }
+  } else {
+    localAuth.clearPersistedSessionOnly();
+  }
+
+  return normalizedEnabled;
 }
 
 /**
@@ -141,6 +181,18 @@ export function onAuthStateChanged(callback) {
  * - Runs automatically on app startup
  */
 export async function restoreSession() {
+  if (restoreSessionPromise) {
+    return restoreSessionPromise;
+  }
+
+  restoreSessionPromise = restoreSessionInternal().finally(() => {
+    restoreSessionPromise = null;
+  });
+
+  return restoreSessionPromise;
+}
+
+async function restoreSessionInternal() {
   console.log('[AuthManager] Attempting to restore session...');
 
   // Try to restore session with refresh token
@@ -153,7 +205,7 @@ export async function restoreSession() {
     // displayName is already included in the refresh token response from backend
     // No need to fetch again - it's already set by localAuth.restoreSession()
 
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+    localAuth.setCurrentUser(currentUser);
 
     // Update last login email (if email saving feature was ever used)
     if (localStorage.getItem('aps-saved-email') !== null) {
@@ -166,8 +218,25 @@ export async function restoreSession() {
 
   // No valid session - redirect to login
   console.log('[AuthManager] No valid session, redirecting to login...');
+  currentUser = null;
+  localStorage.removeItem('currentUser');
+  notifyAuthListeners(null);
   return null;
 }
+
+export async function initializeAuthSession() {
+  if (currentUser) {
+    return currentUser;
+  }
+
+  if (!isAutoLoginEnabled()) {
+    return null;
+  }
+
+  return restoreSession();
+}
+
+setAuthSessionRestorer(restoreSession);
 
 // Export unified auth object
 export const auth = {
@@ -181,12 +250,4 @@ onAuthStateChanged((user) => {
   auth.currentUser = user;
 });
 
-// 🎯 Attempt to restore session on module load (AUTO-LOGIN!)
-// This runs when the app starts, enabling automatic login
-// Only if the user has enabled auto-login
-const autoLoginEnabled = localStorage.getItem('aps-auto-login') === 'true';
-if (autoLoginEnabled) {
-  restoreSession().catch(() => {
-    // silent failure - user will see login page
-  });
-}
+// Session restoration is started by AppRouter after runtime backend config is ready.

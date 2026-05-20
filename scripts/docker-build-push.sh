@@ -1,9 +1,25 @@
 #!/bin/bash
 # Docker 이미지 빌드 및 Docker Hub 푸시 스크립트 (Linux/Mac)
-# 사용법: ./docker-build-push.sh [version]
-# 예: ./docker-build-push.sh 1.0.0
+# 사용법: ./scripts/docker-build-push.sh 1.3.2 [--push-latest]
 
-VERSION="${1:-latest}"
+VERSION="${1:-}"
+PUSH_LATEST="${2:-}"
+
+if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+    echo "Error: version is required and must be a concrete tag, not latest."
+    echo "Usage: ./scripts/docker-build-push.sh 1.3.2 [--push-latest]"
+    exit 1
+fi
+
+if ! echo "$VERSION" | grep -Eq '^[A-Za-z0-9_.-]+$'; then
+    echo "Error: version may only contain letters, numbers, underscores, periods, and hyphens."
+    exit 1
+fi
+
+if [ -n "$PUSH_LATEST" ] && [ "$PUSH_LATEST" != "--push-latest" ]; then
+    echo "Error: unknown option: $PUSH_LATEST"
+    exit 1
+fi
 
 # 설정
 DOCKER_USERNAME="choho97"
@@ -32,9 +48,8 @@ echo "[1/4] 작업 디렉토리: $BACKEND_DIR"
 
 # service-account.json 파일 확인
 if [ ! -f "service-account.json" ]; then
-    echo "Error: service-account.json 파일이 없습니다."
-    echo "       이 파일은 Docker 이미지에 포함되지 않지만, 빌드 테스트를 위해 필요합니다."
-    exit 1
+    echo "Warning: service-account.json 파일이 없습니다."
+    echo "         이 파일은 Docker 이미지에 포함되지 않으므로 빌드/푸시는 계속 진행합니다."
 fi
 
 # .env 파일 확인
@@ -53,8 +68,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# latest 태그도 추가 (버전이 latest가 아닌 경우)
-if [ "$VERSION" != "latest" ]; then
+if [ "$PUSH_LATEST" = "--push-latest" ]; then
     echo ""
     echo "[3/4] latest 태그 추가 중..."
     docker tag "${FULL_IMAGE_NAME}:${VERSION}" "${FULL_IMAGE_NAME}:latest"
@@ -77,8 +91,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# latest도 푸시 (버전이 latest가 아닌 경우)
-if [ "$VERSION" != "latest" ]; then
+if [ "$PUSH_LATEST" = "--push-latest" ]; then
     echo ""
     echo "      docker push ${FULL_IMAGE_NAME}:latest"
     docker push "${FULL_IMAGE_NAME}:latest"
@@ -91,7 +104,7 @@ echo "====================================================="
 echo ""
 echo "이미지 정보:"
 echo "  - ${FULL_IMAGE_NAME}:${VERSION}"
-if [ "$VERSION" != "latest" ]; then
+if [ "$PUSH_LATEST" = "--push-latest" ]; then
     echo "  - ${FULL_IMAGE_NAME}:latest"
 fi
 echo ""

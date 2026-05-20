@@ -226,6 +226,11 @@
   background: #e9eef5;
 }
 
+.copy-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .detail-section {
   margin-top: 16px;
   padding-top: 16px;
@@ -597,12 +602,14 @@
 /* Header Styles */
 .header-content {
   flex: 1;
+  min-width: 0;
 }
 
 .header-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   margin-bottom: 12px;
 }
 
@@ -610,6 +617,8 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .header-meta {
@@ -623,16 +632,75 @@
 .meta-item {
   display: flex;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .email-address {
   cursor: pointer;
   color: #3b82f6;
   text-decoration: underline;
+  overflow-wrap: anywhere;
 }
 
 .email-address:hover {
   color: #2563eb;
+}
+
+.message-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.translation-btn {
+  min-height: 30px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.translation-btn.available {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.translation-btn:hover:not(:disabled) {
+  border-color: #6366f1;
+  background: #e0e7ff;
+}
+
+.translation-btn:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.thread-message-toolbar {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.email-copy-status {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2100;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.24);
 }
 
 /* Info Section */
@@ -685,12 +753,62 @@
   line-height: 1.6;
   min-height: 200px;
   max-height: 500px;
-  overflow-y: auto;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.selectable-content,
+.selectable-content * {
+  user-select: text;
+}
+
+.message-html * {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.message-html a {
+  color: #2563eb;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-html img {
+  display: block;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 8px 0;
+}
+
+.message-html table {
+  display: block;
+  max-width: 100% !important;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.message-html td,
+.message-html th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-html pre,
+.message-html code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .message-text {
   white-space: pre-wrap;
-  word-break: break-word;
+}
+
+.translated-message {
+  border-color: #93c5fd;
+  background: #f8fbff;
 }
 
 /* 메시지 영역 커스텀 스크롤바 */
@@ -774,6 +892,18 @@
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.response-textarea:disabled {
+  background: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.response-disabled-message {
+  margin: -4px 0 12px;
+  color: #92400e;
+  font-size: 13px;
 }
 
 .response-actions {
@@ -1200,6 +1330,7 @@
   overflow-y: auto;
   font-size: 14px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 /* ===== Later Threads Section ===== */
@@ -1220,6 +1351,7 @@
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  user-select: text;
 }
 
 .thread-stack {
@@ -1241,6 +1373,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .thread-expand-button-stack,
@@ -1298,6 +1431,7 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .thread-scroll-area::-webkit-scrollbar {
@@ -1388,7 +1522,37 @@
   font-size: 14px;
   font-weight: 600;
   color: #374151;
-  margin: 0 0 12px 0;
+  margin: 0;
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.download-all-attachments-btn {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.download-all-attachments-btn:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.download-all-attachments-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .attachments-list {
@@ -1416,6 +1580,7 @@
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
+  min-width: 0;
 }
 
 .attachment-download-btn:hover {
@@ -1434,7 +1599,9 @@
   font-size: 14px;
   font-weight: 500;
   color: #1f2937;
+  overflow-wrap: anywhere;
   word-break: break-word;
+  min-width: 0;
 }
 
 .attachment-size {
@@ -1461,6 +1628,117 @@
   padding: 8px 0;
 }
 
+.response-attachment-dropzone {
+  margin-top: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.response-attachment-dropzone.dragging {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
+
+.response-attachment-input {
+  display: none;
+}
+
+.response-attachment-dropzone-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.response-attachment-dropzone-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.response-attachment-dropzone-hint {
+  font-size: 12px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.response-attachment-picker-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.response-attachment-picker-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.response-attachment-picker-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.response-attachment-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.response-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.response-attachment-name {
+  flex: 1;
+  min-width: 0;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.response-attachment-size {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.response-attachment-remove-btn {
+  border: none;
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.response-attachment-remove-btn:hover:not(:disabled) {
+  background: #fecaca;
+}
+
 /* ===== Content Loading & Error States ===== */
 .content-loading {
   padding: 20px;
@@ -1477,4 +1755,68 @@
   color: #dc2626;
   font-size: 13px;
   margin-bottom: 12px;
+}
+
+@media (max-width: 768px) {
+  .email-thread-container {
+    width: calc(100vw - 24px);
+    min-width: 0;
+    max-height: calc(100vh - 24px);
+  }
+
+  .email-thread-container .modal-header {
+    padding: 16px;
+  }
+
+  .email-thread-container .modal-title {
+    font-size: 18px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .email-thread-container .header-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .email-thread-container .header-badges {
+    justify-content: flex-start;
+  }
+
+  .email-thread-container .modal-body,
+  .current-email-stack .modal-body {
+    padding: 12px;
+  }
+
+  .message-html,
+  .message-text {
+    min-height: 160px;
+    max-height: 45vh;
+    padding: 12px;
+  }
+
+  .message-toolbar {
+    justify-content: flex-start;
+  }
+
+  .response-actions {
+    flex-direction: column;
+  }
+
+  .response-attachment-dropzone,
+  .response-attachment-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .send-button,
+  .cancel-button {
+    width: 100%;
+  }
+
+  .attachment-download-btn {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }

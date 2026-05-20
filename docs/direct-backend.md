@@ -29,7 +29,7 @@ APS_WS_URL=wss://api.example.com
 APS_BACKEND_ENVIRONMENT=production
 ```
 
-`VITE_RELAY_ENVIRONMENT` remains a compatibility fallback for older release setups, but direct backend releases should use `VITE_BACKEND_ENVIRONMENT`.
+`VITE_RELAY_ENVIRONMENT` is no longer read by the app build or Electron runtime. Use `VITE_BACKEND_ENVIRONMENT` for packaged builds and `APS_BACKEND_ENVIRONMENT` for runtime overrides.
 
 The app no longer falls back to the old relay address for direct app traffic. If no saved or bundled AppConfig exists, development fallback remains localhost-oriented.
 
@@ -40,10 +40,18 @@ The backend accepts the existing HTTP API and Socket.IO connections on the same 
 For direct app operation without relay-managed app traffic, set:
 
 ```env
-RELAY_ENABLED=false
+WS_RELAY_ENABLED=false
 BACKEND_ENVIRONMENT=production
+JWT_SECRET=<64 hex characters from crypto.randomBytes(32)>
+JWT_REFRESH_SECRET=<different 64 hex characters from crypto.randomBytes(32)>
 ```
 
-On the NAS, create `nas-deploy/.env` from `nas-deploy/.env.example` only if `.env` does not already exist, then fill the real values before running Docker Compose. After startup, `GET /` should report `relayEnabled: false` and `directWebSocket.enabled: true`.
+On the NAS, create `nas-deploy/.env` from `nas-deploy/.env.example` only if `.env` does not already exist, then fill the real values before running Docker Compose. Set `BACKEND_IMAGE_TAG` to a concrete released backend image tag, for example `1.3.1`. After startup, `GET /` should report `wsRelayEnabled: false` and `directWebSocket.enabled: true`.
+
+`NODE_ENV=production` now fails startup if `JWT_SECRET` or `JWT_REFRESH_SECRET` is missing, still set to a placeholder, or shorter than 32 characters. Generate the two values separately:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 Customer web consultation intake remains outside this direct app path. SMS also remains relay-backed because the SMS provider depends on the fixed-IP server path. In this structure, the app talks directly to the backend for app features, while web intake and SMS keep their existing server/API dependencies.

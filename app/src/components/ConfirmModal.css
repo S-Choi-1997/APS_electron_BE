@@ -77,6 +77,11 @@
   color: #111827;
 }
 
+.confirm-modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .confirm-modal-body {
   padding: 24px;
   text-align: center;
@@ -167,6 +172,16 @@
 
 .confirm-modal-btn.confirm:hover {
   background: #2563eb;
+}
+
+.confirm-modal-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.confirm-modal-btn.confirm:disabled,
+.confirm-modal-btn.confirm:disabled:hover {
+  background: #93c5fd;
 }
 
 .confirm-modal-btn:active {
