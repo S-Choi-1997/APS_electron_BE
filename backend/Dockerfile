@@ -18,6 +18,10 @@ COPY firestore-admin.js ./
 COPY crypto-helper.js ./
 COPY email-mail-client-service.js ./
 COPY email-translation-service.js ./
+COPY email-translation-routes.js ./
+COPY memo-routes.js ./
+COPY sms-service.js ./
+COPY sms-routes.js ./
 COPY setup-db.js ./
 
 # 데이터베이스 마이그레이션 파일 복사
