@@ -1,5 +1,9 @@
 const db = require('./db');
 
+function isUndefinedTableError(error) {
+  return error?.code === '42P01';
+}
+
 function registerRoutes(app, auth) {
 // ============================================
 // WEB FORM INQUIRIES API (PostgreSQL - Firestore polling)
@@ -44,6 +48,16 @@ app.get("/web-form-inquiries", auth.authenticateJWT, async (req, res) => {
       count: result.rows.length,
     });
   } catch (error) {
+    if (isUndefinedTableError(error)) {
+      console.warn('[Web Form Inquiries] web_form_inquiries table is missing; returning empty list');
+      return res.json({
+        status: "ok",
+        data: [],
+        count: 0,
+        warning: "web_form_inquiries table is not configured",
+      });
+    }
+
     console.error("Error fetching web form inquiries:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
   }
@@ -98,6 +112,14 @@ app.patch("/web-form-inquiries/:id", auth.authenticateJWT, async (req, res) => {
       data: result.rows[0],
     });
   } catch (error) {
+    if (isUndefinedTableError(error)) {
+      console.warn('[Web Form Inquiries] web_form_inquiries table is missing; update rejected');
+      return res.status(503).json({
+        error: "web_form_inquiries_unavailable",
+        message: "Web form inquiry storage is not configured",
+      });
+    }
+
     console.error("Error updating web form inquiry:", error);
     res.status(500).json({ error: "internal_error", message: error.message });
   }
