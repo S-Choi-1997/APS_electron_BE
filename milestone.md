@@ -20,13 +20,13 @@
 | Backend translation route split | email translation 라우트를 `backend/email-translation-routes.js`로 분리 | production backend `1.3.25` 배포 후 `POST /email-inquiries/657/translate` 200, backfill 200 |
 | Backend Docker packaging | 새 backend module 파일들을 Docker image에 포함 | `steve`에서 `choho97/aps-admin-backend:1.3.25` build/push, NAS 배포 완료 |
 | Production smoke verification | 실제 운영 경로에서 배포/검증 | `https://backend.apsconsulting.kr/` 200, NAS container healthy, `check-infra.ps1` 통과 |
+| Backend remaining route boundaries | Firestore `/inquiries`, schedules, web form inquiries, email response routes, ZOHO integration 등록부를 module로 분리하고 `/email-inquiries` 중복 책임 정리 | production backend `1.3.27` 배포 후 `/inquiries`, `/inquiries/all`, `/schedules`, `/web-form-inquiries`, `/email-inquiries`, `/sms/send`, translation smoke 통과 |
+| Backend route smoke script | backend route split 후 반복 가능한 운영 smoke script 추가 | `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr` 전체 Pass |
 
 ## Remaining
 
 | 우선순위 | 영역 | 남은 일 | 완료 기준 |
 |---:|---|---|---|
-| 1 | Backend route split | `backend/server.js`에 남은 Firestore `/inquiries`, schedules, web form inquiries, email inquiries 본체, ZOHO integration 등록부를 라우터/서비스로 분리 | production image 배포 후 각 주요 route smoke test 통과 |
-| 1 | Email inquiries 통합 | `emailMailClient.registerRoutes()` 이후 다시 정의되는 `/email-inquiries` 계열 라우트의 중복/책임 경계를 정리 | `/email-inquiries` 목록/상세/thread/content/attachments/reply/translation 경로가 중복 없이 동작 |
 | 2 | Electron main process split | `app/electron/main.js`를 `ipc`, `windows`, `updater`, `websocket`, `appConfig` 등 역할별 module로 분리 | packaged app 또는 Electron dev 실행에서 창 생성, update, notification, websocket 기능 smoke test |
 | 2 | IPC validation | main IPC handler를 기능별로 분리하고 sender/권한 검증을 공통화 | preload 노출 API와 main handler mapping이 제한적이고 추적 가능함 |
 | 3 | Email page state split | `EmailConsultationsPage.jsx`의 mailbox/filter/selection/detail/composer/draft/scheduled 상태를 reducer 또는 `useEmailPageState`로 분리 | 주요 메일 UI 흐름이 기존과 동일하게 동작하고 컴포넌트 책임이 줄어듦 |
@@ -38,14 +38,14 @@
 
 ## Current Status
 
-- 완료: backend route 분리의 일부 하위 이슈 3개.
-- 남음: backend 대형 route block 정리, Electron main/IPC 정리, React email page 상태 정리, query invalidation 정리, asset/artifact 정리, 회귀 검증 자동화.
-- 현재 운영 backend: `choho97/aps-admin-backend:1.3.25`.
-- 주의: backend 전체 라우터 분리는 아직 완료가 아니라 부분 완료다. 특히 `/email-inquiries` 본체와 중복 책임 정리는 남아 있다.
+- 완료: Call 1 backend route boundary 정리까지 완료. 운영 backend `choho97/aps-admin-backend:1.3.27`에서 smoke 통과.
+- 남음: Electron main/IPC 정리, React email page 상태 정리, query invalidation 정리, asset/artifact 정리, 회귀 검증 자동화.
+- 현재 운영 backend: `choho97/aps-admin-backend:1.3.27`.
+- 주의: WebSocket tunnel 관련 route-specific handler는 아직 `server.js`에 남아 있다. Call 1의 API route 분리 범위에서는 기능 유지 우선으로 남겼고, 별도 backend cleanup 후보로 둔다.
 
 ## Next 3 Work Calls
 
-### Call 1: Finish Backend Route Boundaries
+### Call 1: Finish Backend Route Boundaries - Done
 
 목표: `backend/server.js`를 Express entrypoint에 가깝게 줄이고, 운영 API 동작은 유지한다.
 
@@ -63,6 +63,13 @@
 - `server.js`에는 app/bootstrap, middleware, WebSocket, module registration 중심만 남는다.
 - 운영 image build/push/deploy 후 `https://backend.apsconsulting.kr/` health `1.3.x` 확인.
 - 운영 URL에서 `/inquiries`, `/schedules`, `/email-inquiries`, `/memos`, `/sms/send`, translation 주요 경로 smoke test 통과.
+
+구현 결과:
+
+- commits: `9bcf271 refactor remaining backend route boundaries`, `fd11c88 handle missing web form inquiry table`.
+- deployed image: `choho97/aps-admin-backend:1.3.27`.
+- verification: `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr`, `scripts/check-infra.ps1 -BackendUrl https://backend.apsconsulting.kr`.
+- residual risk: production DB에 `web_form_inquiries` table이 없어 GET은 안전한 empty response로 처리하고 PATCH는 503을 반환한다. 실제 기능 활성화가 필요하면 DB migration/backfill이 별도 필요하다.
 
 ### Call 2: Split Electron Main And Harden IPC
 
