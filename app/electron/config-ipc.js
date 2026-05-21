@@ -4,6 +4,7 @@ function registerConfigIpcHandlers({
   ipcMain,
   broadcastToAllWindows,
   createAppConfig,
+  deriveWebSocketUrlFromRestUrl,
   getConfigPath,
   getDefaultConfig,
   getSocketAuth,
@@ -69,9 +70,12 @@ function registerConfigIpcHandlers({
       const mergedConfig = { ...baseConfig, ...configPatch };
       const restUrlChanged = Boolean(configPatch.restBaseUrl);
       const explicitWsUrl = Boolean(configPatch.wsBaseUrl);
+      const wsCurrentlyDerived = baseConfig.wsDerivedFromRest
+        || baseConfig.wsBaseUrl === deriveWebSocketUrlFromRestUrl(baseConfig.restBaseUrl);
 
-      if (restUrlChanged && !explicitWsUrl && baseConfig.wsDerivedFromRest) {
+      if (restUrlChanged && !explicitWsUrl && wsCurrentlyDerived) {
         delete mergedConfig.wsBaseUrl;
+        delete mergedConfig.wsDerivedFromRest;
       }
 
       const newConfig = saveConfig(createAppConfig(mergedConfig, 'userData'));

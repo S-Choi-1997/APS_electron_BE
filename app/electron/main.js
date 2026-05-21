@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const {
   createAppConfig,
+  deriveWebSocketUrlFromRestUrl,
   getConfigPath,
   getDefaultConfig,
   loadConfig,
@@ -201,6 +202,44 @@ async function getSocketAuthFromMainWindow() {
   return rendererAuthSession;
 }
 
+function attachExternalUrlHandler(window, label) {
+  if (!window || window.isDestroyed()) return;
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const safeUrl = normalizeExternalUrl(url);
+      console.log(`[${label}] Window open request:`, safeUrl);
+      shell.openExternal(safeUrl).catch((error) => {
+        console.error(`[${label}] Failed to open external window URL:`, error);
+      });
+    } catch (error) {
+      console.warn(`[${label}] Blocked external window URL:`, error.message);
+    }
+    return { action: 'deny' };
+  });
+}
+
+function getManagedWindowRole(window) {
+  if (!window || window.isDestroyed()) return null;
+  if (window === mainWindow) return 'main';
+  if (Object.values(stickyWindows).some((managedWindow) => managedWindow === window)) return 'sticky';
+  if (Object.values(memoSubWindows).some((managedWindow) => managedWindow === window)) return 'memo';
+  if (toastNotifications.some((managedWindow) => managedWindow === window)) return 'toast';
+  return null;
+}
+
+function requireManagedWindowRole(senderWindow, allowedRoles) {
+  const role = getManagedWindowRole(senderWindow);
+  if (!role || !allowedRoles.includes(role)) {
+    return {
+      allowed: false,
+      error: `허용되지 않은 창에서 호출한 IPC입니다: ${role || 'unknown'}`,
+    };
+  }
+
+  return { allowed: true, role };
+}
+
 const webSocketManager = createWebSocketManager({
   broadcastToAllWindows,
   createAppConfig,
@@ -212,6 +251,7 @@ registerConfigIpcHandlers({
   ipcMain,
   broadcastToAllWindows,
   createAppConfig,
+  deriveWebSocketUrlFromRestUrl,
   getConfigPath,
   getDefaultConfig,
   getSocketAuth: getSocketAuthFromMainWindow,
@@ -317,20 +357,7 @@ function createWindow() {
     // app.isQuitting이 true면 정상 종료 허용
   });
 
-  // 새 창 열기 요청 가로채기 (외부 링크 클릭 시)
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const safeUrl = normalizeExternalUrl(url);
-      console.log('[Main] Window open request:', safeUrl);
-      // 외부 URL은 시스템 브라우저로 열기
-      shell.openExternal(safeUrl).catch((error) => {
-        console.error('[Main] Failed to open external window URL:', error);
-      });
-    } catch (error) {
-      console.warn('[Main] Blocked external window URL:', error.message);
-    }
-    return { action: 'deny' }; // Electron 새 창은 열지 않음
-  });
+  attachExternalUrlHandler(mainWindow, 'Main');
 
   // Create system tray
   createTray();
@@ -383,7 +410,12 @@ function createTray() {
 }
 
 // 세션 정리 (로그아웃 시 사용)
-ipcMain.handle('clear-session', async () => {
+registerIpcHandler(ipcMain, 'clear-session', async ({ senderWindow }) => {
+  const permission = requireManagedWindowRole(senderWindow, ['main']);
+  if (!permission.allowed) {
+    return { success: false, error: permission.error };
+  }
+
   rendererAuthSession = null;
   if (mainWindow) {
     await session.defaultSession.clearStorageData({
@@ -392,18 +424,28 @@ ipcMain.handle('clear-session', async () => {
     return { success: true };
   }
   return { success: false };
-});
+}, { requireSenderWindow: true });
 
-ipcMain.handle('set-auth-session', async (event, user) => {
+registerIpcHandler(ipcMain, 'set-auth-session', async ({ senderWindow }, user) => {
+  const permission = requireManagedWindowRole(senderWindow, ['main']);
+  if (!permission.allowed) {
+    return { success: false, error: permission.error };
+  }
+
   rendererAuthSession = normalizeRendererAuthSession(user);
   return {
     success: true,
     hasAuth: Boolean(rendererAuthSession),
   };
-});
+}, { requireSenderWindow: true });
 
 // 인증 토큰 가져오기 (sticky 윈도우용)
-ipcMain.handle('get-auth-token', async () => {
+registerIpcHandler(ipcMain, 'get-auth-token', async ({ senderWindow }) => {
+  const permission = requireManagedWindowRole(senderWindow, ['main', 'sticky', 'memo']);
+  if (!permission.allowed) {
+    return { success: false, error: permission.error };
+  }
+
   if (!rendererAuthSession) {
     return { success: false, error: '인증 정보를 찾지 못했습니다.' };
   }
@@ -412,7 +454,7 @@ ipcMain.handle('get-auth-token', async () => {
     success: true,
     user: rendererAuthSession,
   };
-});
+}, { requireSenderWindow: true });
 
 // 윈도우 제어 IPC 핸들러
 ipcMain.handle('window-minimize', () => {
@@ -504,6 +546,7 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, reset = false 
     icon: getIconPath('icon.png'),
     webPreferences: createRendererWebPreferences(),
   });
+  attachExternalUrlHandler(stickyWindow, 'Sticky');
 
   // Save position when window is moved
   stickyWindow.on('moved', () => {
@@ -728,6 +771,7 @@ registerIpcHandler(ipcMain, 'open-memo-sub-window', async ({ senderWindow: paren
     icon: getIconPath('icon.png'),
     webPreferences: createRendererWebPreferences(),
   });
+  attachExternalUrlHandler(subWindow, 'MemoSubWindow');
 
   // URL 구성
   const memoRoute = mode === 'view' && memoId
@@ -836,6 +880,7 @@ function createToastNotification(data) {
     icon: getIconPath('icon.png'),
     webPreferences: createRendererWebPreferences(),
   });
+  attachExternalUrlHandler(toastWindow, 'Toast');
 
   const toastRoute = `/window/toast?${params.toString()}`;
 

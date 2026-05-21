@@ -23,12 +23,13 @@
 | Backend remaining route boundaries | Firestore `/inquiries`, schedules, web form inquiries, email response routes, ZOHO integration 등록부를 module로 분리하고 `/email-inquiries` 중복 책임 정리 | production backend `1.3.27` 배포 후 `/inquiries`, `/inquiries/all`, `/schedules`, `/web-form-inquiries`, `/email-inquiries`, `/sms/send`, translation smoke 통과 |
 | Backend route smoke script | backend route split 후 반복 가능한 운영 smoke script 추가 | `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr` 전체 Pass |
 | Electron main process split | `app/electron/main.js`에서 app config, WebSocket, updater, config IPC, file IPC, startup IPC, window loading helper를 module로 분리 | `npm --prefix app run electron:build` 통과, `win-unpacked` packaged smoke에서 app.asar module load/dist load/WebSocket init 확인 |
-| Electron IPC hardening | 공통 IPC wrapper와 URL/download sanitizer를 추가하고 sender window 검증이 필요한 창 IPC에 적용 | preload invoke 41개와 main handlers 대조 결과 missing 0, 서브에이전트 production review blocker 수정 후 재검토 통과 |
+| Electron IPC hardening baseline | 공통 IPC wrapper와 URL/download sanitizer를 추가하고 auth/session IPC sender role 검증, 모든 BrowserWindow의 `window.open` protocol whitelist, REST→WS config 파생 보정을 적용 | preload invoke 41개와 main handlers 대조 결과 missing 0, BrowserWindow 4개 모두 external URL handler 적용, config derivation check 통과 |
 
 ## Remaining
 
 | 우선순위 | 영역 | 남은 일 | 완료 기준 |
 |---:|---|---|---|
+| 2 | Electron full usage smoke | 로그인 이후 주요 IPC, notification/download, update downloaded → install flow를 실제 설치본 또는 동등한 harness에서 검증 | 실제 사용자 경로에서 auth/session IPC, 파일 저장/다운로드, 알림 창, 업데이트 설치 요청이 기대 출력/로그와 함께 통과 |
 | 3 | Email page state split | `EmailConsultationsPage.jsx`의 mailbox/filter/selection/detail/composer/draft/scheduled 상태를 reducer 또는 `useEmailPageState`로 분리 | 주요 메일 UI 흐름이 기존과 동일하게 동작하고 컴포넌트 책임이 줄어듦 |
 | 4 | Query invalidation narrowing | `emailQueryKeys`와 WebSocket invalidation을 이벤트별로 좁힘 | 생성/수정/삭제/메일함 이벤트별로 필요한 query만 invalidate |
 | 5 | Static asset cleanup | `app/font`와 `app/public/font`의 Nanum font 중복 실제 사용 경로 확인 후 정리 | 사용되는 한 경로만 남고 app build 통과 |
@@ -38,8 +39,8 @@
 
 ## Current Status
 
-- 완료: Call 1 backend route boundary 정리, Call 2 Electron main/IPC 정리 완료.
-- 남음: React email page 상태 정리, query invalidation 정리, asset/artifact 정리, 회귀 검증 자동화.
+- 완료: Call 1 backend route boundary 정리, Call 2 Electron main/IPC code split 및 hardening baseline.
+- 남음: Electron full usage smoke, React email page 상태 정리, query invalidation 정리, asset/artifact 정리, 회귀 검증 자동화.
 - 현재 운영 backend: `choho97/aps-admin-backend:1.3.27`.
 - 주의: WebSocket tunnel 관련 route-specific handler는 아직 `server.js`에 남아 있다. Call 1의 API route 분리 범위에서는 기능 유지 우선으로 남겼고, 별도 backend cleanup 후보로 둔다.
 
@@ -71,7 +72,7 @@
 - verification: `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr`, `scripts/check-infra.ps1 -BackendUrl https://backend.apsconsulting.kr`.
 - residual risk: production DB에 `web_form_inquiries` table이 없어 GET은 안전한 empty response로 처리하고 PATCH는 503을 반환한다. 실제 기능 활성화가 필요하면 DB migration/backfill이 별도 필요하다.
 
-### Call 2: Split Electron Main And Harden IPC - Done
+### Call 2: Split Electron Main And Harden IPC - Code Done, Full Smoke Pending
 
 목표: Electron main process의 책임을 역할별로 분리하고 IPC handler 검증을 보기 쉽게 만든다.
 
@@ -89,14 +90,15 @@
 
 구현 결과:
 
-- `app/electron/main.js`를 2052 lines 수준에서 1023 lines 수준으로 줄이고 app config, WebSocket, updater, config IPC, file IPC, startup IPC, window loading helper를 module로 분리했다.
+- `app/electron/main.js`를 2052 lines 수준에서 약 1030 lines 수준으로 줄이고 app config, WebSocket, updater, config IPC, file IPC, startup IPC, window loading helper를 module로 분리했다.
 - preload invoke 41개와 main/electron module handlers를 대조해 missing 0을 확인했다.
-- 외부 URL은 IPC 경로와 `window.open` 경로 모두 protocol whitelist를 통과해야 열리도록 정리했다.
+- 외부 URL은 IPC 경로와 모든 Electron `BrowserWindow`의 `window.open` 경로에서 protocol whitelist를 통과해야 열리도록 정리했다.
+- auth/session IPC는 sender window role을 검증한다. `set-auth-session`/`clear-session`은 main window만, `get-auth-token`은 main/sticky/memo window만 허용한다.
 - updater `install-update`는 `quitAndInstall` 전에 `app.isQuitting = true`를 설정해 전역 `before-quit` handler가 설치 흐름을 막지 않게 했다.
-- REST-only config 변경 시 WebSocket URL이 REST URL에서 다시 파생되도록 `wsDerivedFromRest` 판정을 보정했다.
+- REST-only config 변경 시 WebSocket URL이 REST URL에서 다시 파생되도록 `wsDerivedFromRest` 판정을 보정했다. 기존 저장 설정에 `wsDerivedFromRest:false`가 남아 있어도 REST에서 파생된 URL이면 derived로 재판정한다.
 - verification: `node --check app/electron/*.js`, app config derivation check, IPC channel coverage check, `npm --prefix app run electron:build`, `app/dist/win-unpacked/APS Admin.exe` packaged smoke.
-- subagent review: blocker 3개를 수정했고 재검토에서 남은 blocker 없음.
-- residual risk: 실제 설치본의 업데이트 다운로드 완료 후 설치 버튼, 로그인 이후 실제 사용자 IPC 흐름은 별도 수동 smoke가 더 좋다. 현재 검증은 packaged startup/module load/WebSocket init 중심이다.
+- subagent review: completion overclaim, child window URL gap, auth/session IPC role gap, old config compatibility gap을 지적받았고 code/milestone을 수정했다.
+- residual risk: 실제 설치본의 업데이트 다운로드 완료 후 설치 버튼, 로그인 이후 실제 사용자 IPC, notification/download 전체 흐름은 아직 full usage smoke가 필요하다. 이 항목은 Remaining에 남긴다.
 
 ### Call 3: Frontend Email State, Query Invalidation, And Workspace Cleanup
 

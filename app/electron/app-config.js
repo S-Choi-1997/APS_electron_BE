@@ -133,7 +133,6 @@ function createAppConfig(input = {}, source = 'runtime') {
 function hasExplicitWebSocketUrl(input, restBaseUrl) {
   if (!input.wsBaseUrl) return false;
   if (input.wsDerivedFromRest === true) return false;
-  if (input.wsDerivedFromRest === false) return true;
 
   try {
     return normalizeWebSocketUrl(input.wsBaseUrl) !== deriveWebSocketUrlFromRestUrl(restBaseUrl);
