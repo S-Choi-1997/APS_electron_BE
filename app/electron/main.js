@@ -1,8 +1,32 @@
 const { app, BrowserWindow, ipcMain, session, Menu, screen, shell, Tray, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const io = require('socket.io-client');
-const { pathToFileURL } = require('url');
+const {
+  createAppConfig,
+  getConfigPath,
+  getDefaultConfig,
+  loadConfig,
+  saveConfig,
+} = require('./app-config');
+const {
+  createWebSocketManager,
+  normalizeRendererAuthSession,
+} = require('./websocket-manager');
+const { createAutoUpdaterManager } = require('./auto-updater-manager');
+const { registerConfigIpcHandlers } = require('./config-ipc');
+const { registerFileIpcHandlers } = require('./file-ipc');
+const { registerStartupIpcHandlers } = require('./startup-ipc');
+const {
+  normalizeDownloadUrl,
+  normalizeExternalUrl,
+  registerIpcHandler,
+} = require('./ipc-helpers');
+const {
+  createRendererWebPreferences,
+  getIconPath,
+  loadMainRenderer,
+  loadRendererRoute,
+} = require('./window-loader');
 
 const APP_NAME = 'APS Admin';
 const APP_USER_MODEL_ID = 'kr.apsconsulting.admin';
@@ -26,14 +50,6 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
-// electron-updater는 app.whenReady() 이후에 로드 (개발 모드에서는 에러 발생하므로)
-let autoUpdater = null;
-const PRODUCTION_BACKEND_URL = 'https://backend.apsconsulting.kr';
-const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
-const AUTO_UPDATE_ENABLED = app.isPackaged
-  ? process.env.APS_DISABLE_AUTO_UPDATE !== 'true'
-  : process.env.APS_ENABLE_AUTO_UPDATE === 'true';
-
 let mainWindow;
 let tray = null; // System tray
 let stickyWindows = {}; // { type: BrowserWindow }
@@ -41,28 +57,11 @@ let memoSubWindows = {}; // { stickyType: BrowserWindow }
 let toastNotifications = []; // Toast 알림창 배열 (스택 관리 용)
 let pendingNavigationRoute = null;
 
-// WebSocket 관련 변수
-let socket = null;
-let currentConfig = null;
-let heartbeatInterval = null;
 let rendererAuthSession = null;
 
 // Lazy getters for paths (app.getPath는 app ready 이후에만 사용 가능)
 let _stickySettingsPath = null;
 let _updateLogPath = null;
-
-// 업데이트 다운로드 상태 (중복 방지)
-let isUpdateDownloading = false;
-let updateCheckInterval = null;
-let latestUpdateState = {
-  status: 'idle',
-  info: null,
-  progress: null,
-  errorMessage: null,
-  isDownloaded: false,
-  isDownloading: false,
-  checkedAt: null,
-};
 
 function sendToMainWindow(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -77,15 +76,6 @@ function sendToMainWindow(channel, payload) {
   } else {
     send();
   }
-}
-
-function setLatestUpdateState(partialState) {
-  latestUpdateState = {
-    ...latestUpdateState,
-    ...partialState,
-    checkedAt: new Date().toISOString(),
-  };
-  return latestUpdateState;
 }
 
 function normalizeNavigationRoute(route) {
@@ -126,56 +116,40 @@ async function gracefulShutdown() {
   console.log('[Shutdown] Starting graceful shutdown...');
   app.isQuitting = true;
 
-  // 1. Heartbeat 정리
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-    console.log('[Shutdown] Heartbeat cleared');
-  }
+  // 1. Heartbeat/WebSocket 정리
+  webSocketManager.shutdown();
+  console.log('[Shutdown] WebSocket disconnected');
+  autoUpdateManager.shutdown();
 
-  if (updateCheckInterval) {
-    clearInterval(updateCheckInterval);
-    updateCheckInterval = null;
-    console.log('[Shutdown] Update check interval cleared');
-  }
-
-  // 2. WebSocket 정리
-  if (socket) {
-    socket.removeAllListeners();
-    socket.disconnect();
-    socket = null;
-    console.log('[Shutdown] WebSocket disconnected');
-  }
-
-  // 3. Toast 알림 정리
+  // 2. Toast 알림 정리
   toastNotifications.forEach(win => {
     if (win && !win.isDestroyed()) win.destroy();
   });
   toastNotifications = [];
   console.log('[Shutdown] Toast notifications closed');
 
-  // 4. Memo sub windows 정리
+  // 3. Memo sub windows 정리
   Object.values(memoSubWindows).forEach(win => {
     if (win && !win.isDestroyed()) win.destroy();
   });
   memoSubWindows = {};
   console.log('[Shutdown] Memo sub windows closed');
 
-  // 5. Sticky windows 정리
+  // 4. Sticky windows 정리
   Object.values(stickyWindows).forEach(win => {
     if (win && !win.isDestroyed()) win.destroy();
   });
   stickyWindows = {};
   console.log('[Shutdown] Sticky windows closed');
 
-  // 6. Tray 정리
+  // 5. Tray 정리
   if (tray) {
     tray.destroy();
     tray = null;
     console.log('[Shutdown] Tray destroyed');
   }
 
-  // 7. Main window 정리
+  // 6. Main window 정리
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.destroy();
     mainWindow = null;
@@ -197,247 +171,6 @@ function getUpdateLogPath() {
     _updateLogPath = path.join(app.getPath('userData'), 'update.log');
   }
   return _updateLogPath;
-}
-
-function logUpdate(message) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  console.log('[AutoUpdater]', message);
-  try {
-    fs.appendFileSync(getUpdateLogPath(), logMessage);
-  } catch (e) {
-    console.error('Failed to write update log:', e);
-  }
-}
-
-// ============================================
-// Environment 설정 관리
-// ============================================
-function normalizeWebSocketUrl(url) {
-  const parsedUrl = new URL(url);
-  if (!['ws:', 'wss:', 'http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('WebSocket URL은 ws, wss, http, https 프로토콜만 사용할 수 있습니다.');
-  }
-
-  if (parsedUrl.protocol === 'http:') parsedUrl.protocol = 'ws:';
-  if (parsedUrl.protocol === 'https:') parsedUrl.protocol = 'wss:';
-  parsedUrl.pathname = parsedUrl.pathname.replace(/\/$/, '');
-
-  return parsedUrl.toString().replace(/\/$/, '');
-}
-
-function deriveWebSocketUrlFromRestUrl(restUrl) {
-  const parsedUrl = new URL(restUrl);
-  parsedUrl.protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-  parsedUrl.pathname = '';
-  parsedUrl.search = '';
-  parsedUrl.hash = '';
-  return normalizeWebSocketUrl(parsedUrl.toString());
-}
-
-function getBuiltInApiFallback() {
-  return app.isPackaged ? PRODUCTION_BACKEND_URL : 'http://localhost:3001';
-}
-
-function isLegacyBackendUrl(value) {
-  if (!value || typeof value !== 'string') return false;
-
-  const normalizedValue = value.toLowerCase();
-  return [
-    '/proxy',
-    '136.113.67.193',
-    'inquiryapi-',
-    '.run.app',
-    'ws-relay',
-    'aps-websocket-relay',
-    'your-cloudflare-backend-domain',
-  ].some((pattern) => normalizedValue.includes(pattern));
-}
-
-function migratePersistedConfig(savedConfig, defaultConfig) {
-  const migratedConfig = { ...savedConfig };
-  const legacyRestBaseUrl = savedConfig['api' + 'Url'];
-  const legacyWsRelayUrl = savedConfig['wsRelay' + 'Url'];
-  const legacyWsBaseUrl = savedConfig['ws' + 'Url'];
-  const savedUrls = [
-    savedConfig.restBaseUrl,
-    legacyRestBaseUrl,
-    savedConfig.wsBaseUrl,
-    legacyWsRelayUrl,
-    legacyWsBaseUrl,
-  ];
-
-  if (!savedUrls.some(isLegacyBackendUrl)) {
-    return { config: migratedConfig, migrated: false };
-  }
-
-  delete migratedConfig.restBaseUrl;
-  delete migratedConfig['api' + 'Url'];
-  delete migratedConfig.wsBaseUrl;
-  delete migratedConfig['wsRelay' + 'Url'];
-  delete migratedConfig['ws' + 'Url'];
-  delete migratedConfig.wsDerivedFromRest;
-
-  migratedConfig.mode = 'direct';
-  migratedConfig.environment = defaultConfig.environment;
-  migratedConfig.migratedFromLegacyBackend = true;
-  migratedConfig.migratedAt = new Date().toISOString();
-
-  console.warn('[Config] Legacy backend URL detected in userData config. Resetting backend URLs to packaged direct defaults.');
-  return { config: migratedConfig, migrated: true };
-}
-
-function promotePersistedConfigAliases(savedConfig) {
-  const promotedConfig = { ...savedConfig };
-  let promoted = false;
-
-  const legacyRestBaseUrl = savedConfig['api' + 'Url'];
-  const legacyWsRelayUrl = savedConfig['wsRelay' + 'Url'];
-  const legacyWsBaseUrl = savedConfig['ws' + 'Url'];
-
-  if (!promotedConfig.restBaseUrl && legacyRestBaseUrl) {
-    promotedConfig.restBaseUrl = legacyRestBaseUrl;
-    promoted = true;
-  }
-
-  if (!promotedConfig.wsBaseUrl && (legacyWsRelayUrl || legacyWsBaseUrl)) {
-    promotedConfig.wsBaseUrl = legacyWsRelayUrl || legacyWsBaseUrl;
-    promoted = true;
-  }
-
-  delete promotedConfig['api' + 'Url'];
-  delete promotedConfig['wsRelay' + 'Url'];
-  delete promotedConfig['ws' + 'Url'];
-
-  return { config: promotedConfig, promoted };
-}
-
-function createAppConfig(input = {}, source = 'runtime') {
-  const restBaseUrl = normalizeHttpUrl(input.restBaseUrl || getBuiltInApiFallback());
-  const wsBaseUrl = normalizeWebSocketUrl(
-    input.wsBaseUrl || deriveWebSocketUrlFromRestUrl(restBaseUrl)
-  );
-
-  return {
-    version: 1,
-    mode: input.mode || 'direct',
-    environment: input.environment || 'production',
-    restBaseUrl,
-    wsBaseUrl,
-    wsDerivedFromRest: !input.wsBaseUrl,
-    source,
-  };
-}
-
-function loadBundledDefaultConfig() {
-  const candidatePaths = [
-    path.join(__dirname, 'app-config.default.json'),
-  ];
-
-  if (process.resourcesPath) {
-    candidatePaths.push(path.join(process.resourcesPath, 'app-config.default.json'));
-  }
-
-  for (const candidatePath of candidatePaths) {
-    try {
-      if (!fs.existsSync(candidatePath)) continue;
-      const bundledConfig = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
-      return createAppConfig(bundledConfig, 'packaged-default');
-    } catch (error) {
-      console.warn(`[Config] Failed to load bundled default config from ${candidatePath}:`, error.message);
-    }
-  }
-
-  return null;
-}
-
-function getDefaultConfig() {
-  const bundledDefaultConfig = loadBundledDefaultConfig();
-  const restBaseUrl = process.env.APS_API_URL || process.env.VITE_API_URL || bundledDefaultConfig?.restBaseUrl || getBuiltInApiFallback();
-  const wsBaseUrl = process.env.APS_WS_URL || process.env.VITE_WS_URL;
-  const environment = process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT || bundledDefaultConfig?.environment || 'production';
-
-  return createAppConfig({
-    environment,
-    restBaseUrl,
-    wsBaseUrl: wsBaseUrl || bundledDefaultConfig?.wsBaseUrl,
-    mode: bundledDefaultConfig?.mode,
-  }, process.env.APS_API_URL || process.env.VITE_API_URL ? 'env' : bundledDefaultConfig ? 'packaged-default' : 'local-fallback');
-}
-
-function normalizeHttpUrl(url) {
-  const parsedUrl = new URL(url);
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('API URL은 http 또는 https 프로토콜만 사용할 수 있습니다.');
-  }
-
-  return parsedUrl.toString().replace(/\/$/, '');
-}
-
-function getConfigPath() {
-  return path.join(app.getPath('userData'), 'app-config.json');
-}
-
-function loadConfig() {
-  const defaultConfig = getDefaultConfig();
-  const restBaseUrlOverride = process.env.APS_API_URL || process.env.VITE_API_URL;
-  const wsBaseUrlOverride = process.env.APS_WS_URL || process.env.VITE_WS_URL;
-  const environmentOverride = process.env.APS_BACKEND_ENVIRONMENT || process.env.VITE_BACKEND_ENVIRONMENT;
-  const configPath = getConfigPath();
-  if (fs.existsSync(configPath)) {
-    try {
-      const data = fs.readFileSync(configPath, 'utf8');
-      const savedConfig = JSON.parse(data);
-      const migration = migratePersistedConfig(savedConfig, defaultConfig);
-      const persistedConfig = promotePersistedConfigAliases(migration.config);
-      const parsedConfig = {
-        ...defaultConfig,
-        ...persistedConfig.config,
-      };
-
-      if (restBaseUrlOverride) {
-        parsedConfig.restBaseUrl = restBaseUrlOverride;
-      }
-
-      if (wsBaseUrlOverride) {
-        parsedConfig.wsBaseUrl = wsBaseUrlOverride;
-      } else if (restBaseUrlOverride) {
-        parsedConfig.wsBaseUrl = deriveWebSocketUrlFromRestUrl(restBaseUrlOverride);
-      }
-
-      if (environmentOverride) {
-        parsedConfig.environment = environmentOverride;
-      }
-
-      const config = createAppConfig(parsedConfig, restBaseUrlOverride || wsBaseUrlOverride || environmentOverride ? 'env' : 'userData');
-      if (migration.migrated || persistedConfig.promoted) {
-        try {
-          saveConfig(config);
-        } catch (saveError) {
-          console.error('[Config] Failed to persist migrated config:', saveError);
-        }
-      }
-      console.log('[Config] Loaded configuration:', config);
-      return config;
-    } catch (e) {
-      console.error('[Config] Failed to load config:', e);
-    }
-  }
-  console.log('[Config] Using default configuration');
-  return defaultConfig;
-}
-
-function saveConfig(config) {
-  const configPath = getConfigPath();
-  const normalizedConfig = createAppConfig(config, 'userData');
-  try {
-    fs.writeFileSync(configPath, JSON.stringify(normalizedConfig, null, 2), 'utf8');
-    console.log('[Config] Saved configuration:', normalizedConfig);
-    return normalizedConfig;
-  } catch (e) {
-    console.error('[Config] Failed to save config:', e);
-    throw e;
-  }
 }
 
 // ============================================
@@ -464,310 +197,49 @@ function broadcastToAllWindows(eventName, eventData) {
   });
 }
 
-function setupWebSocketEventListeners() {
-  if (!socket) return;
-
-  const BACKEND_EVENTS = [
-    'consultation:created',
-    'consultation:updated',
-    'consultation:deleted',
-    'email:created',
-    'email:updated',
-    'email:deleted',
-    'memo:created',
-    'memo:updated',
-    'memo:deleted',
-    'schedule:created',
-    'schedule:updated',
-    'schedule:deleted',
-  ];
-
-  // 비즈니스 이벤트만 등록 (connect/disconnect는 connectWebSocket에서 처리)
-  BACKEND_EVENTS.forEach((eventName) => {
-    socket.on(eventName, (eventData) => {
-      console.log(`[WebSocket] Event received: ${eventName}`);
-      broadcastToAllWindows(eventName, eventData);
-
-    });
-  });
-}
-
-function normalizeRendererAuthSession(user) {
-  if (!user) return null;
-
-  const token = user.idToken || user.accessToken;
-  if (!token) return null;
-
-  return {
-    email: user.email,
-    provider: user.provider || 'local',
-    displayName: user.displayName || user.name || user.email,
-    idToken: token,
-    accessToken: token,
-  };
-}
-
 async function getSocketAuthFromMainWindow() {
   return rendererAuthSession;
 }
 
-function disconnectWebSocket(reason = 'manual') {
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-  }
+const webSocketManager = createWebSocketManager({
+  broadcastToAllWindows,
+  createAppConfig,
+  getAuthSession: getSocketAuthFromMainWindow,
+  getDefaultConfig,
+});
 
-  if (socket) {
-    socket.removeAllListeners();
-    socket.disconnect();
-    socket = null;
-  }
+registerConfigIpcHandlers({
+  ipcMain,
+  broadcastToAllWindows,
+  createAppConfig,
+  getConfigPath,
+  getDefaultConfig,
+  getSocketAuth: getSocketAuthFromMainWindow,
+  loadConfig,
+  saveConfig,
+  webSocketManager,
+});
 
-  broadcastToAllWindows('websocket-status-changed', {
-    connected: false,
-    environment: currentConfig?.environment || 'production',
-    reason
-  });
-}
+registerFileIpcHandlers({
+  dialog,
+  getMainWindow: () => mainWindow,
+  ipcMain,
+  normalizeDownloadUrl,
+  registerIpcHandler,
+});
 
-function connectWebSocket(config) {
-  currentConfig = createAppConfig(config, config?.source || 'runtime');
+const autoUpdateManager = createAutoUpdaterManager({
+  app,
+  getUpdateLogPath,
+  sendToMainWindow,
+});
+autoUpdateManager.registerIpcHandlers(ipcMain);
 
-  // 기존 heartbeat interval 정리
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-  }
-
-  // 기존 연결 정리
-  if (socket) {
-    socket.removeAllListeners();
-    socket.disconnect();
-    socket = null;
-  }
-
-  console.log(`[WebSocket] Connecting to ${currentConfig.wsBaseUrl} (${currentConfig.environment})`);
-
-  socket = io(currentConfig.wsBaseUrl, {
-    transports: ['websocket', 'polling'],
-    reconnectionDelay: 1000,
-    reconnection: true,
-    timeout: 10000,
-    auth: async (callback) => {
-      const user = await getSocketAuthFromMainWindow();
-      callback({
-        token: user?.idToken || user?.accessToken || null,
-        environment: currentConfig.environment
-      });
-    }
-  });
-
-  socket.on('connect', async () => {
-    console.log('[WebSocket] Connected to backend WebSocket');
-
-    const user = await getSocketAuthFromMainWindow();
-
-    socket.emit('handshake', {
-      type: 'client',
-      metadata: {
-        environment: currentConfig.environment,
-        email: user?.email || 'main-process',
-        provider: user?.provider || 'electron',
-        displayName: user?.displayName || 'Main Process',
-        connectedAt: new Date().toISOString()
-      }
-    });
-  });
-
-  socket.on('handshake:success', (data) => {
-    console.log('[WebSocket] Handshake successful:', data);
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: true,
-      environment: data?.environment || currentConfig.environment,
-      direct: data?.direct ?? true
-    });
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log('[WebSocket] Disconnected:', reason);
-
-    // 연결 해제 상태 브로드캐스트
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: false,
-      environment: currentConfig.environment
-    });
-  });
-
-  socket.on('connect_error', (error) => {
-    console.error('[WebSocket] Connection error:', error.message);
-    broadcastToAllWindows('websocket-status-changed', {
-      connected: false,
-      environment: currentConfig.environment,
-      reason: error.message
-    });
-  });
-
-  // Heartbeat
-  heartbeatInterval = setInterval(() => {
-    if (socket && socket.connected) {
-      socket.emit('heartbeat');
-    }
-  }, 30000);
-
-  // 이벤트 리스너 등록
-  setupWebSocketEventListeners();
-}
-
-// AutoUpdater 초기화 함수 (app.whenReady() 이후에 호출)
-function initAutoUpdater() {
-  logUpdate(`initAutoUpdater called. app.isPackaged: ${app.isPackaged}`);
-
-  if (!AUTO_UPDATE_ENABLED) {
-    logUpdate('AutoUpdater disabled. App releases are distributed manually.');
-    return;
-  }
-
-  // 개발 모드에서는 electron-updater 로드하지 않음
-  if (!app.isPackaged) {
-    logUpdate('Skipping in development mode');
-    return;
-  }
-
-  try {
-    logUpdate('Loading electron-updater...');
-    autoUpdater = require('electron-updater').autoUpdater;
-    logUpdate('electron-updater loaded successfully');
-  } catch (e) {
-    logUpdate(`Failed to load electron-updater: ${e.message}\n${e.stack}`);
-    return;
-  }
-
-  autoUpdater.autoDownload = false;  // 사용자가 확인 후 다운로드
-  autoUpdater.autoInstallOnAppQuit = false;  // 수동 설치 제어
-
-  autoUpdater.on('checking-for-update', () => {
-    logUpdate('Checking for update...');
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    const version = info?.version || 'unknown';
-    logUpdate(`Update available: ${version}`);
-    const payload = { version, releaseNotes: info?.releaseNotes || '' };
-
-    setLatestUpdateState({
-      status: 'available',
-      info: payload,
-      progress: null,
-      errorMessage: null,
-      isDownloaded: false,
-      isDownloading: false,
-    });
-    sendToMainWindow('update-available', payload);
-    // 자동 다운로드 제거 - UI에서 사용자가 결정
-  });
-
-  autoUpdater.on('update-not-available', () => {
-    const currentVersion = app.getVersion();
-    logUpdate(`No update available. Current version: ${currentVersion} is latest.`);
-    const payload = { currentVersion };
-
-    setLatestUpdateState({
-      status: 'not-available',
-      info: null,
-      progress: null,
-      errorMessage: null,
-      isDownloaded: false,
-      isDownloading: false,
-    });
-    sendToMainWindow('update-not-available', payload);
-  });
-
-  autoUpdater.on('error', (error) => {
-    logUpdate(`Update error: ${error.message}`);
-    isUpdateDownloading = false;  // 다운로드 상태 리셋
-    const payload = { message: error.message };
-
-    setLatestUpdateState({
-      status: 'error',
-      progress: null,
-      errorMessage: error.message,
-      isDownloaded: false,
-      isDownloading: false,
-    });
-    sendToMainWindow('update-error', payload);
-  });
-
-  autoUpdater.on('download-progress', (progressObj) => {
-    logUpdate(`Download progress: ${progressObj.percent.toFixed(1)}%`);
-    const payload = {
-      percent: progressObj.percent,
-      bytesPerSecond: progressObj.bytesPerSecond,
-      transferred: progressObj.transferred,
-      total: progressObj.total
-    };
-
-    setLatestUpdateState({
-      status: 'downloading',
-      progress: payload,
-      errorMessage: null,
-      isDownloaded: false,
-      isDownloading: true,
-    });
-    sendToMainWindow('update-download-progress', payload);
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    const version = info?.version || 'unknown';
-    logUpdate(`Update downloaded: ${version}`);
-    isUpdateDownloading = false;  // 다운로드 완료
-    const payload = { version };
-
-    setLatestUpdateState({
-      status: 'downloaded',
-      info: latestUpdateState.info || payload,
-      progress: { percent: 100, transferred: 0, total: 0 },
-      errorMessage: null,
-      isDownloaded: true,
-      isDownloading: false,
-    });
-    sendToMainWindow('update-downloaded', payload);
-
-    // 모달에서 재시작 처리 (dialog 제거)
-  });
-
-  console.log('[AutoUpdater] Initialized successfully');
-}
-
-function checkForUpdatesSafely(reason = 'manual') {
-  if (!autoUpdater) return;
-  if (isUpdateDownloading) {
-    logUpdate(`Skipping update check (${reason}) because download is already in progress`);
-    return;
-  }
-
-  logUpdate(`Checking for updates (${reason})...`);
-  autoUpdater.checkForUpdates().catch((error) => {
-    logUpdate(`Update check failed (${reason}): ${error.message}`);
-  });
-}
-
-function scheduleAutoUpdateChecks() {
-  if (!autoUpdater) return;
-
-  setTimeout(() => {
-    checkForUpdatesSafely('startup');
-  }, 3000);
-
-  if (updateCheckInterval) {
-    clearInterval(updateCheckInterval);
-  }
-
-  updateCheckInterval = setInterval(() => {
-    checkForUpdatesSafely('30-minute interval');
-  }, UPDATE_CHECK_INTERVAL_MS);
-
-  updateCheckInterval.unref?.();
-}
+registerStartupIpcHandlers({
+  app,
+  appName: APP_NAME,
+  ipcMain,
+});
 
 // Load sticky window settings
 function loadStickySettings(type) {
@@ -809,34 +281,14 @@ function createWindow() {
     width: 1500,
     height: 900,
     frame: false, // Windows 기본 타이틀바 제거
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+    webPreferences: createRendererWebPreferences({
       webSecurity: false, // Allow loading images from external URLs (Google Cloud Storage)
-    },
-    icon: path.join(__dirname, 'icon.png'),
+    }),
+    icon: getIconPath('icon.png'),
   });
 
-  // 개발 모드: Vite 개발 서버 로드
-  console.log('=== Electron 로드 모드 확인 ===');
-  console.log('NODE_ENV:', process.env.NODE_ENV);
-  console.log('app.isPackaged:', app.isPackaged);
-  console.log('__dirname:', __dirname);
-
-  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
-    console.log('-> 개발 모드: Vite 서버 로드');
-    mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools(); // 개발 시 필요하면 주석 해제
-  } else {
-    // 프로덕션: 빌드된 파일 로드
-    const distPath = path.join(__dirname, '../dist/index.html');
-    console.log('-> 프로덕션 모드: 파일 로드');
-    console.log('   파일 경로:', distPath);
-    console.log('   파일 존재:', fs.existsSync(distPath));
-    mainWindow.loadFile(distPath);
-    // mainWindow.webContents.openDevTools(); // 디버깅 시 필요하면 주석 해제
-  }
+  loadMainRenderer(mainWindow);
+  // mainWindow.webContents.openDevTools(); // 개발/디버깅 시 필요하면 주석 해제
 
   // DevTools 단축키 활성화
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -867,9 +319,16 @@ function createWindow() {
 
   // 새 창 열기 요청 가로채기 (외부 링크 클릭 시)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[Main] Window open request:', url);
-    // 외부 URL은 시스템 브라우저로 열기
-    shell.openExternal(url);
+    try {
+      const safeUrl = normalizeExternalUrl(url);
+      console.log('[Main] Window open request:', safeUrl);
+      // 외부 URL은 시스템 브라우저로 열기
+      shell.openExternal(safeUrl).catch((error) => {
+        console.error('[Main] Failed to open external window URL:', error);
+      });
+    } catch (error) {
+      console.warn('[Main] Blocked external window URL:', error.message);
+    }
     return { action: 'deny' }; // Electron 새 창은 열지 않음
   });
 
@@ -880,8 +339,8 @@ function createWindow() {
 // Create system tray
 function createTray() {
   const iconPath = process.platform === 'win32'
-    ? path.join(__dirname, 'icon.ico')
-    : path.join(__dirname, 'icon.png');
+    ? getIconPath('icon.ico')
+    : getIconPath('icon.png');
 
   tray = new Tray(iconPath);
 
@@ -955,117 +414,6 @@ ipcMain.handle('get-auth-token', async () => {
   };
 });
 
-// ============================================
-// Environment 설정 IPC 핸들러
-// ============================================
-ipcMain.handle('refresh-websocket-auth', async () => {
-  try {
-    const user = await getSocketAuthFromMainWindow();
-
-    if (!user?.idToken && !user?.accessToken) {
-      disconnectWebSocket('no-auth-token');
-      return { success: true, connected: false, reason: 'no-auth-token' };
-    }
-
-    connectWebSocket(currentConfig || loadConfig());
-
-    return {
-      success: true,
-      connected: socket?.connected || false,
-      environment: currentConfig?.environment || 'production'
-    };
-  } catch (error) {
-    console.error('[WebSocket] Failed to refresh auth:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-environment', async () => {
-  return currentConfig?.environment || 'production';
-});
-
-ipcMain.handle('set-environment', async (event, environment) => {
-  try {
-  const baseConfig = currentConfig || loadConfig();
-  console.log(`[Config] Changing environment: ${baseConfig.environment} → ${environment}`);
-
-  const newConfig = saveConfig(createAppConfig({ ...baseConfig, environment }, 'userData'));
-  currentConfig = newConfig;
-  connectWebSocket(newConfig);
-
-  // 모든 창에 알림
-  broadcastToAllWindows('environment-changed', { environment });
-  broadcastToAllWindows('app-config-changed', newConfig);
-
-  return { success: true, environment, config: newConfig };
-  } catch (error) {
-    console.error('[Config] Failed to set environment:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-app-config', async () => {
-  if (!currentConfig) currentConfig = loadConfig();
-  return currentConfig;
-});
-
-ipcMain.handle('set-app-config', async (event, configPatch = {}) => {
-  try {
-    const baseConfig = currentConfig || loadConfig();
-    const mergedConfig = { ...baseConfig, ...configPatch };
-    const restUrlChanged = Boolean(configPatch.restBaseUrl);
-    const explicitWsUrl = Boolean(configPatch.wsBaseUrl);
-
-    if (restUrlChanged && !explicitWsUrl && baseConfig.wsDerivedFromRest) {
-      delete mergedConfig.wsBaseUrl;
-    }
-
-    const newConfig = saveConfig(createAppConfig(mergedConfig, 'userData'));
-    const wsChanged = baseConfig.wsBaseUrl !== newConfig.wsBaseUrl;
-
-    if (wsChanged) {
-      connectWebSocket(newConfig);
-    } else {
-      currentConfig = newConfig;
-    }
-
-    broadcastToAllWindows('app-config-changed', newConfig);
-    return { success: true, config: newConfig };
-  } catch (error) {
-    console.error('[Config] Failed to set app config:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('reset-app-config', async () => {
-  try {
-    const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      fs.rmSync(configPath, { force: true });
-    }
-
-    const defaultConfig = getDefaultConfig();
-    currentConfig = defaultConfig;
-    connectWebSocket(defaultConfig);
-    broadcastToAllWindows('app-config-changed', defaultConfig);
-
-    return { success: true, config: defaultConfig };
-  } catch (error) {
-    console.error('[Config] Failed to reset app config:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-websocket-status', async () => {
-  return {
-    connected: socket?.connected || false,
-    socketId: socket?.id || null,
-    environment: currentConfig?.environment || 'production',
-    url: currentConfig?.wsBaseUrl || getDefaultConfig().wsBaseUrl,
-    transport: socket?.io?.engine?.transport?.name || null
-  };
-});
-
 // 윈도우 제어 IPC 핸들러
 ipcMain.handle('window-minimize', () => {
   if (mainWindow) {
@@ -1090,15 +438,10 @@ ipcMain.handle('window-close', () => {
   }
 });
 
-ipcMain.handle('close-current-window', (event) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow && !senderWindow.isDestroyed()) {
-    senderWindow.close();
-    return { success: true };
-  }
-
-  return { success: false, error: '창을 찾지 못했습니다.' };
-});
+registerIpcHandler(ipcMain, 'close-current-window', ({ senderWindow }) => {
+  senderWindow.close();
+  return { success: true };
+}, { requireSenderWindow: true });
 
 // Sticky Window 관리
 ipcMain.handle('open-sticky-window', async (event, { type, title, reset = false }) => {
@@ -1158,12 +501,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, reset = false 
     minWidth: 300,
     maxWidth: 300,
     opacity: initialOpacity,
-    icon: path.join(__dirname, 'icon.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    icon: getIconPath('icon.png'),
+    webPreferences: createRendererWebPreferences(),
   });
 
   // Save position when window is moved
@@ -1176,17 +515,8 @@ ipcMain.handle('open-sticky-window', async (event, { type, title, reset = false 
   // Sticky content is rendered by the shared React bundle.
   const stickyRoute = `/window/sticky/${encodeURIComponent(type || 'dashboard')}`;
 
-  // 개발 모드와 프로덕션 모드 분기
-  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
-    console.log('[Sticky] 개발 모드: Vite 서버에서 로드');
-    stickyWindow.loadURL(`http://localhost:5173/#${stickyRoute}`);
-    // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
-  } else {
-    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
-    console.log('[Sticky] 프로덕션 모드: 파일에서 로드');
-    stickyWindow.loadURL(`${indexUrl}#${stickyRoute}`);
-    // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
-  }
+  loadRendererRoute(stickyWindow, stickyRoute, { logPrefix: 'Sticky' });
+  // stickyWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
 
   stickyWindows[type] = stickyWindow;
   console.log(`[Sticky] Registered sticky window: ${type}, current keys:`, Object.keys(stickyWindows));
@@ -1225,59 +555,44 @@ ipcMain.handle('is-sticky-window-open', async (event, type) => {
   return !!(stickyWindows[type] && !stickyWindows[type].isDestroyed());
 });
 
-ipcMain.handle('resize-sticky-window', async (event, { width, height }) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow) {
-    console.log(`[Sticky] Resizing window to ${width}x${height}`);
-    senderWindow.setSize(width, height);
-    console.log('[Sticky] Window resized successfully');
-    return { success: true };
-  }
-  console.error('[Sticky] Resize failed: sender window not found');
-  return { success: false };
-});
+registerIpcHandler(ipcMain, 'resize-sticky-window', async ({ senderWindow }, { width, height }) => {
+  const safeWidth = Math.max(300, Math.min(300, Number(width) || 300));
+  const safeHeight = Math.max(120, Math.min(900, Number(height) || 200));
+  console.log(`[Sticky] Resizing window to ${safeWidth}x${safeHeight}`);
+  senderWindow.setSize(safeWidth, safeHeight);
+  console.log('[Sticky] Window resized successfully');
+  return { success: true };
+}, { requireSenderWindow: true });
 
-ipcMain.handle('show-sticky-window', async (event) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow) {
-    senderWindow.show();
-    return { success: true };
-  }
-  return { success: false };
-});
+registerIpcHandler(ipcMain, 'show-sticky-window', async ({ senderWindow }) => {
+  senderWindow.show();
+  return { success: true };
+}, { requireSenderWindow: true });
 
-ipcMain.handle('set-window-opacity', async (event, opacity) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow) {
-    const safeOpacity = Math.min(1, Math.max(0.2, Number(opacity) || 1));
-    senderWindow.setOpacity(safeOpacity);
+registerIpcHandler(ipcMain, 'set-window-opacity', async ({ senderWindow }, opacity) => {
+  const safeOpacity = Math.min(1, Math.max(0.2, Number(opacity) || 1));
+  senderWindow.setOpacity(safeOpacity);
 
-    // Save opacity setting immediately
-    for (const [type, window] of Object.entries(stickyWindows)) {
-      if (window === senderWindow) {
-        const [x, y] = senderWindow.getPosition();
-        const currentOpacity = senderWindow.getOpacity(); // Get current opacity
-        saveStickySettings(type, { x, y, opacity: currentOpacity });
-        console.log(`[Sticky] Opacity saved for ${type}: ${currentOpacity}`);
-        break;
-      }
+  // Save opacity setting immediately
+  for (const [type, window] of Object.entries(stickyWindows)) {
+    if (window === senderWindow) {
+      const [x, y] = senderWindow.getPosition();
+      const currentOpacity = senderWindow.getOpacity(); // Get current opacity
+      saveStickySettings(type, { x, y, opacity: currentOpacity });
+      console.log(`[Sticky] Opacity saved for ${type}: ${currentOpacity}`);
+      break;
     }
-
-    return { success: true };
   }
-  return { success: false };
-});
+
+  return { success: true };
+}, { requireSenderWindow: true });
 
 // Get window opacity
-ipcMain.handle('get-window-opacity', async (event) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow) {
-    const opacity = senderWindow.getOpacity();
-    console.log(`[Sticky] Current opacity: ${opacity}`);
-    return opacity;
-  }
-  return 1.0; // Default opacity
-});
+registerIpcHandler(ipcMain, 'get-window-opacity', async ({ senderWindow }) => {
+  const opacity = senderWindow.getOpacity();
+  console.log(`[Sticky] Current opacity: ${opacity}`);
+  return opacity;
+}, { requireSenderWindow: true });
 
 // Close all sticky windows (called on logout)
 ipcMain.handle('close-all-sticky-windows', async () => {
@@ -1337,10 +652,11 @@ ipcMain.handle('consume-pending-navigation-route', async () => {
 });
 
 // 외부 브라우저에서 URL 열기
-ipcMain.handle('open-external-url', async (event, url) => {
+registerIpcHandler(ipcMain, 'open-external-url', async (_context, url) => {
   try {
-    console.log(`[Main] Opening external URL: ${url}`);
-    await shell.openExternal(url);
+    const safeUrl = normalizeExternalUrl(url);
+    console.log(`[Main] Opening external URL: ${safeUrl}`);
+    await shell.openExternal(safeUrl);
     return { success: true };
   } catch (error) {
     console.error('[Main] Failed to open external URL:', error);
@@ -1348,179 +664,9 @@ ipcMain.handle('open-external-url', async (event, url) => {
   }
 });
 
-// 파일 다운로드 (리다이렉트 지원)
-ipcMain.handle('download-file', async (event, { url, filename }) => {
-  try {
-    console.log(`[Main] Downloading file: ${filename} from ${url}`);
-    const { dialog } = require('electron');
-    const https = require('https');
-    const http = require('http');
-
-    // 다운로드 경로 선택 (먼저 파일 탐색기 띄움)
-    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: filename,
-      filters: [{ name: 'All Files', extensions: ['*'] }]
-    });
-
-    if (canceled || !filePath) {
-      return { success: false, canceled: true };
-    }
-
-    // URL에서 파일 다운로드 (리다이렉트 따라가기)
-    const downloadWithRedirect = (downloadUrl, maxRedirects = 5) => {
-      return new Promise((resolve, reject) => {
-        if (maxRedirects <= 0) {
-          reject(new Error('Too many redirects'));
-          return;
-        }
-
-        const protocol = downloadUrl.startsWith('https') ? https : http;
-
-        protocol.get(downloadUrl, (response) => {
-          // 리다이렉트 처리 (301, 302, 303, 307, 308)
-          if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-            const redirectUrl = response.headers.location;
-            console.log(`[Main] Redirecting to: ${redirectUrl}`);
-            downloadWithRedirect(redirectUrl, maxRedirects - 1)
-              .then(resolve)
-              .catch(reject);
-            return;
-          }
-
-          if (response.statusCode !== 200) {
-            reject(new Error(`HTTP ${response.statusCode}`));
-            return;
-          }
-
-          const file = fs.createWriteStream(filePath);
-          response.pipe(file);
-
-          file.on('finish', () => {
-            file.close();
-            console.log(`[Main] File downloaded successfully: ${filePath}`);
-            resolve({ success: true, filePath });
-          });
-
-          file.on('error', (err) => {
-            fs.unlink(filePath, () => {});
-            reject(err);
-          });
-        }).on('error', (error) => {
-          fs.unlink(filePath, () => {});
-          reject(error);
-        });
-      });
-    };
-
-    return await downloadWithRedirect(url);
-  } catch (error) {
-    console.error('[Main] Failed to download file:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Blob/Buffer 데이터를 파일로 저장 (인증이 필요한 다운로드용)
-ipcMain.handle('save-file', async (event, { buffer, filename }) => {
-  try {
-    console.log(`[Main] Saving file: ${filename}`);
-
-    // 다운로드 경로 선택
-    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: filename,
-      filters: [{ name: 'All Files', extensions: ['*'] }]
-    });
-
-    if (canceled || !filePath) {
-      return { success: false, canceled: true };
-    }
-
-    // Buffer 데이터를 파일로 저장
-    fs.writeFileSync(filePath, Buffer.from(buffer));
-    console.log(`[Main] File saved successfully: ${filePath}`);
-    return { success: true, filePath };
-  } catch (error) {
-    console.error('[Main] Failed to save file:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-function sanitizeDownloadFilename(filename) {
-  const fallback = 'download';
-  const baseName = path.basename(String(filename || fallback));
-  const cleaned = baseName
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return cleaned || fallback;
-}
-
-function getUniqueFilePath(directoryPath, filename) {
-  const parsed = path.parse(filename);
-  let candidate = path.join(directoryPath, filename);
-  let index = 1;
-
-  while (fs.existsSync(candidate)) {
-    candidate = path.join(directoryPath, `${parsed.name} (${index})${parsed.ext}`);
-    index += 1;
-  }
-
-  return candidate;
-}
-
-ipcMain.handle('select-directory', async () => {
-  try {
-    const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
-      title: '저장할 폴더 선택',
-      properties: ['openDirectory', 'createDirectory']
-    });
-
-    if (canceled || !filePaths?.[0]) {
-      return { success: false, canceled: true };
-    }
-
-    return { success: true, directoryPath: filePaths[0] };
-  } catch (error) {
-    console.error('[Main] Failed to select directory:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('save-file-to-directory', async (event, { buffer, directoryPath, filename }) => {
-  try {
-    const resolvedDirectory = path.resolve(directoryPath || '');
-    const stats = fs.statSync(resolvedDirectory);
-
-    if (!stats.isDirectory()) {
-      throw new Error('선택한 경로가 폴더가 아닙니다.');
-    }
-
-    const safeFilename = sanitizeDownloadFilename(filename);
-    const filePath = getUniqueFilePath(resolvedDirectory, safeFilename);
-    const resolvedFilePath = path.resolve(filePath);
-    const relativePath = path.relative(resolvedDirectory, resolvedFilePath);
-
-    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-      throw new Error('저장 경로가 올바르지 않습니다.');
-    }
-
-    fs.writeFileSync(resolvedFilePath, Buffer.from(buffer));
-    console.log(`[Main] File saved successfully: ${resolvedFilePath}`);
-    return { success: true, filePath: resolvedFilePath };
-  } catch (error) {
-    console.error('[Main] Failed to save file to directory:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 // 메모 서브 윈도우 열기 (알림창 옆에 배치)
-ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
+registerIpcHandler(ipcMain, 'open-memo-sub-window', async ({ senderWindow: parentWindow }, { mode, memoId }) => {
   console.log('[Main] open-memo-sub-window called:', { mode, memoId });
-  const parentWindow = BrowserWindow.fromWebContents(event.sender);
-  if (!parentWindow) {
-    console.error('[Main] Parent window not found');
-    return { success: false, error: '상위 창을 찾지 못했습니다.' };
-  }
-
   // 부모 창 타입 찾기 (stickyWindows에서)
   console.log('[Main] Looking for parent type in stickyWindows:', Object.keys(stickyWindows));
   const parentType = Object.keys(stickyWindows).find(
@@ -1579,12 +725,8 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
     alwaysOnTop: true,
     resizable: false,
     parent: parentWindow,
-    icon: path.join(__dirname, 'icon.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    icon: getIconPath('icon.png'),
+    webPreferences: createRendererWebPreferences(),
   });
 
   // URL 구성
@@ -1592,14 +734,8 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
     ? `/window/memo/${encodeURIComponent(memoId)}`
     : '/window/memo/new';
 
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    subWindow.loadURL(`http://localhost:5173/#${memoRoute}`);
-    // subWindow.webContents.openDevTools({ mode: 'detach' }); // 개발 시 필요하면 주석 해제
-  } else {
-    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
-    subWindow.loadURL(`${indexUrl}#${memoRoute}`);
-    // subWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
-  }
+  loadRendererRoute(subWindow, memoRoute, { looseDevelopmentRuntime: true });
+  // subWindow.webContents.openDevTools({ mode: 'detach' }); // 디버깅 시 필요하면 주석 해제
 
   memoSubWindows[parentType] = subWindow;
 
@@ -1618,7 +754,7 @@ ipcMain.handle('open-memo-sub-window', async (event, { mode, memoId }) => {
   parentWindow.once('closed', onParentClosed);
 
   return { success: true, alreadyOpen: false };
-});
+}, { requireSenderWindow: true });
 
 ipcMain.handle('memo-window-changed', async (event, payload = {}) => {
   const change = {
@@ -1697,22 +833,13 @@ function createToastNotification(data) {
     transparent: true,
     focusable: false,
     show: false,
-    icon: path.join(__dirname, 'icon.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    icon: getIconPath('icon.png'),
+    webPreferences: createRendererWebPreferences(),
   });
 
   const toastRoute = `/window/toast?${params.toString()}`;
 
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    toastWindow.loadURL(`http://localhost:5173/#${toastRoute}`);
-  } else {
-    const indexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
-    toastWindow.loadURL(`${indexUrl}#${toastRoute}`);
-  }
+  loadRendererRoute(toastWindow, toastRoute, { looseDevelopmentRuntime: true });
 
   toastWindow.once('ready-to-show', () => {
     // 렌더러에서 실제 컨텐츠 높이를 측정한 후 윈도우 크기 조정
@@ -1810,13 +937,10 @@ ipcMain.handle('show-toast-notification', async (event, data) => {
 });
 
 // Toast 알림창 닫기 IPC 핸들러
-ipcMain.handle('close-notification', async (event) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (senderWindow) {
-    senderWindow.close();
-  }
+registerIpcHandler(ipcMain, 'close-notification', async ({ senderWindow }) => {
+  senderWindow.close();
   return { success: true };
-});
+}, { requireSenderWindow: true });
 
 // Toast 알림에서 메인 창으로 네비게이션 IPC 핸들러
 ipcMain.handle('navigate-from-notification', async (event, route) => {
@@ -1829,65 +953,11 @@ ipcMain.handle('navigate-from-notification', async (event, route) => {
   return { success: false, error: '메인 창을 찾지 못했습니다.', route: pendingNavigationRoute };
 });
 
-// 앱 버전 가져오기
-ipcMain.handle('get-app-version', async () => {
-  return app.getVersion();
-});
-
-ipcMain.handle('get-auto-update-enabled', async () => {
-  return AUTO_UPDATE_ENABLED && Boolean(autoUpdater);
-});
-
-ipcMain.handle('get-update-state', async () => {
-  return latestUpdateState;
-});
-
-// 수동 업데이트 확인
-ipcMain.handle('check-for-updates', async () => {
-  if (!autoUpdater) {
-    return {
-      success: false,
-      disabled: !AUTO_UPDATE_ENABLED,
-      error: AUTO_UPDATE_ENABLED ? '개발 모드에서는 자동 업데이트를 사용할 수 없습니다.' : '수동 배포 모드에서는 자동 업데이트가 비활성화되어 있습니다.',
-    };
-  }
-  logUpdate('Manual update check triggered');
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return { success: true, result };
-  } catch (err) {
-    logUpdate(`Manual update check error: ${err.message}`);
-    return { success: false, error: err.message };
-  }
-});
-
 // 앱 재시작
 ipcMain.handle('restart-app', async () => {
   await gracefulShutdown();
   app.relaunch();
   app.quit();
-});
-
-// 업데이트 설치 및 재시작
-ipcMain.handle('install-update', async () => {
-  if (!autoUpdater) {
-    return { success: false, error: '자동 업데이트를 사용할 수 없습니다.' };
-  }
-
-  logUpdate('User requested update installation');
-
-  // NOTE: gracefulShutdown() 호출하면 안 됨!
-  // quitAndInstall()이 앱 종료와 설치를 직접 처리함
-  // gracefulShutdown()이 먼저 실행되면 autoUpdater가 제대로 작동하지 않음
-
-  // 약간의 지연 후 설치 시작 (UI 응답 시간 확보)
-  setTimeout(() => {
-    // autoInstallOnAppQuit가 false이므로 직접 호출 필요.
-    // isSilent=true로 호출해 인앱 업데이트 중 NSIS 설치 마법사가 뜨지 않게 한다.
-    autoUpdater.quitAndInstall(true, true);
-  }, 500);
-
-  return { success: true };
 });
 
 // 앱 완전 종료 (트레이 메뉴 또는 다른 곳에서 호출)
@@ -1896,102 +966,18 @@ ipcMain.handle('quit-app', async () => {
   app.quit();
 });
 
-// 수동 업데이트 다운로드 (사용자 확인 후)
-ipcMain.handle('download-update', async () => {
-  if (!autoUpdater) {
-    return { success: false, error: '자동 업데이트를 사용할 수 없습니다.' };
-  }
-
-  // 중복 다운로드 방지
-  if (isUpdateDownloading) {
-    logUpdate('Download already in progress, ignoring duplicate request');
-    return { success: false, error: '이미 업데이트를 다운로드하고 있습니다.' };
-  }
-
-  logUpdate('Manual download triggered by user');
-  isUpdateDownloading = true;
-
-  try {
-    await autoUpdater.downloadUpdate();
-    return { success: true };
-  } catch (error) {
-    isUpdateDownloading = false;
-    logUpdate(`Download error: ${error.message}`);
-    return { success: false, error: error.message };
-  }
-});
-
-// ==================== 시작프로그램 설정 ====================
-const STARTUP_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
-
-// 시작프로그램 등록 여부 확인
-ipcMain.handle('get-startup-enabled', async () => {
-  try {
-    // Windows 전용
-    if (process.platform !== 'win32') {
-      return { success: false, error: 'Windows에서만 사용할 수 있는 기능입니다.' };
-    }
-
-    const { execSync } = require('child_process');
-    const result = execSync(`reg query "${STARTUP_REG_KEY}" /v "${APP_NAME}" 2>nul`, {
-      encoding: 'utf8',
-      windowsHide: true
-    });
-
-    // 레지스트리 값이 존재하면 enabled
-    return { success: true, enabled: result.includes(APP_NAME) };
-  } catch (error) {
-    // 레지스트리 키가 없으면 disabled
-    return { success: true, enabled: false };
-  }
-});
-
-// 시작프로그램 등록/해제
-ipcMain.handle('set-startup-enabled', async (event, enabled) => {
-  try {
-    // Windows 전용
-    if (process.platform !== 'win32') {
-      return { success: false, error: 'Windows에서만 사용할 수 있는 기능입니다.' };
-    }
-
-    const { execSync } = require('child_process');
-    const exePath = app.getPath('exe');
-
-    if (enabled) {
-      // 시작프로그램에 등록
-      execSync(`reg add "${STARTUP_REG_KEY}" /v "${APP_NAME}" /t REG_SZ /d "\\"${exePath}\\"" /f`, {
-        encoding: 'utf8',
-        windowsHide: true
-      });
-      console.log('[Startup] Added to startup');
-    } else {
-      // 시작프로그램에서 제거
-      execSync(`reg delete "${STARTUP_REG_KEY}" /v "${APP_NAME}" /f 2>nul`, {
-        encoding: 'utf8',
-        windowsHide: true
-      });
-      console.log('[Startup] Removed from startup');
-    }
-
-    return { success: true, enabled };
-  } catch (error) {
-    console.error('[Startup] Failed to set startup:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 app.whenReady().then(() => {
   // AutoUpdater 초기화 (app.isPackaged 접근 가능)
-  initAutoUpdater();
+  autoUpdateManager.init();
 
   createWindow();
 
   // WebSocket 연결 초기화
   const config = loadConfig();
-  connectWebSocket(config);
+  webSocketManager.connect(config);
 
   // 프로덕션 설치본에서 시작 시 1회, 이후 30분마다 업데이트 확인
-  scheduleAutoUpdateChecks();
+  autoUpdateManager.scheduleChecks();
 });
 
 // 외부(설치기/OS)에서 앱 종료 요청 시
@@ -2007,8 +993,7 @@ app.on('before-quit', async (event) => {
 app.on('will-quit', () => {
   console.log('[App] will-quit: Final cleanup');
   // 혹시 남아있는 리소스 정리
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  if (socket) socket.disconnect();
+  webSocketManager.shutdown();
   if (tray) tray.destroy();
 });
 
