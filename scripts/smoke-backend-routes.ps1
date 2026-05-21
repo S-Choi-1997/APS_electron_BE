@@ -106,6 +106,7 @@ try {
         @{ Name = "GET /inquiries?limit=1"; Method = "GET"; Path = "/inquiries?limit=1"; Expect = 200 },
         @{ Name = "GET /inquiries/stats"; Method = "GET"; Path = "/inquiries/stats"; Expect = 200 },
         @{ Name = "GET /inquiries/all?limit=1"; Method = "GET"; Path = "/inquiries/all?limit=1"; Expect = 200 },
+        @{ Name = "GET /memos?limit=1"; Method = "GET"; Path = "/memos?limit=1"; Expect = 200 },
         @{ Name = "GET /schedules?limit=1"; Method = "GET"; Path = "/schedules?limit=1"; Expect = 200 },
         @{ Name = "GET /web-form-inquiries?limit=1"; Method = "GET"; Path = "/web-form-inquiries?limit=1"; Expect = 200 },
         @{ Name = "GET /email-inquiries?limit=1"; Method = "GET"; Path = "/email-inquiries?limit=1"; Expect = 200 },
