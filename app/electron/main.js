@@ -313,6 +313,27 @@ function saveStickySettings(type, settings) {
   }
 }
 
+function attachRendererContextMenu(browserWindow) {
+  browserWindow.webContents.on('context-menu', (_event, params) => {
+    const template = [];
+    const editFlags = params.editFlags || {};
+    const hasSelection = typeof params.selectionText === 'string' && params.selectionText.trim().length > 0;
+
+    if (params.isEditable) {
+      template.push({ role: 'cut', enabled: Boolean(editFlags.canCut) });
+      template.push({ role: 'copy', enabled: Boolean(editFlags.canCopy || hasSelection) });
+      template.push({ role: 'paste', enabled: Boolean(editFlags.canPaste) });
+      template.push({ type: 'separator' });
+      template.push({ role: 'selectAll', enabled: Boolean(editFlags.canSelectAll) });
+    } else if (hasSelection) {
+      template.push({ role: 'copy', enabled: true });
+    }
+
+    if (template.length === 0) return;
+    Menu.buildFromTemplate(template).popup({ window: browserWindow });
+  });
+}
+
 function createWindow() {
   // 메뉴바 완전히 제거
   Menu.setApplicationMenu(null);
@@ -328,6 +349,7 @@ function createWindow() {
   });
 
   loadMainRenderer(mainWindow);
+  attachRendererContextMenu(mainWindow);
   // mainWindow.webContents.openDevTools(); // 개발/디버깅 시 필요하면 주석 해제
 
   // DevTools 단축키 활성화

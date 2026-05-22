@@ -34,10 +34,14 @@ import {
   useTriggerZohoSync,
 } from '../hooks/queries/useEmailInquiries';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
+import { useEmailPageState } from '../hooks/useEmailPageState';
 import { htmlToPlainText } from '../utils/clipboard';
 import './EmailConsultationsPage.css';
 
 const PAGE_SIZE = 20;
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_ATTACHMENT_COUNT = 10;
 
 const MAILBOXES = [
   { key: 'inbox', label: '받은 메일' },
@@ -51,6 +55,7 @@ const MAILBOXES = [
 const EMPTY_COMPOSER = {
   mode: 'compose',
   emailId: null,
+  originalEmailId: null,
   draftId: null,
   scheduledId: null,
   to: '',
@@ -59,6 +64,7 @@ const EMPTY_COMPOSER = {
   subject: '',
   body: '',
   scheduledAt: '',
+  attachments: [],
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -72,6 +78,48 @@ function splitRecipients(value) {
 
 function joinRecipients(value) {
   return Array.isArray(value) ? value.join(', ') : String(value || '');
+}
+
+function formatAttachmentSize(size = 0) {
+  const bytes = Number(size || 0);
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function readAttachmentFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve({
+        filename: file.name,
+        name: file.name,
+        contentType: file.type || 'application/octet-stream',
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        contentBase64: result.includes(',') ? result.split(',').pop() : result,
+      });
+    };
+    reader.onerror = () => reject(reader.error || new Error('Attachment read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function validateComposerAttachments(attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return '';
+  if (attachments.length > MAX_ATTACHMENT_COUNT) {
+    return `첨부파일은 최대 ${MAX_ATTACHMENT_COUNT}개까지 보낼 수 있습니다.`;
+  }
+  const oversized = attachments.find((attachment) => Number(attachment.size || 0) > MAX_ATTACHMENT_BYTES);
+  if (oversized) {
+    return `${oversized.filename || oversized.name || '첨부파일'}은 20MB를 초과합니다.`;
+  }
+  const totalBytes = attachments.reduce((sum, attachment) => sum + Number(attachment.size || 0), 0);
+  if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+    return '첨부파일 전체 용량은 25MB를 초과할 수 없습니다.';
+  }
+  return '';
 }
 
 function formatDate(value) {
@@ -164,23 +212,28 @@ function sanitizeEmailHtmlForDisplay(html = '') {
 
 function normalizeDraftLike(item) {
   return {
+    originalEmailId: item?.originalEmailId || item?.original_email_id || null,
     to: joinRecipients(item?.to),
     cc: joinRecipients(item?.cc),
     bcc: joinRecipients(item?.bcc),
     subject: item?.subject || '',
     body: item?.body || item?.bodyText || '',
     scheduledAt: item?.scheduledAt ? new Date(item.scheduledAt).toISOString().slice(0, 16) : '',
+    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
   };
 }
 
 function buildComposerPayload(composer) {
+  const isReplyMode = composer.mode === 'reply' || composer.mode === 'replyAll';
   return {
+    originalEmailId: isReplyMode ? (composer.originalEmailId || composer.emailId || null) : null,
     to: splitRecipients(composer.to),
     cc: splitRecipients(composer.cc),
     bcc: splitRecipients(composer.bcc),
     subject: composer.subject.trim(),
     body: composer.body,
     bodyText: composer.body,
+    attachments: Array.isArray(composer.attachments) ? composer.attachments : [],
   };
 }
 
@@ -195,11 +248,14 @@ function validateComposer(composer, { requireTo = true, requireFutureSchedule = 
   const cc = splitRecipients(composer.cc);
   const bcc = splitRecipients(composer.bcc);
   const invalidRecipients = [...to, ...cc, ...bcc].filter((email) => !EMAIL_PATTERN.test(email));
+  const attachmentError = validateComposerAttachments(composer.attachments);
 
   if (requireTo && to.length === 0) return '받는사람을 한 명 이상 입력하세요.';
   if (invalidRecipients.length > 0) return `이메일 형식을 확인하세요: ${invalidRecipients.join(', ')}`;
   if (requireContent && !composer.subject.trim()) return '제목을 입력하세요.';
   if (requireContent && !composer.body.trim()) return '본문을 입력하세요.';
+
+  if (attachmentError) return attachmentError;
 
   if (requireFutureSchedule) {
     const scheduledAt = new Date(composer.scheduledAt);
@@ -272,21 +328,81 @@ function Composer({
   contentLocked = false,
   errorMessage = '',
   lockMessage = '',
+  onError = () => {},
 }) {
   const canSchedule = Boolean(composer.scheduledAt);
+  const [attachmentDragActive, setAttachmentDragActive] = useState(false);
+  const attachments = Array.isArray(composer.attachments) ? composer.attachments : [];
+  const attachmentTotalBytes = attachments.reduce((sum, attachment) => sum + Number(attachment.size || 0), 0);
+  const attachmentHint = attachments.length > 0
+    ? `${attachments.length}개 / ${formatAttachmentSize(attachmentTotalBytes)}`
+    : `최대 ${MAX_ATTACHMENT_COUNT}개, 파일당 20MB`;
+  const composerModeLabel = {
+    reply: '답장',
+    replyAll: '전체 답장',
+    forward: '전달',
+    draft: '임시보관',
+    scheduled: '예약 발송',
+    compose: '새 메일',
+  }[composer.mode] || '메일 작성';
+
+  const addAttachmentFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    try {
+      const nextAttachments = await Promise.all(files.map(readAttachmentFile));
+      const mergedAttachments = [...attachments, ...nextAttachments];
+      const validationError = validateComposerAttachments(mergedAttachments);
+      if (validationError) {
+        onError(validationError);
+        return;
+      }
+      onChange({ attachments: mergedAttachments });
+    } catch (error) {
+      onError(error?.message || '첨부파일을 읽지 못했습니다.');
+    }
+  };
+
+  const handleAttachmentChange = async (event) => {
+    const files = event.target.files;
+    event.target.value = '';
+    await addAttachmentFiles(files);
+  };
+
+  const handleAttachmentDrop = async (event) => {
+    event.preventDefault();
+    setAttachmentDragActive(false);
+    if (contentLocked) return;
+    await addAttachmentFiles(event.dataTransfer?.files);
+  };
+
+  const handleAttachmentDragOver = (event) => {
+    event.preventDefault();
+    if (!contentLocked) {
+      event.dataTransfer.dropEffect = 'copy';
+      setAttachmentDragActive(true);
+    }
+  };
+
+  const handleAttachmentDragLeave = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setAttachmentDragActive(false);
+    }
+  };
+
+  const removeAttachment = (index) => {
+    onChange({
+      attachments: attachments.filter((_, itemIndex) => itemIndex !== index),
+    });
+  };
 
   return (
     <form className="mail-composer" onSubmit={onSend}>
       <div className="composer-tabs">
-        <span className="composer-mode">
-          {composer.mode === 'reply' && '답장'}
-          {composer.mode === 'replyAll' && '전체 답장'}
-          {composer.mode === 'forward' && '전달'}
-          {composer.mode === 'draft' && '임시보관'}
-          {composer.mode === 'scheduled' && '예약 발송'}
-          {composer.mode === 'compose' && '새 메일'}
-        </span>
-        <button type="button" className="ghost-button" onClick={onClose}>닫기</button>
+        <div className="composer-header-main">
+          <span className="composer-mode">{composerModeLabel}</span>
+        </div>
+        <button type="button" className="ghost-button composer-close-button" onClick={onClose}>닫기</button>
       </div>
       <div className="composer-fields">
         <label>
@@ -334,6 +450,36 @@ function Composer({
         placeholder="메일 내용을 입력하세요."
         disabled={contentLocked}
       />
+      <div
+        className={`composer-attachments ${attachmentDragActive ? 'dragging' : ''} ${contentLocked ? 'disabled' : ''}`}
+        onDragEnter={handleAttachmentDragOver}
+        onDragOver={handleAttachmentDragOver}
+        onDragLeave={handleAttachmentDragLeave}
+        onDrop={handleAttachmentDrop}
+      >
+        <div className="composer-attachment-summary">
+          <span className="composer-attachment-mark" aria-hidden="true" />
+          <div className="composer-attachment-copy">
+            <strong>첨부파일</strong>
+            <span>{contentLocked ? '예약 메일은 첨부파일을 변경할 수 없습니다.' : `파일을 끌어오거나 선택하세요. ${attachmentHint}`}</span>
+          </div>
+        </div>
+        <label className={`attachment-picker ${contentLocked ? 'disabled' : ''}`}>
+          파일 선택
+          <input type="file" multiple onChange={handleAttachmentChange} disabled={contentLocked} aria-label="첨부파일 선택" />
+        </label>
+        {attachments.length > 0 ? (
+          <ul className="composer-attachment-list">
+            {attachments.map((attachment, index) => (
+              <li className="composer-attachment-chip" key={`${attachment.filename || attachment.name}-${index}`}>
+                <span title={attachment.filename || attachment.name}>{attachment.filename || attachment.name}</span>
+                <small>{formatAttachmentSize(attachment.size)}</small>
+                <button type="button" onClick={() => removeAttachment(index)} disabled={contentLocked} aria-label="첨부 제거">x</button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       {errorMessage ? <p className="composer-error">{errorMessage}</p> : null}
       <div className="composer-footer">
         <label className="schedule-field">
@@ -361,25 +507,46 @@ function Composer({
 }
 
 function EmailConsultationsPage() {
-  const [mailbox, setMailbox] = useState('inbox');
-  const [selectedId, setSelectedId] = useState(null);
-  const [selectedDraftId, setSelectedDraftId] = useState(null);
-  const [selectedScheduledId, setSelectedScheduledId] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [readState, setReadState] = useState('all');
-  const [responseState, setResponseState] = useState('all');
-  const [labelId, setLabelId] = useState('');
-  const [hasAttachments, setHasAttachments] = useState(false);
-  const [starred, setStarred] = useState(false);
-  const [page, setPage] = useState(0);
-  const [composer, setComposer] = useState(null);
-  const [composerDirty, setComposerDirty] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [restoreFolderId, setRestoreFolderId] = useState('');
-  const [lastSyncMessage, setLastSyncMessage] = useState('');
-  const [showTranslation, setShowTranslation] = useState(false);
-  const [translatedEmailOverride, setTranslatedEmailOverride] = useState(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const {
+    mailbox,
+    selectedId,
+    selectedDraftId,
+    selectedScheduledId,
+    searchTerm,
+    readState,
+    responseState,
+    labelId,
+    hasAttachments,
+    starred,
+    page,
+    composer,
+    composerDirty,
+    actionError,
+    restoreFolderId,
+    lastSyncMessage,
+    showTranslation,
+    translatedEmailOverride,
+    filtersOpen,
+    setMailbox,
+    setSelectedId,
+    setSelectedDraftId,
+    setSelectedScheduledId,
+    setSearchTerm,
+    setReadState,
+    setResponseState,
+    setLabelId,
+    setHasAttachments,
+    setStarred,
+    setPage,
+    setComposer,
+    setComposerDirty,
+    setActionError,
+    setRestoreFolderId,
+    setLastSyncMessage,
+    setShowTranslation,
+    setTranslatedEmailOverride,
+    setFiltersOpen,
+  } = useEmailPageState();
   const filterMenuRef = useRef(null);
   const debouncedSearch = useDebounce(searchTerm, 300);
 
@@ -400,13 +567,18 @@ function EmailConsultationsPage() {
   ].filter(Boolean).length;
 
   const pageParams = useMemo(() => ({ limit: PAGE_SIZE, offset: page * PAGE_SIZE }), [page]);
+  const draftScheduleParams = useMemo(() => ({
+    search: filters.search,
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+  }), [filters.search, page]);
   const isDraftMailbox = mailbox === 'drafts';
   const isScheduledMailbox = mailbox === 'scheduled';
   const isMailMailbox = !isDraftMailbox && !isScheduledMailbox;
 
   const mailboxQuery = useEmailMailbox(mailbox, filters, pageParams, { enabled: isMailMailbox });
-  const draftsQuery = useEmailDrafts(pageParams, { enabled: isDraftMailbox });
-  const scheduledQuery = useScheduledEmails(pageParams, { enabled: isScheduledMailbox });
+  const draftsQuery = useEmailDrafts(draftScheduleParams, { enabled: isDraftMailbox });
+  const scheduledQuery = useScheduledEmails(draftScheduleParams, { enabled: isScheduledMailbox });
   const { data: stats = {} } = useEmailStats();
   const { data: labels = [] } = useEmailLabels();
   const { data: folders = [] } = useEmailFolders();
@@ -448,8 +620,9 @@ function EmailConsultationsPage() {
 
   const restoreFolders = useMemo(() => folders.filter((folder) => {
     const type = String(folder.type || folder.folderType || '').toLowerCase();
-    return type !== 'trash' && type !== 'spam' && type !== 'sent';
-  }), [folders]);
+    if (type === 'sent') return Boolean(selectedEmail?.isOutgoing);
+    return type !== 'trash' && type !== 'spam';
+  }), [folders, selectedEmail?.isOutgoing]);
 
   useEffect(() => {
     setPage(0);
@@ -478,7 +651,24 @@ function EmailConsultationsPage() {
   }, [filtersOpen]);
 
   useEffect(() => {
-    if (restoreFolderId || restoreFolders.length === 0) return;
+    if (!composerDirty) return undefined;
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [composerDirty]);
+
+  useEffect(() => {
+    if (restoreFolders.length === 0) {
+      if (restoreFolderId) setRestoreFolderId('');
+      return;
+    }
+    const currentValid = restoreFolders.some((folder) => String(folder.folderId || folder.id) === String(restoreFolderId));
+    if (restoreFolderId && currentValid) return;
     const inbox = restoreFolders.find((folder) => String(folder.type || folder.folderType || '').toLowerCase() === 'inbox');
     setRestoreFolderId(String((inbox || restoreFolders[0]).folderId || (inbox || restoreFolders[0]).id));
   }, [restoreFolderId, restoreFolders]);
@@ -550,11 +740,14 @@ function EmailConsultationsPage() {
       return;
     }
     const recipients = mode === 'forward' ? '' : selectedEmail.from;
+    const visibleReplyAllCc = mode === 'replyAll' ? joinRecipients(selectedEmail.cc || selectedEmail.ccEmails || []) : '';
     const prefix = mode === 'forward' ? 'Fwd:' : 'Re:';
     openCompose({
       mode,
       emailId: selectedEmail.id,
+      originalEmailId: mode === 'reply' || mode === 'replyAll' ? selectedEmail.id : null,
       to: recipients,
+      cc: visibleReplyAllCc,
       subject: selectedEmail.subject?.startsWith(prefix) ? selectedEmail.subject : `${prefix} ${selectedEmail.subject || ''}`.trim(),
       body: mode === 'forward'
         ? `\n\n----- Forwarded message -----\nFrom: ${selectedEmail.from || ''}\nDate: ${formatFullDate(getMessageDate(selectedEmail))}\nSubject: ${selectedEmail.subject || ''}\n\n${content?.text || selectedEmail.bodyText || selectedEmail.body || ''}`
@@ -586,7 +779,7 @@ function EmailConsultationsPage() {
 
     try {
       if (composer.mode === 'reply' || composer.mode === 'replyAll') {
-        if (!canReplyToEmail(selectedEmail)) {
+        if (!selectedEmail || String(selectedEmail.id) !== String(composer.emailId) || !canReplyToEmail(selectedEmail)) {
           setActionError('이 메일은 답장을 지원하지 않습니다.');
           return;
         }
@@ -1069,6 +1262,7 @@ function EmailConsultationsPage() {
                 contentLocked={scheduledContentLocked}
                 lockMessage={scheduledContentLocked ? '예약 메일은 현재 예약 시간만 변경할 수 있습니다.' : ''}
                 errorMessage={actionError}
+                onError={setActionError}
               />
               {selectedDraftId ? (
                 <button type="button" className="danger-button standalone-action" onClick={handleDeleteSelectedDraft}>
@@ -1231,7 +1425,9 @@ function EmailConsultationsPage() {
               <article className="message-body">
                 {content?.unavailableReason ? <p className="message-warning">{content.unavailableReason}</p> : null}
                 {showTranslation && hasTranslation ? (
-                  <pre className="translated-message-body">{translationEmail.translatedBody}</pre>
+                  <div className="message-html translated-message-body">
+                    <pre>{translationEmail.translatedBody}</pre>
+                  </div>
                 ) : sanitizedSelectedHtml ? (
                   <div
                     className="message-html"

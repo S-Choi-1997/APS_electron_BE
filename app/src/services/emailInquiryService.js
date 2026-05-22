@@ -124,6 +124,7 @@ function normalizeDraft(row = {}) {
   return {
     ...row,
     id: row.id,
+    originalEmailId: row.originalEmailId || row.original_email_id || null,
     to: asArray(row.to || row.to_emails || row.toEmails),
     cc: asArray(row.cc || row.cc_emails || row.ccEmails),
     bcc: asArray(row.bcc || row.bcc_emails || row.bccEmails),
@@ -296,7 +297,12 @@ export async function fetchDrafts(params = {}) {
   const query = compactParams(params);
   const response = await apiRequest(query ? `/email-drafts?${query}` : '/email-drafts', { method: 'GET' }, auth);
   const data = response.data || response.items || [];
-  return { items: data.map(normalizeDraft), count: Number(response.count ?? data.length) };
+  return {
+    items: data.map(normalizeDraft),
+    count: Number(response.count ?? data.length),
+    total: Number(response.total ?? response.count ?? data.length),
+    hasMore: Boolean(response.hasMore),
+  };
 }
 
 export async function createDraft(payload) {
@@ -316,14 +322,20 @@ export async function deleteDraft(id) {
 
 export async function sendDraft(id) {
   const response = await apiRequest(`/email-drafts/${id}/send`, { method: 'POST' }, auth);
-  return response.data ? normalizeEmailInquiry(response.data) : response;
+  const sentEmail = response.data || response.sentEmail;
+  return sentEmail ? normalizeEmailInquiry(sentEmail) : response;
 }
 
 export async function fetchScheduledEmails(params = {}) {
   const query = compactParams(params);
   const response = await apiRequest(query ? `/scheduled-emails?${query}` : '/scheduled-emails', { method: 'GET' }, auth);
   const data = response.data || response.items || [];
-  return { items: data.map(normalizeScheduled), count: Number(response.count ?? data.length) };
+  return {
+    items: data.map(normalizeScheduled),
+    count: Number(response.count ?? data.length),
+    total: Number(response.total ?? response.count ?? data.length),
+    hasMore: Boolean(response.hasMore),
+  };
 }
 
 export async function createScheduledEmail(payload) {
@@ -343,7 +355,8 @@ export async function deleteScheduledEmail(id) {
 
 export async function sendScheduledNow(id) {
   const response = await apiRequest(`/scheduled-emails/${id}/send-now`, { method: 'POST' }, auth);
-  return response.data ? normalizeEmailInquiry(response.data) : response;
+  const sentEmail = response.data || response.sentEmail;
+  return sentEmail ? normalizeEmailInquiry(sentEmail) : response;
 }
 
 export async function setEmailReadState(id, readState) {
@@ -430,5 +443,9 @@ export async function translateEmailInquiry(id) {
 }
 
 export async function sendEmailResponse(emailId, responseText, attachments = []) {
-  return replyToEmail(emailId, { body: responseText, attachments });
+  const result = await replyToEmail(emailId, { body: responseText, attachments });
+  if (result.partialSuccess || result.success === false) {
+    throw new Error(result.message || 'Reply was sent, but local email state did not fully update. Do not retry before checking sent mail.');
+  }
+  return result;
 }

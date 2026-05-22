@@ -35,6 +35,7 @@ function createWebSocketManager({
       'email:created',
       'email:updated',
       'email:deleted',
+      'email:sync-completed',
       'memo:created',
       'memo:updated',
       'memo:deleted',

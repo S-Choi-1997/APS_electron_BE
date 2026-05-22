@@ -15,6 +15,14 @@ Public update URL used by the app:
 https://update.apsconsulting.kr/win
 ```
 
+Manual installer download page:
+
+```text
+https://update.apsconsulting.kr/
+```
+
+The root download page is protected by Nginx Basic Auth. The auto-update channel under `/win/` remains public so Electron auto-update can keep working.
+
 Expected files under `updates/win/`:
 
 - `latest.yml`

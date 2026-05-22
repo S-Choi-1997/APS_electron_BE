@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS email_drafts (
   body_text TEXT,
   body_html TEXT,
   attachments JSONB DEFAULT '[]'::jsonb,
-  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'deleted')),
+  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'sent', 'deleted')),
   provider_raw JSONB DEFAULT '{}'::jsonb,
   created_by VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

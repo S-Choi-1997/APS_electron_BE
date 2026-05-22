@@ -46,18 +46,93 @@ import { defaultRealtimeQueryOptions, invalidateInactive } from './queryUtils';
 const EMAIL_REFRESH_INTERVAL_MS = 30 * 1000;
 const EMAIL_THREAD_REFRESH_INTERVAL_MS = 60 * 1000;
 
-function invalidateEmailWorkspace(queryClient) {
-  queryClient.invalidateQueries({ queryKey: emailQueryKeys.all, refetchType: 'active' });
-  invalidateInactive(queryClient, emailQueryKeys.all);
+const EMAIL_INVALIDATION_SCOPES = {
+  mailbox: [
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.stats,
+  ],
+  drafts: [
+    emailQueryKeys.draftsRoot,
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.stats,
+  ],
+  scheduled: [
+    emailQueryKeys.scheduledRoot,
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.stats,
+  ],
+  labels: [
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.labels,
+    emailQueryKeys.stats,
+  ],
+  send: [
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.stats,
+  ],
+  response: [
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.stats,
+  ],
+  sync: [
+    emailQueryKeys.mailboxes,
+    emailQueryKeys.folders,
+    emailQueryKeys.labels,
+    emailQueryKeys.stats,
+  ],
+};
+
+function invalidateEmailWorkspace(queryClient, scope = 'mailbox') {
+  const queryKeyFactories = EMAIL_INVALIDATION_SCOPES[scope] || EMAIL_INVALIDATION_SCOPES.mailbox;
+  queryKeyFactories.forEach((createQueryKey) => {
+    const queryKey = createQueryKey();
+    queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+    invalidateInactive(queryClient, queryKey);
+  });
 }
 
-function useEmailMutation(mutationFn, { onSuccess } = {}) {
+function collectEmailDetailIds(...sources) {
+  const ids = new Set();
+  const collect = (source) => {
+    if (source === undefined || source === null) return;
+    if (typeof source === 'string' || typeof source === 'number') {
+      ids.add(source);
+      return;
+    }
+    if (Array.isArray(source)) {
+      source.forEach(collect);
+      return;
+    }
+    if (typeof source !== 'object') return;
+
+    [
+      source.emailId,
+      source.originalEmailId,
+      source.original_email_id,
+      source.id,
+    ].forEach(collect);
+  };
+
+  sources.forEach(collect);
+  return [...ids].filter((id) => id !== '');
+}
+
+function invalidateEmailDetails(queryClient, result, variables) {
+  collectEmailDetailIds(result, variables).forEach((id) => {
+    const detailKey = emailQueryKeys.detail(id);
+    queryClient.invalidateQueries({ queryKey: detailKey, refetchType: 'active' });
+    invalidateInactive(queryClient, detailKey);
+  });
+}
+
+function useEmailMutation(mutationFn, { onSuccess, invalidates = 'mailbox' } = {}) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn,
     onSuccess: (result, variables, context) => {
-      invalidateEmailWorkspace(queryClient);
+      invalidateEmailWorkspace(queryClient, invalidates);
+      invalidateEmailDetails(queryClient, result, variables);
       onSuccess?.(result, variables, context, queryClient);
     },
     onError: (err) => {
@@ -280,49 +355,50 @@ export function useSetEmailFlag() {
 }
 
 export function useAddEmailLabel() {
-  return useEmailMutation(({ id, labelId }) => addEmailLabel(id, labelId));
+  return useEmailMutation(({ id, labelId }) => addEmailLabel(id, labelId), { invalidates: 'labels' });
 }
 
 export function useRemoveEmailLabel() {
-  return useEmailMutation(({ id, labelId }) => removeEmailLabel(id, labelId));
+  return useEmailMutation(({ id, labelId }) => removeEmailLabel(id, labelId), { invalidates: 'labels' });
 }
 
 export function useSendEmail() {
-  return useEmailMutation((payload) => sendEmail(payload));
+  return useEmailMutation((payload) => sendEmail(payload), { invalidates: 'send' });
 }
 
 export function useReplyToEmail() {
-  return useEmailMutation(({ emailId, ...payload }) => replyToEmail(emailId, payload));
+  return useEmailMutation(({ emailId, ...payload }) => replyToEmail(emailId, payload), { invalidates: 'send' });
 }
 
 export function useSaveEmailDraft() {
-  return useEmailMutation(({ id, ...payload }) => (id ? updateDraft(id, payload) : createDraft(payload)));
+  return useEmailMutation(({ id, ...payload }) => (id ? updateDraft(id, payload) : createDraft(payload)), { invalidates: 'drafts' });
 }
 
 export function useDeleteEmailDraft() {
-  return useEmailMutation((id) => deleteDraft(id));
+  return useEmailMutation((id) => deleteDraft(id), { invalidates: 'drafts' });
 }
 
 export function useSendEmailDraft() {
-  return useEmailMutation((id) => sendDraft(id));
+  return useEmailMutation((id) => sendDraft(id), { invalidates: 'drafts' });
 }
 
 export function useScheduleEmail() {
   return useEmailMutation(({ id, ...payload }) => (
     id ? updateScheduledEmail(id, payload) : createScheduledEmail(payload)
-  ));
+  ), { invalidates: 'scheduled' });
 }
 
 export function useDeleteScheduledEmail() {
-  return useEmailMutation((id) => deleteScheduledEmail(id));
+  return useEmailMutation((id) => deleteScheduledEmail(id), { invalidates: 'scheduled' });
 }
 
 export function useSendScheduledNow() {
-  return useEmailMutation((id) => sendScheduledNow(id));
+  return useEmailMutation((id) => sendScheduledNow(id), { invalidates: 'scheduled' });
 }
 
 export function useTriggerZohoSync() {
   return useEmailMutation(triggerZohoSync, {
+    invalidates: 'sync',
     onSuccess: (result) => {
       console.log(`[ZOHO Sync] new: ${result?.new || 0}, skipped: ${result?.skipped || 0}`);
     },
@@ -330,7 +406,8 @@ export function useTriggerZohoSync() {
 }
 
 export function useSendEmailResponse() {
-  return useEmailMutation(({ emailId, responseText, attachments = [] }) =>
-    sendEmailResponse(emailId, responseText, attachments)
+  return useEmailMutation(
+    ({ emailId, responseText, attachments = [] }) => sendEmailResponse(emailId, responseText, attachments),
+    { invalidates: 'response' },
   );
 }

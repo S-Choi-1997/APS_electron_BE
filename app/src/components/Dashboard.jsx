@@ -26,6 +26,10 @@ import {
 } from '../hooks/queries/useSchedules';
 import { useAllWebsiteInquiries, useWebsiteStats } from '../hooks/queries/useWebsiteInquiries';
 import { ROUTES } from '../constants/routes';
+import {
+  getKoreanPublicHolidaysForDate,
+  hasKoreanPublicHolidayDataForYear,
+} from '../utils/koreanHolidays';
 import './Dashboard.css';
 import './css/PageLayout.css';
 import './css/DashboardLayout.css';
@@ -197,6 +201,8 @@ function Dashboard({ user }) {
 
   // 선택된 날짜의 일정
   const selectedDateSchedules = getSchedulesForDate(selectedDate);
+  const selectedDateHolidays = getKoreanPublicHolidaysForDate(selectedDate);
+  const hasHolidayDataForDisplayedYear = hasKoreanPublicHolidayDataForYear(currentDate.getFullYear());
 
 
   // 메모 관련 핸들러
@@ -658,6 +664,8 @@ function Dashboard({ user }) {
 
                 {days.map((date, index) => {
                   const dateSchedules = date ? getSchedulesForDate(date) : [];
+                  const dateHolidays = date ? getKoreanPublicHolidaysForDate(date) : [];
+                  const holidayLabel = dateHolidays.map((holiday) => holiday.name).join(', ');
                   const companyCount = dateSchedules.filter(s => s.type === '회사').length;
                   const personalCount = dateSchedules.filter(s => s.type === '개인').length;
                   const dayOfWeek = date ? date.getDay() : null;
@@ -676,12 +684,19 @@ function Dashboard({ user }) {
                   return (
                     <div
                       key={index}
-                      className={`calendar-day ${!date ? 'empty' : ''} ${isSaturday ? 'saturday' : ''} ${isSunday ? 'sunday' : ''} ${isToday(date) ? 'today' : ''} ${isSelected(date) ? 'selected' : ''} ${dateSchedules.length > 0 ? 'has-schedules' : ''}`}
+                      className={`calendar-day ${!date ? 'empty' : ''} ${isSaturday ? 'saturday' : ''} ${isSunday ? 'sunday' : ''} ${dateHolidays.length > 0 ? 'holiday' : ''} ${isToday(date) ? 'today' : ''} ${isSelected(date) ? 'selected' : ''} ${dateSchedules.length > 0 ? 'has-schedules' : ''}`}
                       onClick={() => date && setSelectedDate(date)}
+                      title={holidayLabel || undefined}
                     >
                       {date && (
                         <>
                           <span className="day-number">{date.getDate()}</span>
+                          {dateHolidays.length > 0 && (
+                            <span className="holiday-label">
+                              {dateHolidays[0].shortName || dateHolidays[0].name}
+                              {dateHolidays.length > 1 ? ` 외 ${dateHolidays.length - 1}` : ''}
+                            </span>
+                          )}
                           {dateSchedules.length > 0 && (
                             <div className="schedule-indicators">
                               {companyCount > 0 && <span className="schedule-indicator company">{companyCount}</span>}
@@ -694,6 +709,11 @@ function Dashboard({ user }) {
                   );
                 })}
               </div>
+              {!hasHolidayDataForDisplayedYear ? (
+                <div className="holiday-data-notice">
+                  {currentDate.getFullYear()}년 한국 공휴일 데이터가 아직 내장되어 있지 않습니다.
+                </div>
+              ) : null}
             </div>
 
             {/* 선택된 날짜 정보 및 일정 */}
@@ -723,6 +743,16 @@ function Dashboard({ user }) {
                   + 일정
                 </button>
               </div>
+
+              {selectedDateHolidays.length > 0 ? (
+                <div className="selected-date-holidays" aria-label="한국 공휴일">
+                  {selectedDateHolidays.map((holiday) => (
+                    <span className="selected-date-holiday" key={`${holiday.date}-${holiday.name}`}>
+                      {holiday.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               {schedulesError ? (
                 <div className="schedule-empty-state error">

@@ -42,6 +42,7 @@ backend/.env
 backend/service-account.json
 backend/service-account.json.backup.*
 backend/node_modules/
+backend/backups/*.sql
 
 # NAS 배포 키트 (민감 정보 및 DB 데이터 제외)
 nas-deploy/.env
@@ -50,6 +51,7 @@ nas-deploy/postgres-data/
 
 # App update static server runtime artifacts
 updates-deploy/.env
+updates-deploy/.htpasswd
 updates-deploy/updates/**
 !updates-deploy/updates/
 !updates-deploy/updates/win/

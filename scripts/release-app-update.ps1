@@ -5,7 +5,7 @@
 # in one operation.
 
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version = "",
 
     [Parameter(Mandatory=$false)]
@@ -54,6 +54,20 @@ function Get-ApsNextPatchVersion {
     return "$($parsed.Major).$($parsed.Minor).$($parsed.Build + 1)"
 }
 
+function Assert-ApsPlainVersion {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Value,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Name
+    )
+
+    if ($Value -notmatch '^\d+\.\d+\.\d+$') {
+        throw "$Name must be a plain semver version like 1.3.25. Prerelease versions are not supported by this release script."
+    }
+}
+
 function Get-ApsRemoteVersion {
     param(
         [Parameter(Mandatory=$true)]
@@ -99,13 +113,22 @@ if (-not (Test-Path -LiteralPath $appDir)) {
 }
 
 $currentVersion = Get-ApsAppVersion
+Assert-ApsPlainVersion -Value $currentVersion -Name "Current version"
 $targetVersion = if ([string]::IsNullOrWhiteSpace($Version)) {
     Get-ApsNextPatchVersion -CurrentVersion $currentVersion
 } else {
     $Version
 }
 
+Assert-ApsPlainVersion -Value $targetVersion -Name "Target version"
 $remoteVersion = Get-ApsRemoteVersion -LatestUrl $UpdatesUrl
+
+if ($remoteVersion) {
+    Assert-ApsPlainVersion -Value $remoteVersion -Name "Remote version"
+    if ($targetVersion -eq $remoteVersion) {
+        throw "Target version already exists on the update channel. Pick a new version; same-version rebuilds are not safe for auto-update clients."
+    }
+}
 
 Write-Host "Current app version: $currentVersion"
 Write-Host "Target app version:  $targetVersion"

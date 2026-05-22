@@ -61,12 +61,13 @@
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
 
 .calendar-day-header {
+  min-width: 0;
   text-align: center;
   font-size: 0.75rem;
   font-weight: 600;
@@ -79,6 +80,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+  min-width: 0;
   padding-top: 6px;
   border-radius: 8px;
   cursor: pointer;
@@ -86,7 +88,7 @@
   position: relative;
   background: white;
   border: 1px solid #e5e7eb;
-  height: 50px;
+  height: 62px;
   color: #1a1a1a;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.9);
 }
@@ -108,6 +110,12 @@
   background: linear-gradient(135deg, #fef1f7 0%, #fce7f3 100%);
   color: #db2777;
   box-shadow: 0 2px 6px rgba(219, 39, 119, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+
+.calendar-day.holiday {
+  border-color: #fecaca;
+  background: linear-gradient(135deg, #fff7f7 0%, #feecec 100%);
+  color: #b91c1c;
 }
 
 .calendar-day:not(.empty):hover {
@@ -133,7 +141,8 @@
 }
 
 .calendar-day.selected.saturday,
-.calendar-day.selected.sunday {
+.calendar-day.selected.sunday,
+.calendar-day.selected.holiday {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
 }
@@ -141,6 +150,28 @@
 .day-number {
   font-size: 1.125rem;
   font-weight: 700;
+}
+
+.holiday-label {
+  display: block;
+  width: 100%;
+  max-width: calc(100% - 6px);
+  margin-top: 1px;
+  overflow: hidden;
+  color: #b91c1c;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-day.selected .holiday-label {
+  color: #ffffff;
+}
+
+.calendar-day.holiday .schedule-indicators {
+  gap: 2px;
 }
 
 /* 일정 인디케이터 */
@@ -208,6 +239,37 @@
   font-weight: 600;
   color: #1a1a1a;
   margin: 0;
+}
+
+.selected-date-holidays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.5rem;
+}
+
+.selected-date-holiday {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0 9px;
+  color: #b91c1c;
+  background: #fff7f7;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.holiday-data-notice {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .add-schedule-btn {

@@ -1,121 +1,141 @@
-# Codebase Structure Cleanup Milestone
+# Email And Calendar UX Recovery Milestone
 
-기준: Express, Electron, TanStack Query, React, Vite, Git ignore, Docker volume 레퍼런스와 현재 코드 구조 비교.
+Updated: 2026-05-22
 
-## Working Rule
+## Product Intent
 
-- 모든 구현은 `구현시 명심.md`를 기준으로 진행한다.
-- 단순히 테스트를 통과시키는 것이 아니라, 실제 사용 경로에서 동작하는지 runtime/output evidence까지 확인해야 한다.
-- 각 work call을 시작할 때 Product Intent, Acceptance Matrix, Verification Method를 먼저 정리하고 구현한다.
-- 구현 완료 후에는 반드시 서브에이전트를 별도로 호출해 `구현시 명심.md` 기준으로 제대로 구현되었는지 production readiness review를 맡긴다.
-- 서브에이전트 검토는 기능 완성 선언 전에 수행한다. 검토 범위에는 실제 사용 경로, 실패 경로, 권한/보안 경계, 문서와 구현의 일치 여부, 배포 가능 여부가 포함되어야 한다.
-- 서브에이전트가 지적한 blocker는 완료 처리 전에 수정하거나, 수정하지 못하면 명확히 blocked/residual risk로 남긴다.
+The current work is focused on recovering email and calendar workflows that regressed during the recent email UI redesign.
+
+The product outcome is simple:
+
+- Email users can select text normally with the mouse and use the native right-click copy flow in both original and translated message bodies.
+- Email compose supports attachments again in the visible compose UI, matching the backend/provider send paths that already exist.
+- Calendar can show Korean public holidays in a maintainable way without making the daily schedule workflow fragile.
+
+This milestone follows `구현시 명심.md`: changes are not complete just because build checks pass. Each item needs code evidence, runtime/output evidence, and a clear residual-risk statement if real UI or production-path verification is not complete.
+
+## Acceptance Matrix
+
+| Requirement | Real Usage Scenario | Code Path | Expected Output / Artifact | Verification Method | Risk If Skipped |
+|---|---|---|---|---|---|
+| Email body drag selection and right-click copy | User opens an email, drags over body text, right-clicks, and chooses Copy | `app/electron/main.js`, `app/src/pages/EmailConsultationsPage.jsx`, `app/src/pages/EmailConsultationsPage.css` | Context menu shows Copy for selected non-editable body text; editable inputs keep Cut/Copy/Paste behavior | `node --check`, `npm --prefix app run build`, diff check, subagent review, Electron runtime clipboard smoke | Users cannot copy email contents through normal desktop behavior |
+| Original and translated body use the same body box | User toggles translation and still reads/copies from the same message body area | `EmailConsultationsPage.jsx`, `EmailConsultationsPage.css` | Translation appears inside `.message-body` / `.message-html` styling; original sanitized HTML remains rendered | Build and code review; manual visual smoke pending | Translation feels like a separate text dump and can diverge from copy behavior |
+| Compose attachment UI restored | User writes a new email/reply/forward and attaches files before sending, drafting, or scheduling | Email compose UI, email send/draft/scheduled services | Visible file picker/drop area/list/remove controls; attachments reach backend send path | Build, Electron attachment payload smoke, subagent review, pending real-provider send/draft/scheduled smoke | Existing backend attachment support remains inaccessible from redesigned UI |
+| Korean public holidays shown in calendar | User opens calendar around Korean holidays and sees holiday labels alongside schedules | Calendar page/service; holiday data source or fixed data module | Korean public holidays render consistently without blocking schedule CRUD | Decide fixed table vs library/API; verify multiple years and calendar navigation | Holidays missing, stale, or dependent on a flaky network path |
 
 ## Done
 
-| 영역 | 완료 내용 | 검증 |
-|---|---|---|
-| Backend route split | `backend/server.js`에서 memo API를 `backend/memo-routes.js`로 분리 | production backend `1.3.25` 배포 후 `GET /memos?limit=1` 200 |
-| Backend SMS split | SMS relay 전송 로직을 `backend/sms-service.js`, `/sms/send` 라우트를 `backend/sms-routes.js`로 분리 | production backend `1.3.25` 배포 후 `POST /sms/send` validation 경로 400 `invalid_receiver` |
-| Backend translation route split | email translation 라우트를 `backend/email-translation-routes.js`로 분리 | production backend `1.3.25` 배포 후 `POST /email-inquiries/657/translate` 200, backfill 200 |
-| Backend Docker packaging | 새 backend module 파일들을 Docker image에 포함 | `steve`에서 `choho97/aps-admin-backend:1.3.25` build/push, NAS 배포 완료 |
-| Production smoke verification | 실제 운영 경로에서 배포/검증 | `https://backend.apsconsulting.kr/` 200, NAS container healthy, `check-infra.ps1` 통과 |
-| Backend remaining route boundaries | Firestore `/inquiries`, schedules, web form inquiries, email response routes, ZOHO integration 등록부를 module로 분리하고 `/email-inquiries` 중복 책임 정리 | production backend `1.3.27` 배포 후 `/inquiries`, `/inquiries/all`, `/schedules`, `/web-form-inquiries`, `/email-inquiries`, `/sms/send`, translation smoke 통과 |
-| Backend route smoke script | backend route split 후 반복 가능한 운영 smoke script 추가 | `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr` 전체 Pass |
-| Electron main process split | `app/electron/main.js`에서 app config, WebSocket, updater, config IPC, file IPC, startup IPC, window loading helper를 module로 분리 | `npm --prefix app run electron:build` 통과, `win-unpacked` packaged smoke에서 app.asar module load/dist load/WebSocket init 확인 |
-| Electron IPC hardening baseline | 공통 IPC wrapper와 URL/download sanitizer를 추가하고 auth/session IPC sender role 검증, 모든 BrowserWindow의 `window.open` protocol whitelist, REST→WS config 파생 보정을 적용 | preload invoke 41개와 main handlers 대조 결과 missing 0, BrowserWindow 4개 모두 external URL handler 적용, config derivation check 통과 |
+### Email Body Drag Selection And Right-Click Copy
+
+Implemented on 2026-05-22.
+
+- Added an Electron renderer context menu in `app/electron/main.js`.
+- Non-editable selected text now receives a native Copy menu item.
+- Editable fields retain Cut, Copy, Paste, and Select All behavior.
+- Translation body rendering now uses the same message body container shape as the original body.
+- Original sanitized HTML rendering remains in place.
+- CSS now explicitly permits text selection inside sanitized email HTML descendants, reducing the chance that inline email styles block drag selection.
+
+Verification completed:
+
+- `node --check app/electron/main.js` passed.
+- `git diff --check -- app/electron/main.js app/src/pages/EmailConsultationsPage.jsx app/src/pages/EmailConsultationsPage.css` passed with only LF/CRLF warnings.
+- `npm --prefix app run build` passed.
+- Subagent review found no blocking issue for code-level intent alignment.
+- Electron runtime clipboard smoke passed with `.local/email-copy-electron-smoke`: original HTML body selection copied the expected text, translated body selection copied the expected text, and editable fields exposed Cut/Copy/Paste/Select All roles.
+
+Residual risk:
+
+- The runtime smoke uses an isolated Electron fixture that loads the current context-menu function and email body CSS from source. A final human check in the authenticated real mailbox is still useful before release, but the Electron clipboard path itself has runtime evidence.
+- The repository already has unrelated dirty changes in email files; those must not be treated as verified by this item.
+
+### Compose Attachment UI Restoration
+
+Implemented on 2026-05-22.
+
+- Restored a visible attachment area in the mail composer.
+- File selection and drag/drop both add attachments through the same FileReader path.
+- Selected attachments show filename, size, and remove control.
+- Attachment validation covers maximum count, per-file size, and total size before send/draft/schedule.
+- Composer payload includes attachments for new mail, reply/reply-all, forward, draft, and scheduled send creation.
+- Locked scheduled-mail edits keep attachment changes disabled, matching the backend route that only updates `scheduled_at`.
+
+Verification completed:
+
+- `npm --prefix app run build` passed.
+- `git diff --check -- app/src/pages/EmailConsultationsPage.jsx app/src/pages/EmailConsultationsPage.css milestone.md` passed with only LF/CRLF warnings.
+- Electron attachment compose smoke passed with `.local/email-attachment-compose-smoke`: FileReader produced base64 attachment data, payload contained the attachment, recipient parsing worked, limit validation errors were present, and visible attachment/dropzone markers existed in source.
+- Read-only worker review found no blocking issue in the compose UI, service hooks, backend mail-client service, or ZOHO send path.
+
+Residual risk:
+
+- Real-provider smoke was not run because it can send real email. Before release, verify at least one controlled attachment through send, draft-send, and scheduled-send against the authenticated Zoho account.
+
+### Korean Calendar Holidays
+
+Implemented on 2026-05-22.
+
+- Added fixed 2025-2026 Korean holiday data in `app/src/utils/koreanHolidays.js`.
+- Used official-source cross-checks from KASI, Korea Customs Service, and the data.go.kr KASI special-day API listing.
+- Calendar cells now mark holiday dates, show a compact holiday label, and expose the full holiday names through the cell title.
+- Selected-date detail now shows holiday chips above the existing schedule list.
+- Years outside the embedded data range show a notice below the displayed calendar grid instead of silently hiding missing holiday data.
+- Schedule CRUD, schedule service calls, and TanStack Query schedule hooks remain unchanged.
+- Labor Day is included for business-calendar visibility; Constitution Day is intentionally excluded because it is not a public day-off.
+
+Verification completed:
+
+- `node scripts\smoke-korean-holidays.cjs` passed: 2025/2026 coverage, 2025 temporary holiday, 2025 combined holiday, 2026 substitute holidays, 2026 election day, and 2027 fallback were checked.
+- `node scripts\smoke-korean-holidays-render.cjs` passed: hidden Electron/Chromium rendered desktop and narrow calendar cases, verified holiday cell labels, schedule indicators, selected-date chips, unsupported-year notice, grid containment, no label/indicator overlap, and wrote `.local/korean-holidays-render-smoke/calendar-holidays-render.png`.
+- `npm --prefix app run build` passed.
+- `git diff --check -- app/src/utils/koreanHolidays.js app/src/components/Dashboard.jsx app/src/components/css/DashboardCalendar.css milestone.md scripts/smoke-korean-holidays.cjs scripts/smoke-korean-holidays-render.cjs` passed with only LF/CRLF warnings.
+- Final read-only worker review `20260522T060238618Z-worker-6b9abbfd` found no blocking issues. It checked the tracked smoke script reference, source links/policy, holiday labels, selected-date chips, unsupported-year notice, cell layout risk, and milestone accuracy.
+
+Residual risk:
+
+- Holiday coverage is intentionally fixed to 2025-2026. Add 2027 data when the next official calendar standard is published/confirmed.
+- Render evidence is a focused hidden Electron fixture using the actual calendar CSS and holiday data. It does not log into the full production app shell, so a human spot-check in the real dashboard is still useful before release.
 
 ## Remaining
 
-| 우선순위 | 영역 | 남은 일 | 완료 기준 |
+| Priority | Area | Work | Completion Criteria |
 |---:|---|---|---|
-| 2 | Electron full usage smoke | 로그인 이후 주요 IPC, notification/download, update downloaded → install flow를 실제 설치본 또는 동등한 harness에서 검증 | 실제 사용자 경로에서 auth/session IPC, 파일 저장/다운로드, 알림 창, 업데이트 설치 요청이 기대 출력/로그와 함께 통과 |
-| 3 | Email page state split | `EmailConsultationsPage.jsx`의 mailbox/filter/selection/detail/composer/draft/scheduled 상태를 reducer 또는 `useEmailPageState`로 분리 | 주요 메일 UI 흐름이 기존과 동일하게 동작하고 컴포넌트 책임이 줄어듦 |
-| 4 | Query invalidation narrowing | `emailQueryKeys`와 WebSocket invalidation을 이벤트별로 좁힘 | 생성/수정/삭제/메일함 이벤트별로 필요한 query만 invalidate |
-| 5 | Static asset cleanup | `app/font`와 `app/public/font`의 Nanum font 중복 실제 사용 경로 확인 후 정리 | 사용되는 한 경로만 남고 app build 통과 |
-| 5 | Artifact/runtime data cleanup | tracked SQL backup, repo 내부 runtime data, local artifact 탐색 잡음 정리 | 필요한 백업은 repo 밖 또는 명확한 docs 경로로 이동, ignore 정책 정리 |
-| 5 | Docker DB data location | `nas-deploy/postgres-data/` 같은 repo 하위 DB data 경로를 운영 경로와 분리 검토 | 운영 compose가 repo 내부 DB data dir에 의존하지 않음 |
-| 6 | Regression guard | 최소 smoke/lint/check 명령을 문서화 또는 스크립트화 | route split 후 반복 가능한 검증 명령이 존재 |
+| 1 | Real-provider attachment smoke | Send controlled attachment through direct send, draft send, and scheduled send in the authenticated Zoho account | Sent records show attachments and provider download succeeds |
+| 2 | Calendar holiday data maintenance | Add 2027+ Korean holiday data after official publication/confirmation | New year is covered by the fixed data module and smoke checks |
+| 3 | Production readiness review | After each remaining item, run subagent review against `구현시 명심.md` and document residual risks | Review findings are fixed or explicitly marked blocked/residual |
+
+## Decision Notes
+
+### Korean Holiday Source
+
+Preferred direction for this app: start with a fixed embedded Korean holiday data module for known years rather than making calendar rendering depend on a network API.
+
+Reasoning:
+
+- Calendar holidays are read-only display metadata.
+- A fixed table is fast, deterministic, and works offline in Electron.
+- Network APIs add failure modes, keys, rate limits, and caching behavior that are unnecessary unless the product needs indefinite future-year coverage.
+
+Implementation expectation:
+
+- Store holiday data in a small local module or JSON file.
+- Cover at least the app's practical operating range, then make the range explicit in the code/documentation.
+- If future automatic updates are needed, add a separate update job or API sync later rather than blocking calendar rendering on live API calls.
+- Implemented source links: KASI 2026 calendar standard announcement, Korea Customs Service 2025/2026 national holiday table, and data.go.kr KASI special-day API listing.
 
 ## Current Status
 
-- 완료: Call 1 backend route boundary 정리, Call 2 Electron main/IPC code split 및 hardening baseline.
-- 남음: Electron full usage smoke, React email page 상태 정리, query invalidation 정리, asset/artifact 정리, 회귀 검증 자동화.
-- 현재 운영 backend: `choho97/aps-admin-backend:1.3.27`.
-- 주의: WebSocket tunnel 관련 route-specific handler는 아직 `server.js`에 남아 있다. Call 1의 API route 분리 범위에서는 기능 유지 우선으로 남겼고, 별도 backend cleanup 후보로 둔다.
+- Current active item: Korean calendar holidays are code-complete, build-verified, smoke-verified, and read-only reviewed.
+- Not yet production-complete: controlled real-provider attachment send/draft/scheduled smoke remains pending.
+- Calendar data maintenance remains future-year work, not a blocker for 2025-2026 behavior.
 
-## Next 3 Work Calls
+## Working Rule
 
-### Call 1: Finish Backend Route Boundaries - Done
+For every remaining item:
 
-목표: `backend/server.js`를 Express entrypoint에 가깝게 줄이고, 운영 API 동작은 유지한다.
-
-포함 범위:
-
-- `backend/server.js`에 남은 Firestore `/inquiries` API 분리.
-- schedules API 분리.
-- web form inquiries API 분리.
-- `/email-inquiries` 본체와 `emailMailClient.registerRoutes()` 이후 중복 책임 정리.
-- ZOHO integration 등록부를 별도 module로 분리할지 결정하고, 가능하면 분리.
-- route split 후 반복 가능한 backend smoke checklist 정리.
-
-완료 기준:
-
-- `server.js`에는 app/bootstrap, middleware, WebSocket, module registration 중심만 남는다.
-- 운영 image build/push/deploy 후 `https://backend.apsconsulting.kr/` health `1.3.x` 확인.
-- 운영 URL에서 `/inquiries`, `/schedules`, `/email-inquiries`, `/memos`, `/sms/send`, translation 주요 경로 smoke test 통과.
-
-구현 결과:
-
-- commits: `9bcf271 refactor remaining backend route boundaries`, `fd11c88 handle missing web form inquiry table`.
-- deployed image: `choho97/aps-admin-backend:1.3.27`.
-- verification: `scripts/smoke-backend-routes.ps1 -BackendUrl https://backend.apsconsulting.kr`, `scripts/check-infra.ps1 -BackendUrl https://backend.apsconsulting.kr`.
-- residual risk: production DB에 `web_form_inquiries` table이 없어 GET은 안전한 empty response로 처리하고 PATCH는 503을 반환한다. 실제 기능 활성화가 필요하면 DB migration/backfill이 별도 필요하다.
-
-### Call 2: Split Electron Main And Harden IPC - Code Done, Full Smoke Pending
-
-목표: Electron main process의 책임을 역할별로 분리하고 IPC handler 검증을 보기 쉽게 만든다.
-
-포함 범위:
-
-- `app/electron/main.js`를 `windows`, `ipc`, `updater`, `websocket`, `appConfig`, notification/download 관련 module로 분리.
-- preload API와 main IPC handler mapping 점검.
-- IPC sender/권한/입력 검증 공통 helper 도입 여부 결정.
-- sticky/memo window, updater, websocket reconnect 같은 운영 기능이 기존과 동일하게 동작하는지 확인.
-
-완료 기준:
-
-- Electron dev 또는 packaged app 경로에서 창 생성, login 이후 주요 IPC, update check, notification/download, websocket 연결 smoke test 통과.
-- IPC handler 위치와 검증 규칙이 기능별로 추적 가능하다.
-
-구현 결과:
-
-- `app/electron/main.js`를 2052 lines 수준에서 약 1030 lines 수준으로 줄이고 app config, WebSocket, updater, config IPC, file IPC, startup IPC, window loading helper를 module로 분리했다.
-- preload invoke 41개와 main/electron module handlers를 대조해 missing 0을 확인했다.
-- 외부 URL은 IPC 경로와 모든 Electron `BrowserWindow`의 `window.open` 경로에서 protocol whitelist를 통과해야 열리도록 정리했다.
-- auth/session IPC는 sender window role을 검증한다. `set-auth-session`/`clear-session`은 main window만, `get-auth-token`은 main/sticky/memo window만 허용한다.
-- updater `install-update`는 `quitAndInstall` 전에 `app.isQuitting = true`를 설정해 전역 `before-quit` handler가 설치 흐름을 막지 않게 했다.
-- REST-only config 변경 시 WebSocket URL이 REST URL에서 다시 파생되도록 `wsDerivedFromRest` 판정을 보정했다. 기존 저장 설정에 `wsDerivedFromRest:false`가 남아 있어도 REST에서 파생된 URL이면 derived로 재판정한다.
-- verification: `node --check app/electron/*.js`, app config derivation check, IPC channel coverage check, `npm --prefix app run electron:build`, `app/dist/win-unpacked/APS Admin.exe` packaged smoke.
-- subagent review: completion overclaim, child window URL gap, auth/session IPC role gap, old config compatibility gap을 지적받았고 code/milestone을 수정했다.
-- residual risk: 실제 설치본의 업데이트 다운로드 완료 후 설치 버튼, 로그인 이후 실제 사용자 IPC, notification/download 전체 흐름은 아직 full usage smoke가 필요하다. 이 항목은 Remaining에 남긴다.
-
-### Call 3: Frontend Email State, Query Invalidation, And Workspace Cleanup
-
-목표: 메일 UI의 복잡 상태와 cache invalidation을 줄이고, repo 탐색 잡음을 정리한다.
-
-포함 범위:
-
-- `EmailConsultationsPage.jsx`에서 mailbox/filter/selection/detail/composer/draft/scheduled 상태를 reducer 또는 `useEmailPageState`로 분리.
-- 화면 컴포넌트와 상태/효과 wiring 분리.
-- `emailQueryKeys`와 WebSocket invalidation을 이벤트별로 좁힘.
-- `app/font`와 `app/public/font` 중복 사용 경로 확인 후 정리.
-- tracked SQL backup, repo 내부 runtime data, local artifact 위치와 ignore 정책 정리.
-- 최소 lint/build/smoke 명령을 문서화 또는 script화.
-
-완료 기준:
-
-- 메일 주요 흐름: mailbox 전환, 상세 열기, reply/compose/draft/scheduled, websocket 반영이 기존과 동일하게 동작.
-- 불필요한 broad invalidation이 줄고, query key 책임이 명확하다.
-- app build 또는 해당 frontend 검증 명령 통과.
-- repo 내부 local/runtime artifact 탐색 잡음이 줄어든다.
+1. Restate Product Intent.
+2. Build an Acceptance Matrix before implementation.
+3. Keep the change scoped to the requested user workflow.
+4. Verify with project checks and the real usage path where possible.
+5. Run subagent review before declaring the item complete.
+6. Mark anything without runtime/output evidence as partial or residual risk.

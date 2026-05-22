@@ -92,6 +92,9 @@ async function handleZohoSync(user) {
     console.log(`[ZOHO Routes] Sync requested by: ${user?.email || 'unknown'}`);
 
     const result = await zoho.performFullSync();
+    if (global.broadcastEvent) {
+      global.broadcastEvent('email:sync-completed', result);
+    }
 
     return {
       status: 200,

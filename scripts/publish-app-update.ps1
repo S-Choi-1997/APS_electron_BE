@@ -24,9 +24,9 @@ if ([string]::IsNullOrWhiteSpace($UpdatesPath)) {
 $artifactSet = Test-ApsUpdateArtifactSet -ArtifactRoot $DistPath
 
 $artifactPaths = @(
-    $artifactSet.LatestPath,
     $artifactSet.InstallerPath,
-    $artifactSet.BlockmapPath
+    $artifactSet.BlockmapPath,
+    $artifactSet.LatestPath
 )
 
 if (-not [string]::IsNullOrWhiteSpace($UpdatesSshHost)) {

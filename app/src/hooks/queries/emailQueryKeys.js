@@ -17,9 +17,11 @@ export const emailQueryKeys = {
   attachments: (id) => [...emailQueryKeys.detail(id), 'attachments'],
   folders: () => [...emailQueryKeys.all, 'folders'],
   labels: () => [...emailQueryKeys.all, 'labels'],
-  drafts: (filters = {}) => [...emailQueryKeys.all, 'drafts', normalizeQueryFilters(filters)],
+  draftsRoot: () => [...emailQueryKeys.all, 'drafts'],
+  drafts: (filters = {}) => [...emailQueryKeys.draftsRoot(), normalizeQueryFilters(filters)],
   draft: (id) => [...emailQueryKeys.all, 'draft', id],
-  scheduled: (filters = {}) => [...emailQueryKeys.all, 'scheduled', normalizeQueryFilters(filters)],
+  scheduledRoot: () => [...emailQueryKeys.all, 'scheduled'],
+  scheduled: (filters = {}) => [...emailQueryKeys.scheduledRoot(), normalizeQueryFilters(filters)],
   scheduledItem: (id) => [...emailQueryKeys.all, 'scheduledItem', id],
   stats: () => [...emailQueryKeys.all, 'stats'],
 

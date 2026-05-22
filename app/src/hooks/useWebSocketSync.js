@@ -79,6 +79,20 @@ export function useWebSocketSync({
     };
 
     const handleEmailEvent = (payload, eventName) => {
+      const refreshDraftsAndScheduled = () => {
+        refreshActiveCollections(queryClient, [
+          emailQueryKeys.draftsRoot(),
+          emailQueryKeys.scheduledRoot(),
+        ]);
+      };
+
+      const refreshEmailCore = () => {
+        refreshActiveCollections(queryClient, [
+          emailQueryKeys.mailboxes(),
+          emailQueryKeys.stats(),
+        ]);
+      };
+
       if (eventName === 'email:updated' && payload?.id !== undefined) {
         const nextEmail = normalizeEmailInquiry(payload);
         updateCollectionCaches(queryClient, [
@@ -88,21 +102,31 @@ export function useWebSocketSync({
         queryClient.setQueryData(emailQueryKeys.thread(payload.id), (oldData) => (
           Array.isArray(oldData) ? replaceItemById(oldData, payload.id, nextEmail) : oldData
         ));
+        invalidate(emailQueryKeys.mailboxes(), { refetchType: 'active' });
+        invalidateDetail(emailQueryKeys, payload);
+        invalidate(emailQueryKeys.stats(), { refetchType: 'active' });
       } else if (eventName === 'email:deleted' && payload?.id !== undefined) {
         updateCollectionCaches(queryClient, [
           emailQueryKeys.lists(),
           emailQueryKeys.pages(),
         ], (items) => removeItemById(items, payload.id));
         queryClient.removeQueries({ queryKey: emailQueryKeys.detail(payload.id) });
+        invalidate(emailQueryKeys.stats(), { refetchType: 'active' });
+      } else if (eventName === 'email:sync-completed') {
+        refreshActiveCollections(queryClient, [
+          emailQueryKeys.mailboxes(),
+          emailQueryKeys.stats(),
+          emailQueryKeys.folders(),
+          emailQueryKeys.labels(),
+        ]);
+      } else if (eventName === 'email:created') {
+        refreshEmailCore();
+        if (payload?.realtimeReason === 'draft:sent' || payload?.realtimeReason === 'scheduled:sent') {
+          refreshDraftsAndScheduled();
+        }
       } else {
-        refreshActiveCollections(queryClient, [emailQueryKeys.lists(), emailQueryKeys.pages()]);
+        refreshEmailCore();
       }
-      invalidate(emailQueryKeys.stats());
-      invalidate(emailQueryKeys.drafts());
-      invalidate(emailQueryKeys.scheduled());
-      invalidate(emailQueryKeys.folders());
-      invalidate(emailQueryKeys.labels());
-      invalidateDetail(emailQueryKeys, payload);
     };
 
     const handleMemoEvent = (payload, eventName) => {

@@ -33,8 +33,10 @@ hostname
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 echo
 echo '[backend health]'
-curl -sS --max-time 5 http://localhost:3001/ || true
+curl -fsS --max-time 5 http://localhost:3001/
+status=$?
 echo
+exit $status
 '@
 }
 
@@ -52,7 +54,8 @@ printf 'cloudflared: '; systemctl is-active cloudflared 2>/dev/null || true
 if (-not [string]::IsNullOrWhiteSpace($BackendUrl)) {
     Write-Host ""
     Write-Host "== Cloudflare backend URL ==" -ForegroundColor Cyan
-    curl.exe -sS --max-time 10 $BackendUrl
+    curl.exe -fsS --max-time 10 $BackendUrl
+    if ($LASTEXITCODE -ne 0) { throw "Backend URL check failed: $BackendUrl" }
     Write-Host ""
 }
 

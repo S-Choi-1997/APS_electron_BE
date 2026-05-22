@@ -204,6 +204,16 @@ async function saveEmailInquiry(inquiryData) {
         folder_type = COALESCE(EXCLUDED.folder_type, email_inquiries.folder_type),
         read_state = COALESCE(EXCLUDED.read_state, email_inquiries.read_state),
         response_state = COALESCE(email_inquiries.response_state, EXCLUDED.response_state),
+        status = CASE
+          WHEN COALESCE(email_inquiries.response_state, EXCLUDED.response_state) = 'responded' THEN 'responded'
+          WHEN COALESCE(EXCLUDED.read_state, email_inquiries.read_state) = 'read' THEN 'read'
+          ELSE 'unread'
+        END,
+        "check" = CASE
+          WHEN COALESCE(email_inquiries.response_state, EXCLUDED.response_state) = 'responded' THEN true
+          WHEN COALESCE(EXCLUDED.read_state, email_inquiries.read_state) = 'read' THEN true
+          ELSE false
+        END,
         flag_id = COALESCE(EXCLUDED.flag_id, email_inquiries.flag_id),
         starred = EXCLUDED.starred,
         labels = COALESCE(EXCLUDED.labels, email_inquiries.labels, '[]'::jsonb),

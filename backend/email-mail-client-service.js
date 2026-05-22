@@ -81,7 +81,7 @@ function sanitizeDraftRow(row) {
     ...row,
     providerMode: row.provider_draft_id ? 'provider' : 'local',
     localOnly: !row.provider_draft_id,
-    attachments: redactAttachments(row.attachments),
+    attachments: normalizeJsonArray(row.attachments),
     provider_raw: row.provider_raw ? { stored: true } : {},
   };
 }
@@ -92,7 +92,7 @@ function sanitizeScheduledRow(row) {
     ...row,
     providerMode: row.provider_schedule_id ? 'provider' : 'local',
     localOnly: !row.provider_schedule_id,
-    attachments: redactAttachments(row.attachments),
+    attachments: normalizeJsonArray(row.attachments),
     provider_raw: row.provider_raw ? { stored: true } : {},
   };
 }
@@ -665,6 +665,36 @@ async function getFolders({ refresh = false } = {}) {
   }));
 }
 
+async function getFolderByType(folderType) {
+  const normalizedType = FOLDER_TYPES.has(folderType) ? folderType : 'custom';
+  const result = await db.query(`
+    SELECT folder_id, folder_name, folder_type
+    FROM email_folders
+    WHERE folder_type = $1
+    ORDER BY folder_name ASC
+    LIMIT 1;
+  `, [normalizedType]);
+  return result.rows[0] || null;
+}
+
+async function localFolderFields(folderType, extra = {}, fallbackRow = null) {
+  let folder = await getFolderByType(folderType);
+  if (!folder) {
+    try {
+      await getFolders({ refresh: true });
+      folder = await getFolderByType(folderType);
+    } catch (error) {
+      console.warn(`[Email Mail Client] Could not refresh ${folderType} folder cache:`, error.message);
+    }
+  }
+  return {
+    folder_id: folder?.folder_id || fallbackRow?.folder_id || null,
+    folder_name: folder?.folder_name || folderType,
+    folder_type: folder?.folder_type || folderType,
+    ...extra,
+  };
+}
+
 async function upsertLabels(labels) {
   for (const label of labels) {
     const labelId = String(label.labelId || label.tagId || label.id);
@@ -806,10 +836,7 @@ async function setReadState(id, readState, { provider = true } = {}) {
         requestPayload: { readState },
         errorMessage: error.message,
       });
-      console.warn(
-        '[Email Mail Client] Provider read-state update failed; continuing with local state update:',
-        error.message
-      );
+      throw error;
     }
   }
 
@@ -847,7 +874,7 @@ async function setResponseState(id, responseState) {
 }
 
 async function runProviderMutation(id, operationType, providerCall, localFields, options = {}) {
-  const { localOnProviderFailure = true } = options;
+  const { localOnProviderFailure = false } = options;
   const row = await getEmailRowById(id);
   assertZohoEmail(row);
 
@@ -880,8 +907,9 @@ async function runProviderMutation(id, operationType, providerCall, localFields,
     );
   }
 
+  const fields = await Promise.resolve(localFields(row));
   const updated = await updateLocalState(id, {
-    ...localFields(row),
+    ...fields,
     ...(providerError ? {} : { last_provider_sync_at: new Date() }),
   });
   return {
@@ -989,6 +1017,31 @@ function normalizeOutgoingPayload(body) {
   };
 }
 
+function normalizeDraftPayload(body) {
+  const to = parseArray(body.to || body.toEmails);
+  const cc = parseArray(body.cc || body.ccEmails);
+  const bcc = parseArray(body.bcc || body.bccEmails);
+  const subject = String(body.subject || '').trim();
+  const text = String(body.body || body.bodyText || '').trim();
+  const html = body.bodyHtml ? String(body.bodyHtml) : null;
+
+  return {
+    to,
+    cc,
+    bcc,
+    subject,
+    body: text || html || '',
+    bodyHtml: html,
+    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+  };
+}
+
+function looksLikeForwardedStoredMessage(record) {
+  const subject = String(record?.subject || '').trim().toLowerCase();
+  const body = String(record?.body_text || record?.body_html || '').toLowerCase();
+  return /^(fwd?|forward):/.test(subject) || body.includes('----- forwarded message -----');
+}
+
 async function sendNewEmail(body) {
   const payload = normalizeOutgoingPayload(body);
   const result = await callProviderWithAudit({
@@ -1081,7 +1134,7 @@ async function replyToInquiry(id, body) {
   const requestedSubject = String(body.subject || row.subject || '(no subject)').trim() || '(no subject)';
   const requestedCc = parseArray(body.cc || body.ccEmails);
   const ownAddresses = new Set(parseArray([config.accountEmail, config.fromEmail, row.to_email].filter(Boolean).join(',')));
-  const replyAllCc = body.replyAll
+  const replyAllCc = body.replyAll && requestedCc.length === 0
     ? parseArray(row.cc_emails).filter(email => email !== row.from_email && !ownAddresses.has(email))
     : [];
   const cc = [...new Set([...requestedCc, ...replyAllCc])];
@@ -1155,17 +1208,25 @@ async function replyToInquiry(id, body) {
     });
   }
 
-  const updatedOriginal = await updateEmailStatus(id, 'responded');
+  let updatedOriginal = row;
+  let localStatusError = null;
+  try {
+    updatedOriginal = await updateEmailStatus(id, 'responded');
+  } catch (error) {
+    localStatusError = error.message;
+    console.error('[Email Mail Client] Reply sent but original email status update failed:', error);
+  }
   return {
     providerResult: result,
     sentEmail: savedEmail,
     originalEmail: normalizeEmailRow(updatedOriginal),
     localSaveError,
+    localStatusError,
   };
 }
 
 async function createDraftRecord(body, user) {
-  const payload = normalizeOutgoingPayload(body);
+  const payload = normalizeDraftPayload(body);
   let providerResult = null;
   let providerDraftId = null;
 
@@ -1181,7 +1242,7 @@ async function createDraftRecord(body, user) {
     RETURNING *;
   `, [
     providerDraftId,
-    body.originalEmailId || null,
+    body.originalEmailId || body.original_email_id || null,
     payload.to,
     payload.cc,
     payload.bcc,
@@ -1197,37 +1258,73 @@ async function createDraftRecord(body, user) {
 }
 
 async function updateDraftRecord(id, body) {
-  const payload = normalizeOutgoingPayload(body);
+  const payload = normalizeDraftPayload(body);
   const result = await db.query(`
     UPDATE email_drafts
     SET to_emails = $1, cc_emails = $2, bcc_emails = $3,
         subject = $4, body_text = $5, body_html = $6,
-        attachments = $7::jsonb, updated_at = NOW()
-    WHERE id = $8 AND status = 'draft'
+        attachments = $7::jsonb,
+        original_email_id = COALESCE($8, original_email_id),
+        updated_at = NOW()
+    WHERE id = $9 AND status = 'draft'
     RETURNING *;
-  `, [payload.to, payload.cc, payload.bcc, payload.subject, payload.body, payload.bodyHtml, JSON.stringify(payload.attachments), id]);
+  `, [
+    payload.to,
+    payload.cc,
+    payload.bcc,
+    payload.subject,
+    payload.body,
+    payload.bodyHtml,
+    JSON.stringify(payload.attachments),
+    body.originalEmailId || body.original_email_id || null,
+    id,
+  ]);
   return sanitizeDraftRow(result.rows[0] || null);
 }
 
+async function sendStoredMessageRecord(record) {
+  const payload = {
+    to: record.to_emails,
+    cc: record.cc_emails,
+    bcc: record.bcc_emails,
+    subject: record.subject,
+    bodyText: record.body_text,
+    bodyHtml: record.body_html,
+    attachments: normalizeJsonArray(record.attachments),
+  };
+
+  if (record.original_email_id && !looksLikeForwardedStoredMessage(record)) {
+    return replyToInquiry(record.original_email_id, {
+      ...payload,
+      replyAll: false,
+    });
+  }
+
+  return sendNewEmail(payload);
+}
+
 async function sendDraftRecord(id) {
-  const draftResult = await db.query('SELECT * FROM email_drafts WHERE id = $1 AND status = $2 LIMIT 1', [id, 'draft']);
+  const draftResult = await db.query(`
+    UPDATE email_drafts
+    SET status = 'processing', updated_at = NOW()
+    WHERE id = $1 AND status = 'draft'
+    RETURNING *;
+  `, [id]);
   const draft = draftResult.rows[0];
   if (!draft) {
     const error = new Error('Draft not found');
     error.statusCode = 404;
     throw error;
   }
-  const sent = await sendNewEmail({
-    to: draft.to_emails,
-    cc: draft.cc_emails,
-    bcc: draft.bcc_emails,
-    subject: draft.subject,
-    bodyText: draft.body_text,
-    bodyHtml: draft.body_html,
-    attachments: normalizeJsonArray(draft.attachments),
-  });
-  await db.query('UPDATE email_drafts SET status = $1, updated_at = NOW() WHERE id = $2', ['sent', id]);
-  return sent;
+
+  try {
+    const sent = await sendStoredMessageRecord(draft);
+    await db.query('UPDATE email_drafts SET status = $1, updated_at = NOW() WHERE id = $2', ['sent', id]);
+    return sent;
+  } catch (error) {
+    await db.query('UPDATE email_drafts SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3', ['draft', id, 'processing']);
+    throw error;
+  }
 }
 
 async function createScheduledRecord(body, user) {
@@ -1253,7 +1350,7 @@ async function createScheduledRecord(body, user) {
     RETURNING *;
   `, [
     providerResult?.messageId || providerResult?.scheduleId || null,
-    body.originalEmailId || null,
+    body.originalEmailId || body.original_email_id || null,
     payload.to,
     payload.cc,
     payload.bcc,
@@ -1269,36 +1366,47 @@ async function createScheduledRecord(body, user) {
 }
 
 async function sendScheduledNow(id) {
-  const scheduledResult = await db.query('SELECT * FROM scheduled_emails WHERE id = $1 AND status = $2 LIMIT 1', [id, 'scheduled']);
+  const scheduledResult = await db.query(`
+    UPDATE scheduled_emails
+    SET status = 'processing', updated_at = NOW()
+    WHERE id = $1 AND status = 'scheduled'
+    RETURNING *;
+  `, [id]);
   const scheduled = scheduledResult.rows[0];
   if (!scheduled) {
     const error = new Error('Scheduled email not found');
     error.statusCode = 404;
     throw error;
   }
-  const sent = await sendNewEmail({
-    to: scheduled.to_emails,
-    cc: scheduled.cc_emails,
-    bcc: scheduled.bcc_emails,
-    subject: scheduled.subject,
-    bodyText: scheduled.body_text,
-    bodyHtml: scheduled.body_html,
-    attachments: normalizeJsonArray(scheduled.attachments),
-  });
-  await db.query('UPDATE scheduled_emails SET status = $1, sent_email_id = $2, updated_at = NOW() WHERE id = $3', ['sent', sent.data?.id || null, id]);
-  return sent;
+
+  try {
+    const sent = await sendStoredMessageRecord(scheduled);
+    await db.query('UPDATE scheduled_emails SET status = $1, sent_email_id = $2, updated_at = NOW() WHERE id = $3', ['sent', sent.data?.id || sent.sentEmail?.id || null, id]);
+    return sent;
+  } catch (error) {
+    await db.query(`
+      UPDATE scheduled_emails
+      SET status = 'failed',
+          provider_raw = jsonb_set(COALESCE(provider_raw, '{}'::jsonb), '{lastError}', to_jsonb($1::text), true),
+          updated_at = NOW()
+      WHERE id = $2;
+    `, [error.message || 'Scheduled email send failed', id]);
+    throw error;
+  }
 }
 
 async function claimDueScheduledEmail() {
   const result = await db.query(`
     UPDATE scheduled_emails
     SET status = 'processing', updated_at = NOW()
-    WHERE id = (
+    WHERE status = 'scheduled'
+      AND id = (
       SELECT id
       FROM scheduled_emails
       WHERE status = 'scheduled'
         AND scheduled_at <= NOW()
       ORDER BY scheduled_at ASC, id ASC
+      FOR UPDATE SKIP LOCKED
       LIMIT 1
     )
     RETURNING *;
@@ -1306,17 +1414,24 @@ async function claimDueScheduledEmail() {
   return result.rows[0] || null;
 }
 
-async function requeueStaleScheduledEmails({ staleMinutes = Number(process.env.EMAIL_SCHEDULER_PROCESSING_TIMEOUT_MINUTES || 15) } = {}) {
+async function failStaleScheduledEmails({ staleMinutes = Number(process.env.EMAIL_SCHEDULER_PROCESSING_TIMEOUT_MINUTES || 15) } = {}) {
   const timeoutMinutes = Number.isFinite(staleMinutes) && staleMinutes > 0 ? staleMinutes : 15;
   const result = await db.query(`
     UPDATE scheduled_emails
-    SET status = 'scheduled', updated_at = NOW()
+    SET status = 'failed',
+        provider_raw = jsonb_set(
+          COALESCE(provider_raw, '{}'::jsonb),
+          '{lastError}',
+          to_jsonb('Scheduled email stayed processing past the safety timeout; manual review required before retry.'::text),
+          true
+        ),
+        updated_at = NOW()
     WHERE status = 'processing'
       AND updated_at < NOW() - ($1::int * INTERVAL '1 minute')
     RETURNING id;
   `, [timeoutMinutes]);
   if (result.rowCount > 0) {
-    console.warn(`[Email Scheduler] Requeued ${result.rowCount} stale processing emails`);
+    console.warn(`[Email Scheduler] Marked ${result.rowCount} stale processing emails failed for manual review`);
   }
   return result.rowCount;
 }
@@ -1324,29 +1439,24 @@ async function requeueStaleScheduledEmails({ staleMinutes = Number(process.env.E
 async function processDueScheduledEmails({ limit = 10 } = {}) {
   const sent = [];
   const failed = [];
-  const requeued = await requeueStaleScheduledEmails();
+  const staleFailed = await failStaleScheduledEmails();
 
   for (let i = 0; i < limit; i += 1) {
     const scheduled = await claimDueScheduledEmail();
     if (!scheduled) break;
 
     try {
-      const result = await sendNewEmail({
-        to: scheduled.to_emails,
-        cc: scheduled.cc_emails,
-        bcc: scheduled.bcc_emails,
-        subject: scheduled.subject,
-        bodyText: scheduled.body_text,
-        bodyHtml: scheduled.body_html,
-        attachments: normalizeJsonArray(scheduled.attachments),
-      });
+      const result = await sendStoredMessageRecord(scheduled);
 
       await db.query(
         'UPDATE scheduled_emails SET status = $1, sent_email_id = $2, updated_at = NOW() WHERE id = $3',
-        ['sent', result.data?.id || null, scheduled.id]
+        ['sent', result.data?.id || result.sentEmail?.id || null, scheduled.id]
       );
-      sent.push({ scheduledId: scheduled.id, email: result.data });
-      if (global.broadcastEvent && result.data?.id) global.broadcastEvent('email:created', result.data);
+      const sentEmail = result.data || result.sentEmail;
+      sent.push({ scheduledId: scheduled.id, email: sentEmail });
+      if (global.broadcastEvent && sentEmail?.id) {
+        global.broadcastEvent('email:created', { ...sentEmail, realtimeReason: 'scheduled:sent' });
+      }
     } catch (error) {
       await db.query(`
         UPDATE scheduled_emails
@@ -1359,7 +1469,7 @@ async function processDueScheduledEmails({ limit = 10 } = {}) {
     }
   }
 
-  return { sent, failed, requeued, processed: sent.length + failed.length };
+  return { sent, failed, staleFailed, processed: sent.length + failed.length };
 }
 
 function startScheduledEmailDispatcher({ intervalMs = Number(process.env.EMAIL_SCHEDULER_INTERVAL_MS || 60000), batchSize = Number(process.env.EMAIL_SCHEDULER_BATCH_SIZE || 10) } = {}) {
@@ -1560,7 +1670,7 @@ function registerRoutes(app, auth, asyncHandler) {
       req.params.threadId,
       'trash',
       row => mailApi.trashMessage(row.message_id, row.folder_id),
-      () => ({ trashed_at: new Date(), folder_type: 'trash' })
+      row => localFolderFields('trash', { trashed_at: new Date(), archived_at: null }, row)
     );
     if (global.broadcastEvent) result.data.forEach(email => global.broadcastEvent('email:updated', email));
     res.json(result);
@@ -1571,7 +1681,7 @@ function registerRoutes(app, auth, asyncHandler) {
       req.params.threadId,
       'archive',
       row => mailApi.archiveMessage(row.message_id),
-      () => ({ archived_at: new Date(), folder_type: 'archive' })
+      row => localFolderFields('archive', { archived_at: new Date(), trashed_at: null }, row)
     );
     if (global.broadcastEvent) result.data.forEach(email => global.broadcastEvent('email:updated', email));
     res.json(result);
@@ -1582,7 +1692,7 @@ function registerRoutes(app, auth, asyncHandler) {
       req.params.threadId,
       'unarchive',
       row => mailApi.unarchiveMessage(row.message_id),
-      row => ({ archived_at: null, folder_type: row.is_outgoing ? 'sent' : 'inbox' })
+      row => localFolderFields(row.is_outgoing ? 'sent' : 'inbox', { archived_at: null }, row)
     );
     if (global.broadcastEvent) result.data.forEach(email => global.broadcastEvent('email:updated', email));
     res.json(result);
@@ -1751,9 +1861,26 @@ function registerRoutes(app, auth, asyncHandler) {
   }));
 
   app.get('/email-drafts', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await db.query('SELECT * FROM email_drafts WHERE status = $1 ORDER BY updated_at DESC LIMIT 500', ['draft']);
+    const limit = parsePositiveInt(req.query.limit, 20, { min: 1, max: 100 });
+    const offset = parsePositiveInt(req.query.offset, 0, { min: 0, max: 10000 });
+    const search = String(req.query.search || req.query.query || '').trim();
+    const where = ['status = $1'];
+    const values = ['draft'];
+    if (search) {
+      values.push(`%${search}%`);
+      where.push(`(subject ILIKE $${values.length} OR body_text ILIKE $${values.length} OR array_to_string(to_emails, ',') ILIKE $${values.length})`);
+    }
+    values.push(limit, offset);
+    const result = await db.query(`
+      SELECT *, COUNT(*) OVER() AS total_count
+      FROM email_drafts
+      WHERE ${where.join(' AND ')}
+      ORDER BY updated_at DESC
+      LIMIT $${values.length - 1} OFFSET $${values.length};
+    `, values);
     const data = result.rows.map(sanitizeDraftRow);
-    res.json({ data, count: data.length });
+    const total = Number(result.rows[0]?.total_count || 0);
+    res.json({ data, items: data, count: data.length, total, hasMore: offset + data.length < total });
   }));
 
   app.patch('/email-drafts/:id', auth.authenticateJWT, asyncHandler(async (req, res) => {
@@ -1770,7 +1897,10 @@ function registerRoutes(app, auth, asyncHandler) {
 
   app.post('/email-drafts/:id/send', auth.authenticateJWT, asyncHandler(async (req, res) => {
     const result = await sendDraftRecord(req.params.id);
-    if (global.broadcastEvent && result.data?.id) global.broadcastEvent('email:created', result.data);
+    const sentEmail = result.data || result.sentEmail;
+    if (global.broadcastEvent && sentEmail?.id) {
+      global.broadcastEvent('email:created', { ...sentEmail, realtimeReason: 'draft:sent' });
+    }
     res.json(result);
   }));
 
@@ -1779,9 +1909,30 @@ function registerRoutes(app, auth, asyncHandler) {
   }));
 
   app.get('/scheduled-emails', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await db.query('SELECT * FROM scheduled_emails WHERE status = $1 ORDER BY scheduled_at ASC LIMIT 500', ['scheduled']);
+    const limit = parsePositiveInt(req.query.limit, 20, { min: 1, max: 100 });
+    const offset = parsePositiveInt(req.query.offset, 0, { min: 0, max: 10000 });
+    const search = String(req.query.search || req.query.query || '').trim();
+    const status = String(req.query.status || '').trim();
+    const statuses = status ? [status] : ['scheduled', 'failed'];
+    const where = ['status = ANY($1::text[])'];
+    const values = [statuses];
+    if (search) {
+      values.push(`%${search}%`);
+      where.push(`(subject ILIKE $${values.length} OR body_text ILIKE $${values.length} OR array_to_string(to_emails, ',') ILIKE $${values.length})`);
+    }
+    values.push(limit, offset);
+    const result = await db.query(`
+      SELECT *, COUNT(*) OVER() AS total_count
+      FROM scheduled_emails
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        CASE status WHEN 'failed' THEN 0 ELSE 1 END,
+        scheduled_at ASC
+      LIMIT $${values.length - 1} OFFSET $${values.length};
+    `, values);
     const data = result.rows.map(sanitizeScheduledRow);
-    res.json({ data, count: data.length });
+    const total = Number(result.rows[0]?.total_count || 0);
+    res.json({ data, items: data, count: data.length, total, hasMore: offset + data.length < total });
   }));
 
   app.patch('/scheduled-emails/:id', auth.authenticateJWT, asyncHandler(async (req, res) => {
@@ -1795,14 +1946,17 @@ function registerRoutes(app, auth, asyncHandler) {
   }));
 
   app.delete('/scheduled-emails/:id', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await db.query('UPDATE scheduled_emails SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *', ['cancelled', req.params.id]);
+    const result = await db.query('UPDATE scheduled_emails SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *', ['cancelled', req.params.id, 'scheduled']);
     if (!result.rows[0]) return res.status(404).json({ error: 'not_found' });
     res.json({ data: sanitizeScheduledRow(result.rows[0]) });
   }));
 
   app.post('/scheduled-emails/:id/send-now', auth.authenticateJWT, asyncHandler(async (req, res) => {
     const result = await sendScheduledNow(req.params.id);
-    if (global.broadcastEvent && result.data?.id) global.broadcastEvent('email:created', result.data);
+    const sentEmail = result.data || result.sentEmail;
+    if (global.broadcastEvent && sentEmail?.id) {
+      global.broadcastEvent('email:created', { ...sentEmail, realtimeReason: 'scheduled:sent' });
+    }
     res.json(result);
   }));
 
@@ -1819,14 +1973,14 @@ function registerRoutes(app, auth, asyncHandler) {
   }));
 
   app.post('/email-inquiries/:id/trash', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await runProviderMutation(req.params.id, 'trash', row => mailApi.trashMessage(row.message_id, row.folder_id), () => ({ trashed_at: new Date(), folder_type: 'trash' }));
+    const result = await runProviderMutation(req.params.id, 'trash', row => mailApi.trashMessage(row.message_id, row.folder_id), row => localFolderFields('trash', { trashed_at: new Date(), archived_at: null }, row));
     if (global.broadcastEvent) global.broadcastEvent('email:updated', result.data);
     res.json(result);
   }));
 
   app.post('/email-inquiries/:id/restore', auth.authenticateJWT, asyncHandler(async (req, res) => {
     if (!req.body.folderId) return res.status(400).json({ error: 'missing_folder_id' });
-    const result = await runProviderMutation(req.params.id, 'restore', row => mailApi.restoreMessage(row.message_id, req.body.folderId), () => ({ folder_id: req.body.folderId, folder_type: req.body.folderType || 'inbox', trashed_at: null }));
+    const result = await runProviderMutation(req.params.id, 'restore', row => mailApi.restoreMessage(row.message_id, req.body.folderId), () => ({ folder_id: req.body.folderId, folder_name: req.body.folderName || null, folder_type: req.body.folderType || 'inbox', trashed_at: null }));
     if (global.broadcastEvent) global.broadcastEvent('email:updated', result.data);
     res.json(result);
   }));
@@ -1853,19 +2007,19 @@ function registerRoutes(app, auth, asyncHandler) {
       return res.json(result);
     }
 
-    const result = await runProviderMutation(req.params.id, 'trash', providerRow => mailApi.trashMessage(providerRow.message_id, providerRow.folder_id), () => ({ trashed_at: new Date(), folder_type: 'trash' }));
+    const result = await runProviderMutation(req.params.id, 'trash', providerRow => mailApi.trashMessage(providerRow.message_id, providerRow.folder_id), providerRow => localFolderFields('trash', { trashed_at: new Date(), archived_at: null }, providerRow));
     if (global.broadcastEvent) global.broadcastEvent('email:updated', result.data);
     res.json(result);
   }));
 
   app.post('/email-inquiries/:id/archive', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await runProviderMutation(req.params.id, 'archive', row => mailApi.archiveMessage(row.message_id), () => ({ archived_at: new Date(), folder_type: 'archive' }));
+    const result = await runProviderMutation(req.params.id, 'archive', row => mailApi.archiveMessage(row.message_id), row => localFolderFields('archive', { archived_at: new Date(), trashed_at: null }, row));
     if (global.broadcastEvent) global.broadcastEvent('email:updated', result.data);
     res.json(result);
   }));
 
   app.post('/email-inquiries/:id/unarchive', auth.authenticateJWT, asyncHandler(async (req, res) => {
-    const result = await runProviderMutation(req.params.id, 'unarchive', row => mailApi.unarchiveMessage(row.message_id), row => ({ archived_at: null, folder_type: row.is_outgoing ? 'sent' : 'inbox' }));
+    const result = await runProviderMutation(req.params.id, 'unarchive', row => mailApi.unarchiveMessage(row.message_id), row => localFolderFields(row.is_outgoing ? 'sent' : 'inbox', { archived_at: null }, row));
     if (global.broadcastEvent) global.broadcastEvent('email:updated', result.data);
     res.json(result);
   }));
@@ -1904,4 +2058,5 @@ module.exports = {
   startScheduledEmailDispatcher,
   registerRoutes,
   handleError,
+  replyToInquiry,
 };

@@ -49,6 +49,16 @@ WHERE read_state IS NULL
    OR labels IS NULL
    OR provider_raw IS NULL;
 
+UPDATE email_inquiries
+SET
+  read_state = CASE WHEN status = 'unread' THEN 'unread' ELSE 'read' END,
+  response_state = CASE WHEN status = 'responded' THEN 'responded' ELSE 'pending' END
+WHERE status IN ('unread', 'read', 'responded')
+  AND (
+    read_state IS DISTINCT FROM CASE WHEN status = 'unread' THEN 'unread' ELSE 'read' END
+    OR response_state IS DISTINCT FROM CASE WHEN status = 'responded' THEN 'responded' ELSE 'pending' END
+  );
+
 CREATE TABLE IF NOT EXISTS email_folders (
   folder_id VARCHAR(100) PRIMARY KEY,
   folder_name VARCHAR(120) NOT NULL,
@@ -83,7 +93,7 @@ CREATE TABLE IF NOT EXISTS email_drafts (
   body_text TEXT,
   body_html TEXT,
   attachments JSONB DEFAULT '[]'::jsonb,
-  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'deleted')),
+  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'sent', 'deleted')),
   provider_raw JSONB DEFAULT '{}'::jsonb,
   created_by VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -159,4 +169,11 @@ CREATE INDEX IF NOT EXISTS idx_email_labels_name ON email_labels(label_name);
 CREATE INDEX IF NOT EXISTS idx_email_drafts_status ON email_drafts(status);
 CREATE INDEX IF NOT EXISTS idx_scheduled_emails_status ON scheduled_emails(status);
 CREATE INDEX IF NOT EXISTS idx_scheduled_emails_scheduled_at ON scheduled_emails(scheduled_at);
+
+ALTER TABLE email_drafts
+  DROP CONSTRAINT IF EXISTS email_drafts_status_check;
+
+ALTER TABLE email_drafts
+  ADD CONSTRAINT email_drafts_status_check
+  CHECK (status IN ('draft', 'processing', 'sent', 'deleted'));
 CREATE INDEX IF NOT EXISTS idx_email_provider_operations_target ON email_provider_operations(target_type, target_id);

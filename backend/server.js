@@ -329,6 +329,7 @@ const APP_SYNC_EVENTS = new Set([
   'email:created',
   'email:updated',
   'email:deleted',
+  'email:sync-completed',
   'memo:created',
   'memo:updated',
   'memo:deleted',

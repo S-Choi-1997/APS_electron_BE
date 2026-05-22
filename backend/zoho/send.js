@@ -14,6 +14,20 @@ const MAX_TOTAL_ATTACHMENT_BYTES = Number(process.env.EMAIL_ATTACHMENT_TOTAL_MAX
 const MAX_ATTACHMENT_COUNT = Number(process.env.EMAIL_ATTACHMENT_MAX_COUNT || 10);
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+async function runZohoSendRequest(requestFactory) {
+  let accessToken = await getValidAccessToken();
+  try {
+    return await requestFactory(accessToken);
+  } catch (error) {
+    if (error.response?.status !== 401) {
+      throw error;
+    }
+    console.warn('[ZOHO Send] Request unauthorized; refreshing token and retrying once');
+    accessToken = await getValidAccessToken({ forceRefresh: true });
+    return requestFactory(accessToken);
+  }
+}
+
 function getSafeErrorMessage(error) {
   if (error.response) {
     return `ZOHO API request failed with status ${error.response.status || 'unknown'}`;
@@ -116,7 +130,7 @@ function normalizeAttachments(attachments = []) {
 async function uploadAttachment({ accessToken, accountId, attachment }) {
   const uploadUrl = `${config.apiBaseUrl}/accounts/${accountId}/messages/attachments`;
 
-  const response = await axios.post(uploadUrl, attachment.buffer, {
+  const response = await runZohoSendRequest((currentAccessToken) => axios.post(uploadUrl, attachment.buffer, {
     params: {
       fileName: attachment.filename,
       isInline: false,
@@ -124,13 +138,13 @@ async function uploadAttachment({ accessToken, accountId, attachment }) {
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${currentAccessToken}`,
       Accept: 'application/json',
       // ZOHO raw attachment uploads reject some specific MIME types with 415.
       // The API accepts binary raw uploads reliably as application/octet-stream.
       'Content-Type': 'application/octet-stream',
     },
-  });
+  }));
 
   const data = Array.isArray(response.data?.data)
     ? response.data.data[0]
@@ -247,16 +261,16 @@ async function sendEmail(emailData) {
     console.log('[ZOHO Send] Subject:', subject);
     console.log('[ZOHO Send] Attachments:', payload.attachments?.length || 0);
 
-    const response = await axios.post(
+    const response = await runZohoSendRequest((currentAccessToken) => axios.post(
       `${config.apiBaseUrl}/accounts/${accountId}/messages`,
       payload,
       {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${currentAccessToken}`,
           'Content-Type': 'application/json'
         }
       }
-    );
+    ));
 
     console.log('[ZOHO Send] Email sent successfully');
     const data = getZohoData(response);
@@ -320,16 +334,16 @@ async function replyToEmail(replyData) {
       }
     }
 
-    const response = await axios.post(
+    const response = await runZohoSendRequest((currentAccessToken) => axios.post(
       `${config.apiBaseUrl}/accounts/${accountId}/messages/${originalMessageId}`,
       payload,
       {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${currentAccessToken}`,
           'Content-Type': 'application/json'
         }
       }
-    );
+    ));
 
     const data = getZohoData(response);
 

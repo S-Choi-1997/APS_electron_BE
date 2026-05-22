@@ -49,16 +49,18 @@ VITE_RELAY_ENVIRONMENT=<old relay environment>
 
 ## Cloudflare Tunnel
 
-Cloudflare should route the backend hostname to the backend server port:
+Cloudflare should route the backend hostname to the backend server port. In the current NAS deployment `cloudflared` runs in Docker bridge mode, so use the Docker host gateway:
 
 ```yaml
 hostname: your-cloudflare-backend-domain
-service: http://localhost:3001
+service: http://172.17.0.1:3001
 ```
 
-If the tunnel runs on another machine in the same network, point it at the backend server IP:
+If the tunnel runs directly on the backend host or on another machine in the same network, use the matching reachable host address:
 
 ```yaml
+service: http://localhost:3001
+# or
 service: http://192.168.x.x:3001
 ```
 
@@ -95,12 +97,15 @@ docker-compose logs -f aps-backend
 Required deployment facts:
 
 ```env
-BACKEND_IMAGE_TAG=1.3.1
+BACKEND_IMAGE_TAG=1.3.12
+POSTGRES_PASSWORD=<strong-postgres-password>
+DATABASE_URL=postgresql://apsuser:<url-encoded-postgres-password>@postgres:5432/aps_admin
 WS_RELAY_ENABLED=false
 BACKEND_ENVIRONMENT=production
 ```
 
 Use a concrete image tag. Avoid `latest` unless you intentionally want the newest pushed image.
+If the Postgres password contains URL-reserved characters such as `@`, `:`, `/`, `#`, or `%`, URL-encode it in `DATABASE_URL`.
 
 ## Remaining External Services
 

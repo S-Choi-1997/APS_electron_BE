@@ -8,6 +8,7 @@ services:
     volumes:
       - ./updates:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.htpasswd:/etc/nginx/.htpasswd:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1"]
       interval: 30s

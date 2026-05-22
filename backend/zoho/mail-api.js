@@ -11,21 +11,28 @@ const { getValidAccessToken } = require('./oauth');
 const AUTH_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 let authRetryBlockedUntil = 0;
 
-async function zohoRequest(method, path, { params, data, responseType, retryOnUnauthorized = true } = {}) {
+async function zohoRequest(method, path, { params, data, responseType, retryOnUnauthorized = true, headers = {} } = {}) {
   let accessToken = await getValidAccessToken();
   const accountId = await getAccountId();
-  const requestConfig = () => ({
-    method,
-    url: `${config.apiBaseUrl}/accounts/${accountId}${path}`,
-    params,
-    data,
-    responseType,
-    headers: {
+  const requestConfig = () => {
+    const requestHeaders = {
       Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-  });
+      Accept: responseType === 'stream' ? '*/*' : 'application/json',
+      ...headers,
+    };
+    if (data !== undefined) {
+      requestHeaders['Content-Type'] = 'application/json';
+    }
+
+    return {
+      method,
+      url: `${config.apiBaseUrl}/accounts/${accountId}${path}`,
+      params,
+      data,
+      responseType,
+      headers: requestHeaders,
+    };
+  };
 
   try {
     return await axios(requestConfig());
@@ -123,15 +130,8 @@ async function fetchMessages(options = {}) {
   try {
     const { folder = 'Inbox', limit = 50, start = 0 } = options;
 
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
     // Get folder ID
-    const foldersResponse = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/folders`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const foldersResponse = await zohoRequest('get', '/folders');
 
     const targetFolder = foldersResponse.data.data.find(f => f.folderName === folder);
     if (!targetFolder) {
@@ -140,10 +140,7 @@ async function fetchMessages(options = {}) {
 
     // Fetch messages from folder
     // Note: ZOHO API does NOT support sortBy/sortOrder parameters on /messages/view
-    const messagesResponse = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/messages/view`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      },
+    const messagesResponse = await zohoRequest('get', '/messages/view', {
       params: {
         folderId: targetFolder.folderId,
         limit,
@@ -172,18 +169,11 @@ async function fetchMessages(options = {}) {
  */
 async function fetchMessageDetails(messageId, folderId) {
   try {
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
     if (!folderId) {
       throw new Error('folderId is required to fetch message details');
     }
 
-    const response = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/details`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await zohoRequest('get', `/folders/${folderId}/messages/${messageId}/details`);
 
     console.log(`[ZOHO Mail API] Fetched message details: ${messageId}`);
     return response.data.data;
@@ -198,14 +188,7 @@ async function fetchMessageDetails(messageId, folderId) {
  */
 async function fetchFolders() {
   try {
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
-    const response = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/folders`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await zohoRequest('get', '/folders');
 
     console.log(`[ZOHO Mail API] Fetched ${response.data.data.length} folders`);
     return response.data.data;
@@ -217,7 +200,7 @@ async function fetchFolders() {
 
 async function fetchLabels() {
   try {
-    const response = await zohoRequest('get', '/labels', { retryOnUnauthorized: false });
+    const response = await zohoRequest('get', '/labels');
     const labels = Array.isArray(response.data?.data) ? response.data.data : [];
     console.log(`[ZOHO Mail API] Fetched ${labels.length} labels`);
     return labels;
@@ -233,24 +216,15 @@ async function fetchLabels() {
  */
 async function fetchMessageContent(messageId, folderId) {
   try {
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
     if (!folderId) {
       throw new Error('folderId is required to fetch message content');
     }
 
-    const response = await axios.get(
-      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/content`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        },
-        params: {
-          includeBlockContent: true
-        }
+    const response = await zohoRequest('get', `/folders/${folderId}/messages/${messageId}/content`, {
+      params: {
+        includeBlockContent: true
       }
-    );
+    });
 
     console.log(`[ZOHO Mail API] Fetched full content for message: ${messageId}`);
     return response.data.data?.content || response.data.data;
@@ -295,24 +269,15 @@ async function downloadInlineImage(messageId, folderId, contentId) {
  */
 async function fetchAttachmentInfo(messageId, folderId) {
   try {
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
     if (!folderId) {
       throw new Error('folderId is required to fetch attachment info');
     }
 
-    const response = await axios.get(
-      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/attachmentinfo`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        },
-        params: {
-          includeInline: false
-        }
+    const response = await zohoRequest('get', `/folders/${folderId}/messages/${messageId}/attachmentinfo`, {
+      params: {
+        includeInline: false
       }
-    );
+    });
 
     const attachments = response.data.data?.attachments || [];
     console.log(`[ZOHO Mail API] Fetched ${attachments.length} attachments for message: ${messageId}`);
@@ -328,22 +293,16 @@ async function fetchAttachmentInfo(messageId, folderId) {
  */
 async function downloadAttachment(messageId, folderId, attachmentId) {
   try {
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
     if (!folderId) {
       throw new Error('folderId is required to download attachment');
     }
 
-    const response = await axios.get(
-      `${config.apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/attachments/${attachmentId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        },
-        responseType: 'stream'
-      }
-    );
+    const response = await zohoRequest('get', `/folders/${folderId}/messages/${messageId}/attachments/${attachmentId}`, {
+      responseType: 'stream',
+      headers: {
+        Accept: '*/*',
+      },
+    });
 
     console.log(`[ZOHO Mail API] Downloading attachment: ${attachmentId}`);
     return response;
@@ -360,13 +319,7 @@ async function searchMessages(searchQuery, options = {}) {
   try {
     const { limit = 50, start = 0 } = options;
 
-    const accessToken = await getValidAccessToken();
-    const accountId = await getAccountId();
-
-    const response = await axios.get(`${config.apiBaseUrl}/accounts/${accountId}/messages/search`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      },
+    const response = await zohoRequest('get', '/messages/search', {
       params: {
         searchKey: searchQuery,
         limit,
