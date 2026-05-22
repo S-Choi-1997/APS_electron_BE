@@ -155,12 +155,18 @@ function Dashboard({ user }) {
 
   const days = getDaysInMonth(currentDate);
 
+  const moveVisibleMonth = (monthOffset) => {
+    const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + monthOffset, 1);
+    setCurrentDate(nextMonth);
+    setSelectedDate(nextMonth);
+  };
+
   const handlePrevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    moveVisibleMonth(-1);
   };
 
   const handleNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    moveVisibleMonth(1);
   };
 
   const handleToday = () => {
@@ -641,16 +647,16 @@ function Dashboard({ user }) {
           <div className="dashboard-card calendar-card">
             <div className="card-header">
               <h2>캘린더</h2>
-              <button className="today-btn" onClick={handleToday}>오늘</button>
+              <button type="button" className="today-btn" onClick={handleToday}>오늘</button>
             </div>
 
             <div className="calendar">
               <div className="calendar-header">
-                <button className="nav-btn" onClick={handlePrevMonth}>‹</button>
+                <button type="button" className="nav-btn" onClick={handlePrevMonth} aria-label="이전 달">‹</button>
                 <h3>
                   {currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월
                 </h3>
-                <button className="nav-btn" onClick={handleNextMonth}>›</button>
+                <button type="button" className="nav-btn" onClick={handleNextMonth} aria-label="다음 달">›</button>
               </div>
 
               <div className="calendar-grid">
@@ -671,21 +677,25 @@ function Dashboard({ user }) {
                   const dayOfWeek = date ? date.getDay() : null;
                   const isSaturday = dayOfWeek === 6;
                   const isSunday = dayOfWeek === 0;
-
-                  // 디버깅
-                  if (date && isToday(date)) {
-                    console.log('=== 오늘 날짜 디버깅 ===');
-                    console.log('날짜:', date.toDateString());
-                    console.log('전체 일정:', dateSchedules);
-                    console.log('회사 일정 수:', companyCount);
-                    console.log('개인 일정 수:', personalCount);
-                  }
+                  const calendarDayLabel = date
+                    ? [
+                      `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`,
+                      holidayLabel ? `공휴일 ${holidayLabel}` : '',
+                      companyCount > 0 ? `회사 일정 ${companyCount}건` : '',
+                      personalCount > 0 ? `개인 일정 ${personalCount}건` : '',
+                      isSelected(date) ? '선택됨' : '선택',
+                    ].filter(Boolean).join(', ')
+                    : undefined;
 
                   return (
-                    <div
+                    <button
                       key={index}
+                      type="button"
                       className={`calendar-day ${!date ? 'empty' : ''} ${isSaturday ? 'saturday' : ''} ${isSunday ? 'sunday' : ''} ${dateHolidays.length > 0 ? 'holiday' : ''} ${isToday(date) ? 'today' : ''} ${isSelected(date) ? 'selected' : ''} ${dateSchedules.length > 0 ? 'has-schedules' : ''}`}
                       onClick={() => date && setSelectedDate(date)}
+                      disabled={!date}
+                      aria-label={calendarDayLabel}
+                      aria-pressed={date ? isSelected(date) : undefined}
                       title={holidayLabel || undefined}
                     >
                       {date && (
@@ -698,14 +708,14 @@ function Dashboard({ user }) {
                             </span>
                           )}
                           {dateSchedules.length > 0 && (
-                            <div className="schedule-indicators">
+                            <span className="schedule-indicators">
                               {companyCount > 0 && <span className="schedule-indicator company">{companyCount}</span>}
                               {personalCount > 0 && <span className="schedule-indicator personal">{personalCount}</span>}
-                            </div>
+                            </span>
                           )}
                         </>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -722,7 +732,7 @@ function Dashboard({ user }) {
                 <h3>
                   {selectedDate.getFullYear()}년 {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일
                 </h3>
-                <button className="add-schedule-btn" onClick={() => {
+                <button type="button" className="add-schedule-btn" onClick={() => {
                   const year = selectedDate.getFullYear();
                   const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
                   const day = String(selectedDate.getDate()).padStart(2, '0');
@@ -772,22 +782,26 @@ function Dashboard({ user }) {
                       </span>
                       <div className="schedule-actions">
                         <button
+                          type="button"
                           className="schedule-edit-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleScheduleEdit(schedule);
                           }}
                           title="수정"
+                          aria-label={`${schedule.title} 일정 수정`}
                         >
                           ✎
                         </button>
                         <button
+                          type="button"
                           className="schedule-delete-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             confirmDelete(schedule, 'schedule');
                           }}
                           title="삭제"
+                          aria-label={`${schedule.title} 일정 삭제`}
                         >
                           ×
                         </button>

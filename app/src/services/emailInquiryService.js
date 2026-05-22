@@ -209,7 +209,8 @@ export async function fetchEmailContent(id) {
   let data = null;
   try {
     data = await response.json();
-  } catch {
+  } catch (error) {
+    if (error?.code === 'APS_REQUEST_TIMEOUT') throw error;
     data = null;
   }
   if (response.status === 400) {
@@ -241,7 +242,15 @@ export async function fetchEmailAttachments(id) {
 
 export async function downloadEmailAttachment(emailId, attachmentId, fallbackFilename = '') {
   const response = await apiFetch(`/email-inquiries/${emailId}/attachments/${attachmentId}/download`, { method: 'GET' }, auth);
-  if (!response.ok) throw new Error(`Failed to download attachment (${response.status})`);
+  if (!response.ok) {
+    try {
+      await response.text();
+    } catch (error) {
+      if (error?.code === 'APS_REQUEST_TIMEOUT') throw error;
+      // Drain or cleanup the response timeout before surfacing the status error.
+    }
+    throw new Error(`Failed to download attachment (${response.status})`);
+  }
   const blob = await response.blob();
   const headerFilename = parseContentDispositionFilename(response.headers.get('content-disposition'));
   return {

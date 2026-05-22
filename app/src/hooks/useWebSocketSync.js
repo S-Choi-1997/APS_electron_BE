@@ -22,6 +22,76 @@ function refreshActiveCollections(queryClient, queryKeys) {
   });
 }
 
+function includesText(value, search) {
+  return String(value || '').toLowerCase().includes(search);
+}
+
+function hasEmailLabel(email, labelId) {
+  return (email.labels || []).some((label) => (
+    String(label.labelId || label.id || label.name || '') === String(labelId)
+  ));
+}
+
+function matchesMailbox(email, mailbox) {
+  const folderType = String(email.folderType || email.mailbox || '').toLowerCase();
+  const isTrashed = Boolean(email.trashedAt || email.trashed_at);
+  const isArchived = Boolean(email.archivedAt || email.archived_at);
+  if (mailbox === 'inbox') {
+    return !email.isOutgoing && !isTrashed && !isArchived && !['sent', 'trash', 'archive', 'spam'].includes(folderType);
+  }
+  if (mailbox === 'sent') return email.isOutgoing || folderType === 'sent';
+  if (mailbox === 'trash') return isTrashed || folderType === 'trash';
+  if (mailbox === 'archive') return isArchived || folderType === 'archive';
+  if (mailbox === 'all') return true;
+  return folderType === mailbox;
+}
+
+function matchesMailboxQuery(email, queryKey) {
+  const mailbox = queryKey?.[2] || 'inbox';
+  const filters = queryKey?.[3] || {};
+  if (!matchesMailbox(email, mailbox)) return false;
+  if (filters.readState && email.readState !== filters.readState) return false;
+  if (filters.responseState && email.responseState !== filters.responseState) return false;
+  if (filters.hasAttachments !== undefined && Boolean(email.hasAttachments) !== Boolean(filters.hasAttachments)) return false;
+  if (filters.starred !== undefined && Boolean(email.starred) !== Boolean(filters.starred)) return false;
+  if (filters.labelId && !hasEmailLabel(email, filters.labelId)) return false;
+
+  if (filters.search) {
+    const search = String(filters.search).trim().toLowerCase();
+    const searchableText = [
+      email.fromName,
+      email.from,
+      email.toEmail,
+      ...(email.to || []),
+      email.subject,
+      email.preview,
+      email.body,
+      email.bodyText,
+      email.bodyHtml,
+      email.translatedSubject,
+      email.translatedBody,
+      email.source,
+      email.messageId,
+    ].join(' ');
+    if (!includesText(searchableText, search)) return false;
+  }
+
+  return true;
+}
+
+function updateEmailMailboxCaches(queryClient, id, nextEmail) {
+  queryClient.getQueriesData({ queryKey: emailQueryKeys.mailboxes() }).forEach(([queryKey, oldData]) => {
+    const nextData = updateCollectionData(oldData, (items) => {
+      const hasItem = items.some((item) => String(item.id) === String(id));
+      if (!hasItem) return items;
+      return matchesMailboxQuery(nextEmail, queryKey)
+        ? replaceItemById(items, id, nextEmail)
+        : removeItemById(items, id);
+    });
+    queryClient.setQueryData(queryKey, nextData);
+  });
+}
+
 export function useWebSocketSync({
   enabled = true,
 } = {}) {
@@ -95,10 +165,7 @@ export function useWebSocketSync({
 
       if (eventName === 'email:updated' && payload?.id !== undefined) {
         const nextEmail = normalizeEmailInquiry(payload);
-        updateCollectionCaches(queryClient, [
-          emailQueryKeys.lists(),
-          emailQueryKeys.pages(),
-        ], (items) => replaceItemById(items, payload.id, nextEmail));
+        updateEmailMailboxCaches(queryClient, payload.id, nextEmail);
         queryClient.setQueryData(emailQueryKeys.thread(payload.id), (oldData) => (
           Array.isArray(oldData) ? replaceItemById(oldData, payload.id, nextEmail) : oldData
         ));

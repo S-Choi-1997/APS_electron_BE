@@ -81,9 +81,12 @@
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
-  padding-top: 6px;
+  padding: 6px 0 0;
   border-radius: 8px;
+  appearance: none;
   cursor: pointer;
+  font: inherit;
+  text-align: center;
   transition: all 0.2s;
   position: relative;
   background: white;
@@ -121,6 +124,11 @@
 .calendar-day:not(.empty):hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.calendar-day:not(.empty):focus-visible {
+  outline: 3px solid rgba(102, 126, 234, 0.42);
+  outline-offset: 2px;
 }
 
 .calendar-day.today {
@@ -382,8 +390,8 @@
 
 .schedule-edit-btn,
 .schedule-delete-btn {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border: none;
   color: white;
   border-radius: 50%;
@@ -392,7 +400,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 0.72;
   transition: all 0.2s;
   line-height: 1;
 }
@@ -418,8 +426,17 @@
 }
 
 .schedule-item:hover .schedule-edit-btn,
-.schedule-item:hover .schedule-delete-btn {
+.schedule-item:hover .schedule-delete-btn,
+.schedule-item:focus-within .schedule-edit-btn,
+.schedule-item:focus-within .schedule-delete-btn {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .schedule-edit-btn,
+  .schedule-delete-btn {
+    opacity: 1;
+  }
 }
 
 /* 일정 타입별 색상 */

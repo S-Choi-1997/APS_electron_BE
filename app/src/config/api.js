@@ -10,6 +10,8 @@ const BUILT_IN_FALLBACK_REST_BASE_URL = import.meta.env.DEV
   : 'https://backend.apsconsulting.kr';
 const FALLBACK_REST_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_FALLBACK_URL || BUILT_IN_FALLBACK_REST_BASE_URL;
 const FALLBACK_ENVIRONMENT = import.meta.env.VITE_BACKEND_ENVIRONMENT || 'production';
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const HEALTH_CHECK_TIMEOUT_MS = 8000;
 
 function normalizeBaseUrl(url, allowedProtocols, label) {
   const parsedUrl = new URL(url);
@@ -161,16 +163,110 @@ async function buildAuthHeaders(currentUser, idToken, optionHeaders = {}) {
 }
 
 function isNetworkError(error) {
-  return error.message === 'Failed to fetch' || error.message.includes('NetworkError');
+  return error?.message === 'Failed to fetch' || error?.message?.includes('NetworkError');
 }
 
 function toNetworkError() {
   return new Error('백엔드에 연결하지 못했습니다. 백엔드가 실행 중이고 접근 가능한지 확인해 주세요.');
 }
 
+function toRequestTimeoutError() {
+  const error = new Error('요청 시간이 초과되었습니다. 네트워크 상태와 백엔드 응답을 확인해 주세요.');
+  error.code = 'APS_REQUEST_TIMEOUT';
+  return error;
+}
+
+function createTimeoutSignal(timeoutMs, callerSignal) {
+  const timeout = Number(timeoutMs);
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    return {
+      signal: callerSignal,
+      cleanup: () => {},
+      didTimeout: () => false,
+    };
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  let removeCallerListener = () => {};
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeout);
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      const abortFromCaller = () => controller.abort(callerSignal.reason);
+      callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+      removeCallerListener = () => callerSignal.removeEventListener('abort', abortFromCaller);
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      removeCallerListener();
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
+  const { signal: callerSignal, ...fetchOptions } = options;
+  const timeoutSignal = createTimeoutSignal(timeoutMs, callerSignal);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: timeoutSignal.signal,
+    });
+    Object.defineProperty(response, '__apsCleanupTimeout', {
+      value: timeoutSignal.cleanup,
+      configurable: true,
+      writable: true,
+    });
+    ['arrayBuffer', 'blob', 'formData', 'json', 'text'].forEach((method) => {
+      if (typeof response[method] !== 'function') return;
+      const readBody = response[method].bind(response);
+      Object.defineProperty(response, method, {
+        value: async (...args) => {
+          try {
+            return await readBody(...args);
+          } catch (error) {
+            if (timeoutSignal.didTimeout() && error?.name === 'AbortError') {
+              throw toRequestTimeoutError();
+            }
+            throw error;
+          } finally {
+            cleanupResponseTimeout(response);
+          }
+        },
+        configurable: true,
+      });
+    });
+    return response;
+  } catch (error) {
+    timeoutSignal.cleanup();
+    if (timeoutSignal.didTimeout() && error?.name === 'AbortError') {
+      throw toRequestTimeoutError();
+    }
+    throw error;
+  }
+}
+
+function cleanupResponseTimeout(response) {
+  if (typeof response?.__apsCleanupTimeout === 'function') {
+    response.__apsCleanupTimeout();
+    response.__apsCleanupTimeout = null;
+  }
+}
+
 export async function requestRaw(endpoint, options = {}, auth = null, requestOptions = {}) {
   const startTime = Date.now();
-  const { retryOnUnauthorized = true } = requestOptions;
+  const { retryOnUnauthorized = true, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = requestOptions;
   const { currentUser, idToken } = requireCurrentUser(auth);
   const url = await buildApiUrl(endpoint);
   const headers = await buildAuthHeaders(currentUser, idToken, options.headers);
@@ -179,10 +275,10 @@ export async function requestRaw(endpoint, options = {}, auth = null, requestOpt
     console.log(`[API Request] ${options.method || 'GET'} ${endpoint}`);
 
     const fetchStart = Date.now();
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...options,
       headers,
-    });
+    }, timeoutMs);
     const fetchTime = Date.now() - fetchStart;
 
     console.log(`[API Response] ${response.status} (${fetchTime}ms)`);
@@ -197,7 +293,13 @@ export async function requestRaw(endpoint, options = {}, auth = null, requestOpt
       return response;
     }
 
-    const refreshedUser = await authSessionRestorer();
+    let refreshedUser = null;
+    try {
+      refreshedUser = await authSessionRestorer();
+    } catch (error) {
+      cleanupResponseTimeout(response);
+      throw error;
+    }
 
     if (!refreshedUser) {
       return response;
@@ -208,13 +310,14 @@ export async function requestRaw(endpoint, options = {}, auth = null, requestOpt
       return response;
     }
 
+    cleanupResponseTimeout(response);
     console.log('[API] Token refreshed successfully, retrying request...');
 
     const retryHeaders = await buildAuthHeaders(refreshedUser, retryToken, options.headers);
-    const retryResponse = await fetch(url, {
+    const retryResponse = await fetchWithTimeout(url, {
       ...options,
       headers: retryHeaders,
-    });
+    }, timeoutMs);
 
     console.log(`[API Retry Response] ${retryResponse.status}`);
     return retryResponse;
@@ -241,6 +344,7 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
     const response = await requestRaw(endpoint, options, auth);
 
     if (response.status === 401) {
+      cleanupResponseTimeout(response);
       throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.');
     }
 
@@ -251,13 +355,23 @@ export async function apiRequest(endpoint, options = {}, auth = null) {
         const errorData = await response.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
       } catch (parseError) {
+        if (parseError?.code === 'APS_REQUEST_TIMEOUT') {
+          throw parseError;
+        }
         // Use default message when response is not JSON.
+      } finally {
+        cleanupResponseTimeout(response);
       }
 
       throw new Error(errorMessage);
     }
 
-    const data = response.status === 204 ? null : await response.json();
+    let data = null;
+    try {
+      data = response.status === 204 ? null : await response.json();
+    } finally {
+      cleanupResponseTimeout(response);
+    }
     const totalTime = Date.now() - startTime;
 
     console.log(`[API Success] Total time: ${totalTime}ms`);
@@ -280,13 +394,18 @@ export async function getApiHealthDetails() {
   const startedAt = Date.now();
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url, {}, HEALTH_CHECK_TIMEOUT_MS);
     let data = null;
 
     try {
       data = await response.json();
     } catch (parseError) {
+      if (parseError?.code === 'APS_REQUEST_TIMEOUT') {
+        throw parseError;
+      }
       data = null;
+    } finally {
+      cleanupResponseTimeout(response);
     }
 
     return {

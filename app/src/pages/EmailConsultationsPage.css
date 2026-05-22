@@ -581,7 +581,7 @@
   flex: 1 1 auto;
   min-height: 0;
   padding-right: 4px;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -640,13 +640,19 @@
   max-width: 470px;
 }
 
+.print-button {
+  border-color: #cfd7ea;
+  background: #ffffff;
+  color: #273149;
+}
+
 .message-body {
   flex: 0 0 auto;
   min-height: 0;
   max-height: none;
   margin-top: 8px;
   padding: 14px 2px 4px;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: visible;
   border: 0;
   border-radius: 0;
@@ -698,7 +704,8 @@
 }
 
 .message-html table {
-  width: 100% !important;
+  min-width: 100%;
+  max-width: none;
   table-layout: auto;
 }
 

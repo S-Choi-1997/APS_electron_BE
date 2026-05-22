@@ -84,8 +84,9 @@ Invoke-Step "auto-update package config" {
         throw "generic publish URL mismatch. Expected $UpdateUrl"
     }
 
-    $main = Get-Content (Join-Path $projectRoot "app\electron\main.js") -Raw
-    if ($main -notmatch "APS_DISABLE_AUTO_UPDATE") {
+    $electronMainSources = Get-ChildItem -Path (Join-Path $projectRoot "app\electron") -Filter "*.js" -File |
+        ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }
+    if (($electronMainSources -join "`n") -notmatch "APS_DISABLE_AUTO_UPDATE") {
         throw "packaged auto-update default gate not found"
     }
     $global:LASTEXITCODE = 0

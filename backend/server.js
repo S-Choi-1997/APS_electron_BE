@@ -149,9 +149,14 @@ async function runMigrations() {
   console.log('[DB] Migrations completed');
 }
 
+let databaseReady = false;
+let databaseStartupError = null;
+
 // Test PostgreSQL connection and run migrations on startup
 const databaseReadyPromise = db_postgres.testConnection().then(async (success) => {
   if (!success) {
+    databaseReady = false;
+    databaseStartupError = 'PostgreSQL connection failed';
     console.error("⚠️  Warning: PostgreSQL connection failed. Memos and schedules will not work.");
     return false;
   } else {
@@ -159,8 +164,14 @@ const databaseReadyPromise = db_postgres.testConnection().then(async (success) =
     await runMigrations();
     await ensureEmailTranslationSchema();
     await emailMailClient.ensureMailClientSchema();
+    databaseReady = true;
+    databaseStartupError = null;
     return true;
   }
+}).catch((error) => {
+  databaseReady = false;
+  databaseStartupError = error.message || 'Startup schema preparation failed';
+  throw error;
 });
 
 const app = express();
@@ -772,11 +783,15 @@ app.use((req, res, next) => {
 
 // Health check endpoint (no auth required)
 app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
+  res.status(databaseReady ? 200 : 503).json({
+    status: databaseReady ? "ok" : "degraded",
     service: "aps-admin-local-backend",
     version: BACKEND_VERSION,
     environment: DIRECT_WS_ENVIRONMENT,
+    database: {
+      ready: databaseReady,
+      error: databaseStartupError,
+    },
     wsRelayEnabled: WS_RELAY_ENABLED,
     smsRelayConfigured: Boolean(SMS_RELAY_URL),
     directWebSocket: {
@@ -1268,12 +1283,16 @@ app.use((error, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 databaseReadyPromise.then(() => {
   server.listen(PORT, '0.0.0.0', () => {
-  console.log("=".repeat(60));
-  console.log(`✓ APS Admin Local Backend Server running on port ${PORT}`);
-  console.log(`✓ Health check: http://localhost:${PORT}/`);
-  console.log(`✓ WebSocket (Socket.IO) ready on same port`);
-  console.log("=".repeat(60));
-  emailMailClient.startScheduledEmailDispatcher();
+    console.log("=".repeat(60));
+    console.log(`✓ APS Admin Local Backend Server running on port ${PORT}`);
+    console.log(`✓ Health check: http://localhost:${PORT}/`);
+    console.log(`✓ WebSocket (Socket.IO) ready on same port`);
+    console.log("=".repeat(60));
+    if (databaseReady) {
+      emailMailClient.startScheduledEmailDispatcher();
+    } else {
+      console.warn('[Email Scheduler] Skipped because database is not ready');
+    }
   });
 }).catch((error) => {
   console.error('[DB] Startup schema preparation failed:', error.message);

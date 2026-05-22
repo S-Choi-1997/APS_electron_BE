@@ -35,7 +35,9 @@ import {
 } from '../hooks/queries/useEmailInquiries';
 import { EMAIL_STATUS } from '../services/emailInquiryService';
 import { useEmailPageState } from '../hooks/useEmailPageState';
+import { auth } from '../auth/authManager';
 import { htmlToPlainText } from '../utils/clipboard';
+import { buildEmailPrintDocument } from '../utils/emailPrintDocument';
 import './EmailConsultationsPage.css';
 
 const PAGE_SIZE = 20;
@@ -78,6 +80,29 @@ function splitRecipients(value) {
 
 function joinRecipients(value) {
   return Array.isArray(value) ? value.join(', ') : String(value || '');
+}
+
+function normalizeEmailAddress(value) {
+  const text = String(value || '').trim();
+  const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return emailMatch ? emailMatch[0] : text;
+}
+
+function collectEmailAddresses(...values) {
+  return values.flatMap((value) => {
+    if (Array.isArray(value)) return collectEmailAddresses(...value);
+    return splitRecipients(value).map(normalizeEmailAddress).filter(Boolean);
+  });
+}
+
+function uniqueEmailAddresses(values, excludedValues = []) {
+  const seen = new Set(collectEmailAddresses(excludedValues).map((value) => value.toLowerCase()));
+  return collectEmailAddresses(values).filter((value) => {
+    const key = value.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function formatAttachmentSize(size = 0) {
@@ -135,6 +160,27 @@ function formatDate(value) {
   }
   if (diffDays > 0 && diffDays < 7) return `${diffDays}일 전`;
   return date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+}
+
+function formatScheduledDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+  const time = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+  if (diffDays === 0) return `오늘 ${time}`;
+  if (diffDays === 1) return `내일 ${time}`;
+  return date.toLocaleString('ko-KR', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function formatFullDate(value) {
@@ -208,6 +254,78 @@ function sanitizeEmailHtmlForDisplay(html = '') {
   });
 
   return template.innerHTML;
+}
+
+function printHtmlDocument(html) {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new Error('출력 환경을 찾을 수 없습니다.'));
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', '메일 출력');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+
+    let settled = false;
+    let printRequested = false;
+    const cleanup = () => {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    document.body.appendChild(iframe);
+
+    const frameWindow = iframe.contentWindow;
+    const frameDocument = iframe.contentDocument || frameWindow?.document;
+    if (!frameWindow || !frameDocument) {
+      fail(new Error('출력 창을 만들 수 없습니다.'));
+      return;
+    }
+
+    const printFrame = () => {
+      if (printRequested) return;
+      printRequested = true;
+      window.setTimeout(() => {
+        try {
+          if (typeof frameWindow.print !== 'function') {
+            throw new Error('출력 기능을 사용할 수 없습니다.');
+          }
+          frameWindow.focus();
+          frameWindow.print();
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        } catch (error) {
+          fail(error);
+        }
+      }, 80);
+    };
+
+    frameWindow.addEventListener('afterprint', cleanup, { once: true });
+    iframe.addEventListener('load', printFrame, { once: true });
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+
+    window.setTimeout(() => {
+      if (!settled) printFrame();
+    }, 500);
+    window.setTimeout(cleanup, 60000);
+  });
 }
 
 function normalizeDraftLike(item) {
@@ -294,7 +412,8 @@ function MailRow({ item, active, onClick }) {
   );
 }
 
-function DraftRow({ item, active, onClick }) {
+function DraftRow({ item, active, onClick, dateValue, dateFormatter = formatDate }) {
+  const displayDate = dateValue || item.updatedAt || item.createdAt || item.scheduledAt;
   return (
     <button
       type="button"
@@ -305,7 +424,7 @@ function DraftRow({ item, active, onClick }) {
       <span className="mail-row-main">
         <span className="mail-row-meta">
           <span className="mail-row-sender">{joinRecipients(item.to) || '받는 사람 없음'}</span>
-          <span className="mail-row-date">{formatDate(item.updatedAt || item.createdAt || item.scheduledAt)}</span>
+          <span className="mail-row-date">{dateFormatter(displayDate)}</span>
         </span>
         <span className="mail-row-subject">{item.subject || '(제목 없음)'}</span>
         <span className="mail-row-preview">{item.body || item.failureReason || ''}</span>
@@ -651,6 +770,12 @@ function EmailConsultationsPage() {
   }, [filtersOpen]);
 
   useEffect(() => {
+    if (!isMailMailbox && filtersOpen) {
+      setFiltersOpen(false);
+    }
+  }, [filtersOpen, isMailMailbox, setFiltersOpen]);
+
+  useEffect(() => {
     if (!composerDirty) return undefined;
 
     const handleBeforeUnload = (event) => {
@@ -739,8 +864,20 @@ function EmailConsultationsPage() {
       setActionError('이 메일은 답장을 지원하지 않습니다. 보낸 메일이나 원본 ID가 없는 메일은 전달만 사용할 수 있습니다.');
       return;
     }
-    const recipients = mode === 'forward' ? '' : selectedEmail.from;
-    const visibleReplyAllCc = mode === 'replyAll' ? joinRecipients(selectedEmail.cc || selectedEmail.ccEmails || []) : '';
+    const currentUserEmails = collectEmailAddresses(auth.currentUser?.email, auth.currentUser?.emailAddress);
+    const senderAddresses = collectEmailAddresses(selectedEmail.replyTo || selectedEmail.reply_to || selectedEmail.from || selectedEmail.fromEmail);
+    const originalToAddresses = collectEmailAddresses(selectedEmail.to || selectedEmail.toEmails || selectedEmail.toEmail);
+    const originalCcAddresses = collectEmailAddresses(selectedEmail.cc || selectedEmail.ccEmails || selectedEmail.ccEmail);
+    const replyAllToAddresses = uniqueEmailAddresses([...senderAddresses, ...originalToAddresses], currentUserEmails);
+    const replyToAddresses = uniqueEmailAddresses(senderAddresses, currentUserEmails);
+    const toAddresses = mode === 'replyAll'
+      ? (replyAllToAddresses.length > 0 ? replyAllToAddresses : uniqueEmailAddresses(senderAddresses))
+      : (replyToAddresses.length > 0 ? replyToAddresses : uniqueEmailAddresses(senderAddresses));
+    const ccAddresses = mode === 'replyAll'
+      ? uniqueEmailAddresses(originalCcAddresses, [...currentUserEmails, ...toAddresses])
+      : [];
+    const recipients = mode === 'forward' ? '' : toAddresses.join(', ');
+    const visibleReplyAllCc = mode === 'replyAll' ? ccAddresses.join(', ') : '';
     const prefix = mode === 'forward' ? 'Fwd:' : 'Re:';
     openCompose({
       mode,
@@ -871,7 +1008,7 @@ function EmailConsultationsPage() {
   };
 
   const handleDeleteSelectedDraft = async () => {
-    if (!selectedDraftId) return;
+    if (!selectedDraftId || deleteDraftMutation.isPending) return;
     if (!window.confirm('이 임시보관 메일을 삭제할까요?')) return;
     setActionError('');
     try {
@@ -885,7 +1022,7 @@ function EmailConsultationsPage() {
   };
 
   const handleDeleteSelectedScheduled = async () => {
-    if (!selectedScheduledId) return;
+    if (!selectedScheduledId || scheduleMutation.isPending || deleteScheduledMutation.isPending || sendScheduledNowMutation.isPending) return;
     if (!window.confirm('이 예약 메일을 삭제할까요?')) return;
     setActionError('');
     try {
@@ -895,6 +1032,19 @@ function EmailConsultationsPage() {
       setComposerDirty(false);
     } catch (error) {
       setActionError(error?.message || '예약 삭제에 실패했습니다.');
+    }
+  };
+
+  const handleSendSelectedScheduledNow = async () => {
+    if (!selectedScheduledId || scheduleMutation.isPending || sendScheduledNowMutation.isPending || deleteScheduledMutation.isPending) return;
+    setActionError('');
+    try {
+      await sendScheduledNowMutation.mutateAsync(selectedScheduledId);
+      setSelectedScheduledId(null);
+      setComposer(null);
+      setComposerDirty(false);
+    } catch (error) {
+      setActionError(error?.message || '예약 메일 즉시 발송에 실패했습니다.');
     }
   };
 
@@ -1016,7 +1166,16 @@ function EmailConsultationsPage() {
   const displayedSubject = showTranslation && translationEmail?.translatedSubject ? translationEmail.translatedSubject : selectedEmail?.subject;
   const displayedText = showTranslation && hasTranslation ? translationEmail.translatedBody : selectedText;
   const isBusy = activeQuery.isLoading || activeQuery.isFetching;
-  const composerBusy = sendMutation.isPending || replyMutation.isPending || saveDraftMutation.isPending || scheduleMutation.isPending;
+  const composerBusy =
+    sendMutation.isPending ||
+    replyMutation.isPending ||
+    saveDraftMutation.isPending ||
+    sendDraftMutation.isPending ||
+    scheduleMutation.isPending ||
+    deleteDraftMutation.isPending ||
+    deleteScheduledMutation.isPending ||
+    sendScheduledNowMutation.isPending;
+  const scheduledActionBusy = scheduleMutation.isPending || deleteScheduledMutation.isPending || sendScheduledNowMutation.isPending;
   const providerActionsSupported = !selectedEmail || (selectedEmail.source === 'zoho' && Boolean(selectedEmail.messageId));
   const canReply = canReplyToEmail(selectedEmail);
   const canFlag = !selectedEmail || (selectedEmail.capabilities?.flag ?? providerActionsSupported);
@@ -1055,6 +1214,33 @@ function EmailConsultationsPage() {
     }
   };
 
+  const handlePrintSelectedEmail = async () => {
+    if (!selectedEmail) return;
+    setActionError('');
+
+    const printingTranslation = showTranslation && hasTranslation;
+    const printDocument = buildEmailPrintDocument({
+      email: selectedEmail,
+      subject: displayedSubject || selectedEmail.subject || '(제목 없음)',
+      sanitizedBodyHtml: printingTranslation ? '' : sanitizedSelectedHtml,
+      bodyText: printingTranslation ? translationEmail?.translatedBody : displayedText,
+      statusLabel: getStatusLabel(selectedEmail),
+      dateText: formatFullDate(getMessageDate(selectedEmail)),
+      printedAtText: formatFullDate(new Date()),
+      isTranslated: printingTranslation,
+      translatedAtText: printingTranslation && translationEmail?.translatedAt
+        ? formatFullDate(translationEmail.translatedAt)
+        : '',
+      attachments,
+    });
+
+    try {
+      await printHtmlDocument(printDocument);
+    } catch (error) {
+      setActionError(error?.message || '메일 출력에 실패했습니다.');
+    }
+  };
+
   return (
     <div className="email-client-page">
       <header className="email-client-header">
@@ -1080,7 +1266,10 @@ function EmailConsultationsPage() {
             key={box.key}
             type="button"
             className={mailbox === box.key ? 'active' : ''}
-            onClick={() => setMailbox(box.key)}
+            onClick={() => {
+              setFiltersOpen(false);
+              setMailbox(box.key);
+            }}
           >
             <span className={`mailbox-icon ${box.key}`} aria-hidden="true" />
             {box.label}
@@ -1231,6 +1420,8 @@ function EmailConsultationsPage() {
               <DraftRow
                 key={item.id}
                 item={item}
+                dateValue={item.scheduledAt || item.updatedAt || item.createdAt}
+                dateFormatter={formatScheduledDate}
                 active={String(selectedScheduledId) === String(item.id)}
                 onClick={selectScheduled}
               />
@@ -1265,7 +1456,12 @@ function EmailConsultationsPage() {
                 onError={setActionError}
               />
               {selectedDraftId ? (
-                <button type="button" className="danger-button standalone-action" onClick={handleDeleteSelectedDraft}>
+                <button
+                  type="button"
+                  className="danger-button standalone-action"
+                  onClick={handleDeleteSelectedDraft}
+                  disabled={deleteDraftMutation.isPending || composerBusy}
+                >
                   임시보관 삭제
                 </button>
               ) : null}
@@ -1274,21 +1470,17 @@ function EmailConsultationsPage() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={async () => {
-                      setActionError('');
-                      try {
-                        await sendScheduledNowMutation.mutateAsync(selectedScheduledId);
-                        setSelectedScheduledId(null);
-                        setComposer(null);
-                        setComposerDirty(false);
-                      } catch (error) {
-                        setActionError(error?.message || '예약 메일 즉시 발송에 실패했습니다.');
-                      }
-                    }}
+                    onClick={handleSendSelectedScheduledNow}
+                    disabled={scheduledActionBusy}
                   >
                     지금 발송
                   </button>
-                  <button type="button" className="danger-button" onClick={handleDeleteSelectedScheduled}>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={handleDeleteSelectedScheduled}
+                    disabled={scheduledActionBusy}
+                  >
                     예약 삭제
                   </button>
                 </div>
@@ -1316,6 +1508,14 @@ function EmailConsultationsPage() {
                   {!providerActionsSupported ? (
                     <span className="message-warning compact">Zoho 원본 메일만 provider 액션을 지원합니다.</span>
                   ) : null}
+                  <button
+                    type="button"
+                    className="secondary-button print-button"
+                    onClick={handlePrintSelectedEmail}
+                    aria-label="선택한 메일 출력"
+                  >
+                    출력
+                  </button>
                   <button
                     type="button"
                     className="ghost-button"
