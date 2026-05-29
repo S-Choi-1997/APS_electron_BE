@@ -507,32 +507,6 @@ function Dashboard({ user }) {
     }
   }, [showScheduleCreateModal]);
 
-  // 로그인 시 알림창 자동 열기
-  useEffect(() => {
-    if (!user || !window.electron) return;
-
-    // 메모와 일정 데이터가 모두 로드된 후 알림창 열기
-    if (!memosLoading && !schedulesLoading) {
-      const openStickyOnLogin = async () => {
-        try {
-          // 이미 열려있는지 확인
-          const isOpen = await window.electron.isStickyWindowOpen('dashboard');
-
-          // 이미 열려있으면 무시
-          if (isOpen) return;
-
-          // 캐시 데이터 준비
-          // 알림창 열기 (리셋 모드 아님)
-          await window.electron.openStickyWindow('dashboard', '알림창', false);
-        } catch (error) {
-          console.error('[Dashboard] Failed to auto-open sticky window:', error);
-        }
-      };
-
-      openStickyOnLogin();
-    }
-  }, [user, memosLoading, schedulesLoading]);
-
   // 메모 날짜별 그룹화 함수
   const groupMemosByDate = (memos) => {
     const sorted = [...memos].sort((a, b) => b.createdAt - a.createdAt);

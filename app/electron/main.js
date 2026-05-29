@@ -16,7 +16,10 @@ const {
 const { createAutoUpdaterManager } = require('./auto-updater-manager');
 const { registerConfigIpcHandlers } = require('./config-ipc');
 const { registerFileIpcHandlers } = require('./file-ipc');
-const { registerStartupIpcHandlers } = require('./startup-ipc');
+const {
+  reconcileStartupRegistration,
+  registerStartupIpcHandlers,
+} = require('./startup-ipc');
 const {
   normalizeDownloadUrl,
   normalizeExternalUrl,
@@ -107,6 +110,25 @@ function sendNavigationRoute(route) {
   }
 
   return { success: true, route: normalizedRoute };
+}
+
+function showMainWindow(reason = 'show') {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.setSkipTaskbar(false);
+  mainWindow.show();
+  mainWindow.focus();
+
+  if (typeof mainWindow.moveTop === 'function') {
+    mainWindow.moveTop();
+  }
+
+  console.log(`[Main] Main window shown (${reason})`);
+  return true;
 }
 
 /**
@@ -341,12 +363,25 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1500,
     height: 900,
+    show: false,
     frame: false, // Windows 기본 타이틀바 제거
     webPreferences: createRendererWebPreferences({
       webSecurity: false, // Allow loading images from external URLs (Google Cloud Storage)
     }),
     icon: getIconPath('icon.png'),
   });
+
+  mainWindow.once('ready-to-show', () => {
+    showMainWindow('ready-to-show');
+  });
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    showMainWindow('did-finish-load');
+  });
+
+  setTimeout(() => {
+    showMainWindow('startup-fallback');
+  }, 1500);
 
   loadMainRenderer(mainWindow);
   attachRendererContextMenu(mainWindow);
@@ -398,8 +433,7 @@ function createTray() {
       label: '열기',
       click: () => {
         if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
+          showMainWindow('tray-open');
         } else {
           createWindow();
         }
@@ -423,8 +457,7 @@ function createTray() {
   // 트레이 아이콘 더블클릭 시 창 표시
   tray.on('double-click', () => {
     if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
+      showMainWindow('tray-double-click');
     } else {
       createWindow();
     }
@@ -1036,6 +1069,7 @@ ipcMain.handle('quit-app', async () => {
 app.whenReady().then(() => {
   // AutoUpdater 초기화 (app.isPackaged 접근 가능)
   autoUpdateManager.init();
+  reconcileStartupRegistration(app, APP_NAME);
 
   createWindow();
 
@@ -1082,9 +1116,7 @@ app.on('second-instance', (event, commandLine) => {
 
   // 일반적인 두 번째 인스턴스 - 기존 창 포커스
   if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    showMainWindow('second-instance');
   }
 });
 

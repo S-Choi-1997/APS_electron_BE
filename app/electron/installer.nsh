@@ -2,12 +2,12 @@
 ; Features:
 ; 1. Skip false-positive running app check (Issue #894)
 ; 2. Force kill existing app process before install/uninstall
-; 3. Do not auto-add to Windows startup during install.
-;    Users can enable startup later from app settings.
+; 3. Optional Windows startup registration during install
 ; Reference: https://github.com/electron-userland/electron-builder/issues/894
 
-; Registry key for startup
+; Registry keys for startup
 !define STARTUP_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define STARTUP_APPROVED_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
 !define APP_NAME "APS Admin"
 
 !ifndef BUILD_UNINSTALLER
@@ -27,7 +27,7 @@
 
 ; Before install: force kill any existing app process
 !macro customInit
-  ; Silent taskkill - ignore errors if app not running
+  ; Silent taskkill - ignore errors if app is not running
   nsExec::ExecToStack 'cmd /c taskkill /F /IM "APS Admin.exe" 2>nul || exit /b 0'
   Pop $0
   Pop $0
@@ -75,14 +75,16 @@
   FunctionEnd
 !endif
 
-; After install: no startup registry write.
-; Security products may flag installers that register auto-start entries.
+; After install: update both Run and StartupApproved so Windows Settings
+; and Task Manager agree with the selected startup state immediately.
 !macro customInstall
   ${If} $StartupPageShown == "1"
     ${If} $StartWithWindowsChecked == ${BST_CHECKED}
       WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
+      WriteRegBin HKCU "${STARTUP_APPROVED_REG_KEY}" "${APP_NAME}" "020000000000000000000000"
     ${Else}
       DeleteRegValue HKCU "${STARTUP_REG_KEY}" "${APP_NAME}"
+      DeleteRegValue HKCU "${STARTUP_APPROVED_REG_KEY}" "${APP_NAME}"
     ${EndIf}
   ${EndIf}
 !macroend
@@ -98,4 +100,5 @@
 !macro customUnInstall
   ; Remove from Windows startup
   DeleteRegValue HKCU "${STARTUP_REG_KEY}" "${APP_NAME}"
+  DeleteRegValue HKCU "${STARTUP_APPROVED_REG_KEY}" "${APP_NAME}"
 !macroend
