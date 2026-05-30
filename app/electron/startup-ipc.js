@@ -55,7 +55,7 @@ function writeLegacyRunValue(appName, exePath) {
     '/t',
     'REG_SZ',
     '/d',
-    `"${exePath}"`,
+    `"${exePath}" --startup`,
     '/f',
   ]);
 }
@@ -65,7 +65,7 @@ function applyLoginItemSettings(app, appName, enabled) {
     openAtLogin: enabled,
     enabled,
     path: getStartupExePath(app),
-    args: [],
+    args: enabled ? ['--startup'] : [],
     name: appName,
   });
 }
@@ -118,7 +118,7 @@ function getStartupState(app, appName) {
   try {
     const loginItem = app.getLoginItemSettings({
       path: exePath,
-      args: [],
+      args: ['--startup'],
     });
     const legacyRunValue = queryLegacyRunValue(appName);
     const startupApprovedValue = queryStartupApprovedValue(appName);

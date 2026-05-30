@@ -1071,14 +1071,25 @@ app.whenReady().then(() => {
   autoUpdateManager.init();
   reconcileStartupRegistration(app, APP_NAME);
 
-  createWindow();
+  const isStartupLaunch = process.argv.includes('--startup');
 
-  // WebSocket 연결 초기화
-  const config = loadConfig();
-  webSocketManager.connect(config);
+  function startApp() {
+    createWindow();
 
-  // 프로덕션 설치본에서 시작 시 1회, 이후 30분마다 업데이트 확인
-  autoUpdateManager.scheduleChecks();
+    // WebSocket 연결 초기화
+    const config = loadConfig();
+    webSocketManager.connect(config);
+
+    // 프로덕션 설치본에서 시작 시 1회, 이후 30분마다 업데이트 확인
+    autoUpdateManager.scheduleChecks();
+  }
+
+  if (isStartupLaunch) {
+    console.log('[Main] App started via Windows Startup. Delaying launch by 5 seconds...');
+    setTimeout(startApp, 5000);
+  } else {
+    startApp();
+  }
 });
 
 // 외부(설치기/OS)에서 앱 종료 요청 시
