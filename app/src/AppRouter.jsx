@@ -17,7 +17,7 @@ import MemoPage from './pages/MemoPage';
 import SettingsPage from './pages/SettingsPage';
 import UpdateProgressModal from './components/UpdateProgressModal';
 import { ROUTES, WINDOW_ROUTES } from './constants/routes';
-import { applyAppConfig, initializeAppConfig } from './config/api';
+import { applyAppConfig, initializeAppConfig, checkApiHealth } from './config/api';
 import { memoQueryKeys } from './hooks/queries/memoQueryKeys';
 import useWebSocketSync from './hooks/useWebSocketSync';
 import { showToastNotification } from './utils/notificationHelper';
@@ -230,6 +230,10 @@ function AppContent() {
     errorMessage: null,
   });
   const [configReady, setConfigReady] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('checking'); // 'checking', 'offline', 'connecting', 'online', 'bypass'
+  const [connectionMessage, setConnectionMessage] = useState('시스템을 시작하고 있습니다...');
+  const [showBypassBtn, setShowBypassBtn] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   const applyUpdateState = useCallback((state) => {
     if (!state || !['available', 'downloading', 'downloaded', 'error'].includes(state.status)) {
@@ -288,30 +292,89 @@ function AppContent() {
     if (!configReady) return undefined;
 
     let canceled = false;
-    setAuthLoading(true);
+    let checkTimeoutId = null;
 
-    initializeAuthSession()
-      .then((currentUser) => {
+    // 20초 후 바이패스 버튼 노출용 타이머
+    const bypassTimer = setTimeout(() => {
+      if (!canceled) {
+        setShowBypassBtn(true);
+      }
+    }, 20000);
+
+    async function checkConnection() {
+      // 1. 인터넷 연결 확인 (window.navigator.onLine)
+      if (!window.navigator.onLine) {
+        if (!canceled) {
+          setConnectionStatus('offline');
+          setConnectionMessage('인터넷 연결 상태를 확인하고 있습니다...');
+        }
+        checkTimeoutId = setTimeout(checkConnection, 2000);
+        return;
+      }
+
+      // 2. 서버 헬스 체크
+      if (!canceled) {
+        setConnectionStatus('connecting');
+        setConnectionMessage('서버와 통신 상태를 확인하고 있습니다...');
+      }
+
+      try {
+        const isHealthy = await checkApiHealth();
+        if (isHealthy) {
+          if (!canceled) {
+            clearTimeout(bypassTimer);
+            setConnectionStatus('online');
+            setConnectionMessage('로그인 상태를 확인하고 있습니다...');
+            runAuthInitialization();
+          }
+        } else {
+          if (!canceled) {
+            checkTimeoutId = setTimeout(checkConnection, 2000);
+          }
+        }
+      } catch (error) {
+        if (!canceled) {
+          checkTimeoutId = setTimeout(checkConnection, 2000);
+        }
+      }
+    }
+
+    async function runAuthInitialization() {
+      setAuthLoading(true);
+      try {
+        const currentUser = await initializeAuthSession();
         if (!canceled) {
           setUser(currentUser);
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error('[AppRouter] Failed to initialize auth session:', error);
         if (!canceled) {
           setUser(null);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!canceled) {
           setAuthLoading(false);
         }
-      });
+      }
+    }
+
+    // 초기 체크 기동
+    checkConnection();
+
+    // 윈도우 online 이벤트 발생 시 즉시 재접속 확인 (2초 대기 우회)
+    const handleOnline = () => {
+      if (checkTimeoutId) clearTimeout(checkTimeoutId);
+      checkConnection();
+    };
+    window.addEventListener('online', handleOnline);
 
     return () => {
       canceled = true;
+      clearTimeout(bypassTimer);
+      if (checkTimeoutId) clearTimeout(checkTimeoutId);
+      window.removeEventListener('online', handleOnline);
     };
-  }, [configReady]);
+  }, [configReady, retryTrigger]);
 
   useEffect(() => {
     if (!window.electron) return undefined;
@@ -429,13 +492,39 @@ function AppContent() {
     />
   );
 
-  if (!configReady || authLoading) {
+  if (!configReady || (authLoading && connectionStatus !== 'bypass' && connectionStatus !== 'online')) {
     return (
       <>
         <div className="app">
-          <div className="auth-loading">
+          <div className="auth-loading network-guardian">
             <div className="loading-spinner"></div>
-            <p>로그인 상태를 확인하고 있습니다.</p>
+            <p className="guardian-message">{connectionMessage}</p>
+            {showBypassBtn && (
+              <div className="guardian-actions">
+                <button
+                  type="button"
+                  className="guardian-btn retry"
+                  onClick={() => {
+                    setConnectionStatus('checking');
+                    setConnectionMessage('다시 서버 연결을 확인합니다...');
+                    setShowBypassBtn(false);
+                    setRetryTrigger((prev) => prev + 1);
+                  }}
+                >
+                  다시 시도
+                </button>
+                <button
+                  type="button"
+                  className="guardian-btn bypass"
+                  onClick={() => {
+                    setConnectionStatus('bypass');
+                    setAuthLoading(false);
+                  }}
+                >
+                  로그인 화면으로 이동
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {updateModalElement}

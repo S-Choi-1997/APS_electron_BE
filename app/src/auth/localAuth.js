@@ -182,9 +182,17 @@ export async function restoreSession() {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        // 서버가 응답함 → 인증 오류 (토큰 만료/무효) → 토큰 삭제 (재시도 불필요)
-        console.log('[Local Auth] Refresh token expired or invalid, status:', response.status);
-        clearCurrentSession();
+        // 서버가 응답했으나 에러가 발생한 경우
+        const isAuthError = response.status === 400 || response.status === 401 || response.status === 403;
+        if (isAuthError) {
+          // 명백한 인증 오류 (토큰 만료/무효) → 토큰 삭제 (재시도 불필요)
+          console.log('[Local Auth] Refresh token expired or invalid, status:', response.status);
+          clearCurrentSession();
+        } else {
+          // 서버 측 일시적 장애 (5xx) 또는 레이트 리밋 (429) → 세션 유지하고 null 반환 (재시도 가능)
+          console.warn('[Local Auth] Server or transient error during token refresh, status:', response.status, '- keeping session');
+          currentUser = null;
+        }
         return null;
       }
 
