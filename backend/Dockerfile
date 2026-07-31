@@ -13,6 +13,7 @@ RUN npm ci --only=production
 # 소스 코드 복사
 COPY server.js ./
 COPY db.js ./
+COPY startup-readiness.js ./
 COPY auth.js ./
 COPY firestore-admin.js ./
 COPY crypto-helper.js ./

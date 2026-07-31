@@ -69,9 +69,12 @@ assertIncludes(api, "['arrayBuffer', 'blob', 'formData', 'json', 'text']", 'API 
 assertRegex(api, /catch \(error\) \{\s*cleanupResponseTimeout\(response\);\s*throw error;/s, 'API should cleanup original response timeout if auth refresh rejects');
 assertRegex(emailService, /if \(!response\.ok\) \{[\s\S]*await response\.text\(\);[\s\S]*APS_REQUEST_TIMEOUT[\s\S]*throw error;/, 'Attachment download failures should cleanup response and preserve timeout errors');
 
-assertIncludes(backendServer, 'res.status(databaseReady ? 200 : 503)', 'Health endpoint should expose DB readiness through HTTP status');
+assertIncludes(backendServer, 'app.get("/readyz", handleReadiness)', 'Backend should expose a dedicated database readiness endpoint');
+assertIncludes(backendServer, 'const isReady = await refreshDatabaseReadiness()', 'Readiness should query the current database state');
 assertIncludes(backendServer, 'database: {', 'Health endpoint should include database readiness payload');
-assertRegex(backendServer, /if \(databaseReady\) \{\s*emailMailClient\.startScheduledEmailDispatcher\(\);/s, 'Scheduled dispatcher should start only after DB readiness');
+assertIncludes(backendServer, 'await waitForPostgres({', 'Backend startup should retry PostgreSQL readiness');
+assertIncludes(backendServer, 'await auth.cleanupExpiredTokens()', 'Initial token cleanup should wait for database readiness');
+assertIncludes(backendServer, 'scheduledEmailDispatcher = emailMailClient.startScheduledEmailDispatcher()', 'Scheduled dispatcher should start after the startup readiness promise resolves');
 
 const checks = {
   dashboard: 'month-selection/accessibility/touch-target checks passed',

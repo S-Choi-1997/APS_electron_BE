@@ -154,11 +154,14 @@ NAS 배포는 `nas-deploy/` 폴더의 docker-compose를 사용합니다.
 ### 4. 테스트
 
 ```bash
-# Health check
+# Process liveness
 curl http://localhost:3001/healthz
 
-# 예상 응답:
-# {"status":"ok","service":"aps-admin-local-backend","version":"1.0.0","environment":"local"}
+# PostgreSQL/schema readiness
+curl http://localhost:3001/readyz
+
+# `/healthz` returns 200 when the Node process is alive.
+# `/readyz` and `/` return 200 only when PostgreSQL is reachable.
 ```
 
 ## 📁 디렉토리 구조

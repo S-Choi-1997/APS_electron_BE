@@ -296,10 +296,8 @@ const authenticateJWT = async (req, res, next) => {
 };
 
 // Cleanup expired tokens every hour
-setInterval(cleanupExpiredTokens, 60 * 60 * 1000);
-
-// Initial cleanup on startup
-cleanupExpiredTokens();
+const cleanupInterval = setInterval(cleanupExpiredTokens, 60 * 60 * 1000);
+cleanupInterval.unref?.();
 
 module.exports = {
   getAdminByEmail,

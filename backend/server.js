@@ -34,6 +34,10 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
 const db_postgres = require("./db"); // PostgreSQL connection
+const {
+  parsePositiveInteger,
+  waitForPostgres,
+} = require("./startup-readiness");
 const auth = require("./auth"); // JWT authentication module
 const firestoreAdmin = require("./firestore-admin"); // Firestore admin management
 const zohoRoutes = require("./zoho/routes");
@@ -152,29 +156,50 @@ async function runMigrations() {
 
 let databaseReady = false;
 let databaseStartupError = null;
+const DATABASE_STARTUP_MAX_ATTEMPTS = parsePositiveInteger(
+  process.env.DATABASE_STARTUP_MAX_ATTEMPTS,
+  10
+);
+const DATABASE_STARTUP_RETRY_MS = parsePositiveInteger(
+  process.env.DATABASE_STARTUP_RETRY_MS,
+  1000
+);
 
-// Test PostgreSQL connection and run migrations on startup
-const databaseReadyPromise = db_postgres.testConnection().then(async (success) => {
-  if (!success) {
-    databaseReady = false;
-    databaseStartupError = 'PostgreSQL connection failed';
-    console.error("⚠️  Warning: PostgreSQL connection failed. Memos and schedules will not work.");
-    return false;
-  } else {
-    // Run migrations after successful connection
-    await runMigrations();
-    await ensureEmailTranslationSchema();
-    await emailMailClient.ensureMailClientSchema();
-    await startupDiagnosticsRoutes.ensureStartupDiagnosticsSchema();
-    databaseReady = true;
-    databaseStartupError = null;
-    return true;
-  }
-}).catch((error) => {
+// Do not open the API until PostgreSQL and all required schemas are ready.
+const databaseReadyPromise = (async () => {
+  const readiness = await waitForPostgres({
+    testConnection: db_postgres.testConnection,
+    maxAttempts: DATABASE_STARTUP_MAX_ATTEMPTS,
+    retryDelayMs: DATABASE_STARTUP_RETRY_MS,
+  });
+  console.log(`[DB] PostgreSQL startup readiness confirmed after ${readiness.attempts} attempt(s)`);
+
+  await runMigrations();
+  await ensureEmailTranslationSchema();
+  await emailMailClient.ensureMailClientSchema();
+  await startupDiagnosticsRoutes.ensureStartupDiagnosticsSchema();
+  await auth.cleanupExpiredTokens();
+  databaseReady = true;
+  databaseStartupError = null;
+  return true;
+})().catch((error) => {
   databaseReady = false;
   databaseStartupError = error.message || 'Startup schema preparation failed';
   throw error;
 });
+
+async function refreshDatabaseReadiness() {
+  try {
+    await db_postgres.query('SELECT 1');
+    databaseReady = true;
+    databaseStartupError = null;
+    return true;
+  } catch (error) {
+    databaseReady = false;
+    databaseStartupError = error.message || 'PostgreSQL readiness check failed';
+    return false;
+  }
+}
 
 const app = express();
 const TRUST_PROXY = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? '1' : 'false');
@@ -799,14 +824,14 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
-app.get("/", (req, res) => {
-  res.status(databaseReady ? 200 : 503).json({
-    status: databaseReady ? "ok" : "degraded",
+function buildReadinessPayload(isReady) {
+  return {
+    status: isReady ? "ok" : "degraded",
     service: "aps-admin-local-backend",
     version: BACKEND_VERSION,
     environment: DIRECT_WS_ENVIRONMENT,
     database: {
-      ready: databaseReady,
+      ready: isReady,
       error: databaseStartupError,
     },
     wsRelayEnabled: WS_RELAY_ENABLED,
@@ -815,8 +840,16 @@ app.get("/", (req, res) => {
       enabled: true,
       connectedClients: directClients.size,
     },
-  });
-});
+  };
+}
+
+async function handleReadiness(_req, res) {
+  const isReady = await refreshDatabaseReadiness();
+  res.status(isReady ? 200 : 503).json(buildReadinessPayload(isReady));
+}
+
+app.get("/readyz", handleReadiness);
+app.get("/", handleReadiness);
 
 // ============================================
 // Authentication Routes (JWT)
@@ -1299,6 +1332,9 @@ app.use((error, req, res, next) => {
 // Start Server
 // ============================================
 const PORT = process.env.PORT || 3001;
+let scheduledEmailDispatcher = null;
+let shutdownPromise = null;
+
 databaseReadyPromise.then(() => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log("=".repeat(60));
@@ -1306,13 +1342,67 @@ databaseReadyPromise.then(() => {
     console.log(`✓ Health check: http://localhost:${PORT}/`);
     console.log(`✓ WebSocket (Socket.IO) ready on same port`);
     console.log("=".repeat(60));
-    if (databaseReady) {
-      emailMailClient.startScheduledEmailDispatcher();
-    } else {
-      console.warn('[Email Scheduler] Skipped because database is not ready');
-    }
+    scheduledEmailDispatcher = emailMailClient.startScheduledEmailDispatcher();
   });
 }).catch((error) => {
   console.error('[DB] Startup schema preparation failed:', error.message);
   process.exit(1);
+});
+
+function gracefulShutdown(signal) {
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownPromise = (async () => {
+    console.log(`[Shutdown] ${signal} received; stopping backend safely`);
+
+    if (scheduledEmailDispatcher) {
+      clearInterval(scheduledEmailDispatcher);
+      scheduledEmailDispatcher = null;
+    }
+
+    if (relaySocket) {
+      relaySocket.removeAllListeners();
+      relaySocket.disconnect();
+      relaySocket = null;
+    }
+
+    io.disconnectSockets(true);
+
+    if (server.listening) {
+      await new Promise((resolve) => {
+        const forceCloseTimer = setTimeout(() => {
+          console.warn('[Shutdown] Graceful HTTP shutdown timed out; closing remaining connections');
+          server.closeAllConnections?.();
+          resolve();
+        }, 10000);
+        forceCloseTimer.unref();
+
+        server.close((error) => {
+          clearTimeout(forceCloseTimer);
+          if (error) {
+            console.error('[Shutdown] HTTP server close error:', error.message);
+          }
+          resolve();
+        });
+      });
+    }
+
+    await db_postgres.closePool();
+    console.log('[Shutdown] Backend stopped');
+  })().catch((error) => {
+    console.error('[Shutdown] Failed to stop cleanly:', error);
+    process.exitCode = 1;
+  }).finally(() => {
+    process.exit();
+  });
+
+  return shutdownPromise;
+}
+
+process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  gracefulShutdown('SIGINT');
 });

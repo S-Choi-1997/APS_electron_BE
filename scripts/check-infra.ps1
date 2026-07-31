@@ -32,10 +32,16 @@ if (-not $SkipSsh -and -not [string]::IsNullOrWhiteSpace($NasHost)) {
 hostname
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 echo
-echo '[backend health]'
+echo '[backend liveness]'
 curl -fsS --max-time 5 http://localhost:3001/healthz
 status=$?
 echo
+if [ $status -eq 0 ]; then
+  echo '[backend readiness]'
+  curl -fsS --max-time 5 http://localhost:3001/readyz
+  status=$?
+  echo
+fi
 exit $status
 '@
 }

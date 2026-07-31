@@ -233,6 +233,7 @@ cd nas-deploy
 docker-compose pull aps-backend
 docker-compose up -d
 curl http://localhost:3001/healthz
+curl http://localhost:3001/readyz
 ```
 
 실행되는 백엔드 코드는 `nas-deploy/.env`의 `BACKEND_IMAGE_TAG`가 선택합니다.

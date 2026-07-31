@@ -5,9 +5,9 @@ This is the deployment source of truth. A new session should be able to follow t
 ## Current Production
 
 - Backend URL: `https://backend.apsconsulting.kr`
-- Backend image on NAS: `choho97/aps-admin-backend:1.3.12`
+- Backend image on NAS: `choho97/aps-admin-backend:1.3.34`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
-- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.25.exe`
+- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.31.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
 - Local test account file, not in git: `.local/aps-test-account.md`
 
@@ -67,12 +67,13 @@ Remove-Item -LiteralPath $stage -Recurse -Force
 
 ```powershell
 Invoke-RestMethod https://backend.apsconsulting.kr/ | ConvertTo-Json -Depth 5
+ssh nas "curl -fsS http://localhost:3001/healthz && curl -fsS http://localhost:3001/readyz"
 ssh nas "docker ps --filter name=aps-admin-backend --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
 ```
 
 Expected:
 
-- health response `status: ok`
+- liveness and readiness responses both report `status: ok`
 - expected backend `version`
 - `wsRelayEnabled: false`
 - container status `healthy`

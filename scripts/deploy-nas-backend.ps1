@@ -78,8 +78,24 @@ echo "[containers]"
 docker compose ps
 
 echo "[health]"
-sleep 3
-curl -fsS http://localhost:3001/healthz
+ready=0
+for attempt in `$(seq 1 30); do
+  if curl -fsS --max-time 5 http://localhost:3001/healthz >/dev/null \
+    && curl -fsS --max-time 5 http://localhost:3001/readyz >/dev/null; then
+    ready=1
+    break
+  fi
+  echo "Waiting for backend readiness (`$attempt/30)..."
+  sleep 2
+done
+
+if [ "`$ready" -ne 1 ]; then
+  echo "Backend did not become ready in time." >&2
+  docker compose logs --tail 80 aps-backend >&2
+  exit 1
+fi
+
+curl -fsS --max-time 5 http://localhost:3001/
 echo
 "@
 
