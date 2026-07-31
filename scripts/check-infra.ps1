@@ -33,7 +33,7 @@ hostname
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 echo
 echo '[backend health]'
-curl -fsS --max-time 5 http://localhost:3001/
+curl -fsS --max-time 5 http://localhost:3001/healthz
 status=$?
 echo
 exit $status

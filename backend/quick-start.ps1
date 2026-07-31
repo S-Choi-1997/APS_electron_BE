@@ -78,7 +78,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "docker restart aps-admin-backend" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Health Check: " -NoNewline
-    Write-Host "http://localhost:3001/" -ForegroundColor Cyan
+    Write-Host "http://localhost:3001/healthz" -ForegroundColor Cyan
     Write-Host ""
 
     # 3초 대기 후 로그 출력

@@ -155,7 +155,7 @@ NAS 배포는 `nas-deploy/` 폴더의 docker-compose를 사용합니다.
 
 ```bash
 # Health check
-curl http://localhost:3001/
+curl http://localhost:3001/healthz
 
 # 예상 응답:
 # {"status":"ok","service":"aps-admin-local-backend","version":"1.0.0","environment":"local"}

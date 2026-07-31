@@ -79,7 +79,7 @@ docker compose ps
 
 echo "[health]"
 sleep 3
-curl -fsS http://localhost:3001/
+curl -fsS http://localhost:3001/healthz
 echo
 "@
 

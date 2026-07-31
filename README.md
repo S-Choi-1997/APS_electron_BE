@@ -232,7 +232,7 @@ NAS/백엔드 서버는 Docker Hub 이미지를 pull해서 실행합니다.
 cd nas-deploy
 docker-compose pull aps-backend
 docker-compose up -d
-curl http://localhost:3001/
+curl http://localhost:3001/healthz
 ```
 
 실행되는 백엔드 코드는 `nas-deploy/.env`의 `BACKEND_IMAGE_TAG`가 선택합니다.

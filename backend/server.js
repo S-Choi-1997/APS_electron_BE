@@ -791,6 +791,14 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint (no auth required)
+app.get("/healthz", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "aps-admin-local-backend",
+    version: BACKEND_VERSION,
+  });
+});
+
 app.get("/", (req, res) => {
   res.status(databaseReady ? 200 : 503).json({
     status: databaseReady ? "ok" : "degraded",

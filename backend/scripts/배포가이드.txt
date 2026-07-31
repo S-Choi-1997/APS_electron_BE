@@ -68,7 +68,7 @@ docker-compose logs -f aps-backend
 Health check:
 
 ```bash
-curl http://localhost:3001/
+curl http://localhost:3001/healthz
 ```
 
 Expected fields:

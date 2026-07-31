@@ -74,7 +74,7 @@ echo ""
     echo "중지: docker stop aps-admin-backend"
     echo "재시작: docker restart aps-admin-backend"
     echo ""
-    echo "Health Check: http://localhost:3001/"
+    echo "Health Check: http://localhost:3001/healthz"
     echo ""
 
     # 3초 대기 후 로그 출력
