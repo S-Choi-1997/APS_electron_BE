@@ -78,6 +78,7 @@ export const API_ENDPOINTS = {
   ZOHO_WEBHOOK: '/api/zoho/webhook',
   ZOHO_SYNC: '/api/zoho/sync',
   SMS_SEND: '/sms/send',
+  STARTUP_DIAGNOSTICS: '/diagnostics/startup-events',
   HEALTH: '/',
 };
 

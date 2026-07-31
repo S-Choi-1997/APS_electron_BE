@@ -44,6 +44,7 @@ const inquiryRoutes = require("./inquiry-routes");
 const memoRoutes = require("./memo-routes");
 const scheduleRoutes = require("./schedule-routes");
 const smsRoutes = require("./sms-routes");
+const startupDiagnosticsRoutes = require("./startup-diagnostics-routes");
 const webFormInquiryRoutes = require("./web-form-inquiry-routes");
 const zohoIntegration = require("./zoho-integration");
 const {
@@ -164,6 +165,7 @@ const databaseReadyPromise = db_postgres.testConnection().then(async (success) =
     await runMigrations();
     await ensureEmailTranslationSchema();
     await emailMailClient.ensureMailClientSchema();
+    await startupDiagnosticsRoutes.ensureStartupDiagnosticsSchema();
     databaseReady = true;
     databaseStartupError = null;
     return true;
@@ -1201,6 +1203,7 @@ webFormInquiryRoutes.registerRoutes(app, auth);
 
 // POST /sms/send - Send SMS via Aligo API (through GCP3 relay)
 smsRoutes.registerRoutes(app, auth);
+startupDiagnosticsRoutes.registerRoutes(app, auth);
 // ============================================
 // Firestore Real-time Listener
 // ============================================

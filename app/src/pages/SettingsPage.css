@@ -253,6 +253,7 @@ input:checked + .toggle-slider:before {
 
 /* Update Status Messages */
 .update-status,
+.startup-status,
 .diagnostic-status {
   padding: 0.75rem;
   border-radius: 6px;
@@ -269,7 +270,13 @@ input:checked + .toggle-slider:before {
   color: #065f46;
 }
 
+.startup-status.warning {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+}
+
 .update-status.error,
+.startup-status.error,
 .diagnostic-status.error {
   background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
   color: #991b1b;

@@ -149,6 +149,10 @@ contextBridge.exposeInMainWorld('electron', {
   // ==================== 시작프로그램 설정 ====================
   getStartupEnabled: () => ipcRenderer.invoke('get-startup-enabled'),
   setStartupEnabled: (enabled) => ipcRenderer.invoke('set-startup-enabled', enabled),
+  getStartupDiagnosticsBatch: () => ipcRenderer.invoke('get-startup-diagnostics-batch'),
+  markStartupDiagnosticsUploaded: (batchId) => ipcRenderer.invoke('mark-startup-diagnostics-uploaded', batchId),
+  recordStartupDiagnosticEvent: (eventName, data) =>
+    ipcRenderer.invoke('record-startup-diagnostic-event', eventName, data),
 
   // ==================== Environment 설정 ====================
   getEnvironment: () => ipcRenderer.invoke('get-environment'),

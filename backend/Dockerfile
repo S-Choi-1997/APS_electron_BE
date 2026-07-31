@@ -25,6 +25,7 @@ COPY memo-routes.js ./
 COPY schedule-routes.js ./
 COPY sms-service.js ./
 COPY sms-routes.js ./
+COPY startup-diagnostics-routes.js ./
 COPY web-form-inquiry-routes.js ./
 COPY zoho-integration.js ./
 COPY setup-db.js ./

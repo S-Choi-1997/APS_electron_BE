@@ -20,6 +20,9 @@ function SettingsPage() {
   const [user, setUser] = useState(getCurrentUser());
   const [autoLogin, setAutoLogin] = useState(false);
   const [startupEnabled, setStartupEnabled] = useState(false);
+  const [startupEffectiveEnabled, setStartupEffectiveEnabled] = useState(false);
+  const [startupStatus, setStartupStatus] = useState(null); // 'updating', 'warning', 'error'
+  const [startupMessage, setStartupMessage] = useState('');
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [notificationSound, setNotificationSound] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -53,11 +56,13 @@ function SettingsPage() {
       window.electron.getStartupEnabled()
         .then(result => {
           if (result.success) {
-            setStartupEnabled(result.enabled);
+            applyStartupState(result);
           }
         })
         .catch(error => {
           console.error('[Settings] Failed to get startup setting:', error);
+          setStartupStatus('error');
+          setStartupMessage('시작프로그램 설정을 읽지 못했습니다.');
         });
     }
   }, []);
@@ -141,21 +146,65 @@ function SettingsPage() {
   };
 
   // 시작프로그램 설정 변경 핸들러
+  const applyStartupState = (result) => {
+    const desiredEnabled = typeof result.desiredEnabled === 'boolean'
+      ? result.desiredEnabled
+      : Boolean(result.enabled);
+    const effectiveEnabled = typeof result.effectiveEnabled === 'boolean'
+      ? result.effectiveEnabled
+      : desiredEnabled;
+
+    setStartupEnabled(desiredEnabled);
+    setStartupEffectiveEnabled(effectiveEnabled);
+
+    if (result.blockedByWindows) {
+      setStartupStatus('warning');
+      setStartupMessage('앱 설정은 켜져 있지만 Windows 시작 앱 설정에서 비활성화되어 있습니다.');
+    } else if (desiredEnabled && !effectiveEnabled) {
+      setStartupStatus('warning');
+      setStartupMessage('앱 설정은 켜져 있지만 Windows 자동 실행 등록이 아직 적용되지 않았습니다.');
+    } else {
+      setStartupStatus(null);
+      setStartupMessage('');
+    }
+  };
+
   const handleStartupChange = async (enabled) => {
     if (!window.electron?.setStartupEnabled) {
       return;
     }
 
+    setStartupStatus('updating');
+    setStartupMessage('시작프로그램 설정을 적용하는 중입니다.');
+
     try {
       const result = await window.electron.setStartupEnabled(enabled);
-      if (result.success) {
-        setStartupEnabled(enabled);
-      } else {
+      if (result.desiredEnabled !== undefined || result.enabled !== undefined) {
+        applyStartupState(result);
+      }
+
+      if (!result.success) {
+        setStartupStatus('error');
+        setStartupMessage(result.error || 'Windows 시작프로그램 설정 적용에 실패했습니다.');
         console.error('[Settings] Failed to set startup:', result.error);
       }
     } catch (error) {
       console.error('[Settings] Failed to set startup:', error);
+      setStartupStatus('error');
+      setStartupMessage(`Windows 시작프로그램 설정 적용 실패: ${error.message}`);
     }
+  };
+
+  const getStartupDiagnosticsLabel = () => {
+    if (!window.electron?.getStartupEnabled) {
+      return 'unavailable';
+    }
+
+    if (startupEnabled === startupEffectiveEnabled) {
+      return startupEnabled ? 'enabled' : 'disabled';
+    }
+
+    return `desired-${startupEnabled ? 'enabled' : 'disabled'}/effective-${startupEffectiveEnabled ? 'enabled' : 'disabled'}`;
   };
 
   // 알림 설정 변경 핸들러
@@ -235,7 +284,7 @@ function SettingsPage() {
         `UserProvider: ${user?.provider || '-'}`,
         `AutoLogin: ${autoLogin ? 'enabled' : 'disabled'}`,
         `AutoUpdate: ${autoUpdateEnabled ? 'enabled' : 'disabled'}`,
-        `Startup: ${window.electron?.getStartupEnabled ? (startupEnabled ? 'enabled' : 'disabled') : 'unavailable'}`,
+        `Startup: ${getStartupDiagnosticsLabel()}`,
         `Notification: ${notificationEnabled ? 'enabled' : 'disabled'}`,
         `BackendHealth: ${health.ok ? 'ok' : 'failed'}`,
         `BackendHttpStatus: ${health.httpStatus ?? '-'}`,
@@ -339,9 +388,15 @@ function SettingsPage() {
                     type="checkbox"
                     checked={startupEnabled}
                     onChange={(e) => handleStartupChange(e.target.checked)}
+                    disabled={startupStatus === 'updating'}
                   />
                   <span className="toggle-slider"></span>
                 </label>
+              </div>
+            )}
+            {startupMessage && (
+              <div className={`startup-status ${startupStatus === 'error' ? 'error' : 'warning'}`}>
+                {startupMessage}
               </div>
             )}
             <div className="setting-item">

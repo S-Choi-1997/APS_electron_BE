@@ -19,6 +19,7 @@ import UpdateProgressModal from './components/UpdateProgressModal';
 import { ROUTES, WINDOW_ROUTES } from './constants/routes';
 import { applyAppConfig, initializeAppConfig, checkApiHealth } from './config/api';
 import { memoQueryKeys } from './hooks/queries/memoQueryKeys';
+import { uploadPendingStartupDiagnostics } from './services/startupDiagnosticsService';
 import useWebSocketSync from './hooks/useWebSocketSync';
 import { showToastNotification } from './utils/notificationHelper';
 import MemoDetailWindow from './windows/MemoDetailWindow';
@@ -445,6 +446,12 @@ function AppContent() {
       queryClient.invalidateQueries({ queryKey: memoQueryKeys.all });
     });
   }, []);
+
+  useEffect(() => {
+    if (!user || !configReady) return;
+
+    uploadPendingStartupDiagnostics({ currentUser: user });
+  }, [user, configReady]);
 
   useWebSocketSync({
     enabled: Boolean(user && configReady),

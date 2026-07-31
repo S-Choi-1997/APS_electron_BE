@@ -16,7 +16,9 @@ const {
 const { createAutoUpdaterManager } = require('./auto-updater-manager');
 const { registerConfigIpcHandlers } = require('./config-ipc');
 const { registerFileIpcHandlers } = require('./file-ipc');
+const { createStartupDiagnostics } = require('./startup-diagnostics');
 const {
+  getStartupState,
   reconcileStartupRegistration,
   registerStartupIpcHandlers,
 } = require('./startup-ipc');
@@ -46,9 +48,19 @@ if (process.platform === 'win32') {
 }
 
 // 단일 인스턴스 잠금 (설치기가 새 인스턴스 실행 시 기존 앱 종료 유도)
+const startupDiagnostics = createStartupDiagnostics({
+  app,
+  appName: APP_NAME,
+  getStartupState: () => getStartupState(app, APP_NAME),
+});
+startupDiagnostics.record('process-start', {
+  gotReady: app.isReady(),
+});
+
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
+  startupDiagnostics.record('single-instance-lock-denied');
   // 이미 실행 중인 인스턴스가 있으면 즉시 종료
   app.quit();
   process.exit(0);
@@ -128,6 +140,12 @@ function showMainWindow(reason = 'show') {
   }
 
   console.log(`[Main] Main window shown (${reason})`);
+  startupDiagnostics.record('main-window-shown', {
+    reason,
+    visible: mainWindow.isVisible(),
+    focused: mainWindow.isFocused(),
+    minimized: mainWindow.isMinimized(),
+  });
   return true;
 }
 
@@ -137,6 +155,7 @@ function showMainWindow(reason = 'show') {
  */
 async function gracefulShutdown() {
   console.log('[Shutdown] Starting graceful shutdown...');
+  startupDiagnostics.record('graceful-shutdown-start');
   app.isQuitting = true;
 
   // 1. Heartbeat/WebSocket 정리
@@ -180,6 +199,7 @@ async function gracefulShutdown() {
   }
 
   console.log('[Shutdown] Graceful shutdown complete');
+  startupDiagnostics.record('graceful-shutdown-complete');
 }
 
 function getStickySettingsPath() {
@@ -302,6 +322,7 @@ registerStartupIpcHandlers({
   appName: APP_NAME,
   ipcMain,
 });
+startupDiagnostics.registerIpcHandlers(ipcMain);
 
 // Load sticky window settings
 function loadStickySettings(type) {
@@ -357,6 +378,7 @@ function attachRendererContextMenu(browserWindow) {
 }
 
 function createWindow() {
+  startupDiagnostics.record('create-window-start');
   // 메뉴바 완전히 제거
   Menu.setApplicationMenu(null);
 
@@ -372,18 +394,39 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
+    startupDiagnostics.record('main-window-ready-to-show');
     showMainWindow('ready-to-show');
   });
 
   mainWindow.webContents.once('did-finish-load', () => {
+    startupDiagnostics.record('main-window-did-finish-load');
     showMainWindow('did-finish-load');
   });
 
   setTimeout(() => {
+    startupDiagnostics.record('main-window-startup-fallback');
     showMainWindow('startup-fallback');
   }, 1500);
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    startupDiagnostics.record('main-window-did-fail-load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+    });
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    startupDiagnostics.record('main-window-render-process-gone', details);
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    startupDiagnostics.record('main-window-unresponsive');
+  });
+
   loadMainRenderer(mainWindow);
+  startupDiagnostics.record('main-window-load-requested');
   attachRendererContextMenu(mainWindow);
   // mainWindow.webContents.openDevTools(); // 개발/디버깅 시 필요하면 주석 해제
 
@@ -400,6 +443,7 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    startupDiagnostics.record('main-window-closed');
     mainWindow = null;
   });
 
@@ -410,6 +454,7 @@ function createWindow() {
       event.preventDefault();
       mainWindow.hide();
       console.log('[Main] Window hidden to tray');
+      startupDiagnostics.record('main-window-hidden-to-tray');
     }
     // app.isQuitting이 true면 정상 종료 허용
   });
@@ -1067,25 +1112,38 @@ ipcMain.handle('quit-app', async () => {
 });
 
 app.whenReady().then(() => {
-  // AutoUpdater 초기화 (app.isPackaged 접근 가능)
-  autoUpdateManager.init();
-  reconcileStartupRegistration(app, APP_NAME);
-
   const isStartupLaunch = process.argv.includes('--startup');
+  startupDiagnostics.record('app-ready', { isStartupLaunch });
+  // AutoUpdater 초기화 (app.isPackaged 접근 가능)
+  startupDiagnostics.record('auto-updater-init-start');
+  autoUpdateManager.init();
+  startupDiagnostics.record('auto-updater-init-complete');
+  startupDiagnostics.record('startup-reconcile-start');
+  const startupReconcileResult = reconcileStartupRegistration(app, APP_NAME);
+  startupDiagnostics.record('startup-reconcile-complete', startupReconcileResult);
 
   function startApp() {
+    startupDiagnostics.record('start-app');
     createWindow();
 
     // WebSocket 연결 초기화
     const config = loadConfig();
     webSocketManager.connect(config);
+    startupDiagnostics.record('websocket-connect-requested', {
+      mode: config?.mode,
+      environment: config?.environment,
+      restBaseUrl: config?.restBaseUrl,
+      wsBaseUrl: config?.wsBaseUrl,
+    });
 
     // 프로덕션 설치본에서 시작 시 1회, 이후 30분마다 업데이트 확인
     autoUpdateManager.scheduleChecks();
+    startupDiagnostics.record('auto-updater-schedule-checks');
   }
 
   if (isStartupLaunch) {
     console.log('[Main] App started via Windows Startup. Delaying launch by 5 seconds...');
+    startupDiagnostics.record('startup-delay-scheduled', { delayMs: 5000 });
     setTimeout(startApp, 5000);
   } else {
     startApp();
@@ -1094,6 +1152,9 @@ app.whenReady().then(() => {
 
 // 외부(설치기/OS)에서 앱 종료 요청 시
 app.on('before-quit', async (event) => {
+  startupDiagnostics.record('before-quit', {
+    appIsQuitting: Boolean(app.isQuitting),
+  });
   if (!app.isQuitting) {
     event.preventDefault();
     await gracefulShutdown();
@@ -1104,6 +1165,7 @@ app.on('before-quit', async (event) => {
 // 최종 정리 (will-quit)
 app.on('will-quit', () => {
   console.log('[App] will-quit: Final cleanup');
+  startupDiagnostics.record('will-quit');
   // 혹시 남아있는 리소스 정리
   webSocketManager.shutdown();
   if (tray) tray.destroy();
@@ -1111,6 +1173,7 @@ app.on('will-quit', () => {
 
 // 두 번째 인스턴스 실행 시 (설치기가 새 인스턴스 시도)
 app.on('second-instance', (event, commandLine) => {
+  startupDiagnostics.record('second-instance', { commandLine });
   // 설치기/업데이트 요청 감지
   const isInstallerRequest = commandLine.some(arg =>
     arg.includes('--installer') ||
@@ -1121,6 +1184,7 @@ app.on('second-instance', (event, commandLine) => {
 
   if (isInstallerRequest) {
     console.log('[App] Installer request detected, shutting down...');
+    startupDiagnostics.record('installer-second-instance-request');
     gracefulShutdown().then(() => app.quit());
     return;
   }
@@ -1132,6 +1196,9 @@ app.on('second-instance', (event, commandLine) => {
 });
 
 app.on('window-all-closed', () => {
+  startupDiagnostics.record('window-all-closed', {
+    appIsQuitting: Boolean(app.isQuitting),
+  });
   // 트레이로 백그라운드 실행 유지 (명시적 종료만 앱 종료)
   if (process.platform !== 'darwin' && app.isQuitting) {
     app.quit();
@@ -1140,6 +1207,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
+  startupDiagnostics.record('activate');
   if (mainWindow === null) {
     createWindow();
   }

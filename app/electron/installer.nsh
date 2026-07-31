@@ -80,7 +80,7 @@
 !macro customInstall
   ${If} $StartupPageShown == "1"
     ${If} $StartWithWindowsChecked == ${BST_CHECKED}
-      WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
+      WriteRegStr HKCU "${STARTUP_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe" --startup'
       WriteRegBin HKCU "${STARTUP_APPROVED_REG_KEY}" "${APP_NAME}" "020000000000000000000000"
     ${Else}
       DeleteRegValue HKCU "${STARTUP_REG_KEY}" "${APP_NAME}"
