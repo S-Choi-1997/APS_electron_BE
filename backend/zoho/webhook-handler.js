@@ -31,7 +31,8 @@ async function handleWebhook(req, res) {
         return res.status(401).json({ error: 'Missing signature' });
       }
 
-      const isValid = verifyWebhookSignature(JSON.stringify(webhookData), signature);
+      const signaturePayload = req.rawBody || JSON.stringify(webhookData);
+      const isValid = verifyWebhookSignature(signaturePayload, signature);
       if (!isValid) {
         console.error('[ZOHO Webhook] Invalid signature');
         return res.status(401).json({ error: 'Invalid signature' });

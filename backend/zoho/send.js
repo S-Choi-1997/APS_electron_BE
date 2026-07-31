@@ -66,6 +66,13 @@ function formatFromAddress(email, displayName) {
   return `"${escapedDisplayName}" <${normalizedEmail}>`;
 }
 
+function formatAddressList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || '').trim()).filter(Boolean).join(',');
+  }
+  return String(value || '').trim();
+}
+
 function sanitizeAttachmentName(filename) {
   const cleaned = String(filename || '')
     .replace(/[\\/:*?"<>|\x00-\x1F]/g, '_')
@@ -195,7 +202,11 @@ async function sendEmail(emailData) {
     } = emailData;
     const attachments = normalizeAttachments(emailData.attachments);
 
-    if (!to) {
+    const toAddress = formatAddressList(to);
+    const ccAddress = formatAddressList(cc);
+    const bccAddress = formatAddressList(bcc);
+
+    if (!toAddress) {
       throw new Error('Recipient email (to) is required');
     }
 
@@ -213,7 +224,7 @@ async function sendEmail(emailData) {
     // Build email payload according to ZOHO Mail API
     const payload = {
       fromAddress: formatFromAddress(config.accountEmail, config.fromDisplayName),
-      toAddress: to,
+      toAddress,
       subject: subject,
       content: bodyHtml || body,
       mailFormat: bodyHtml ? 'html' : 'plaintext',
@@ -239,12 +250,12 @@ async function sendEmail(emailData) {
     }
 
     // Add optional fields
-    if (cc && cc.length > 0) {
-      payload.ccAddress = cc.join(',');
+    if (ccAddress) {
+      payload.ccAddress = ccAddress;
     }
 
-    if (bcc && bcc.length > 0) {
-      payload.bccAddress = bcc.join(',');
+    if (bccAddress) {
+      payload.bccAddress = bccAddress;
     }
 
     if (attachments.length > 0) {
@@ -257,7 +268,7 @@ async function sendEmail(emailData) {
       }
     }
 
-    console.log('[ZOHO Send] Sending email to:', to);
+    console.log('[ZOHO Send] Sending email to:', toAddress);
     console.log('[ZOHO Send] Subject:', subject);
     console.log('[ZOHO Send] Attachments:', payload.attachments?.length || 0);
 
@@ -313,9 +324,17 @@ async function replyToEmail(replyData) {
     const accountId = await getAccountId();
     const normalizedAttachments = normalizeAttachments(attachments);
 
+    const toAddress = formatAddressList(to);
+    const ccAddress = formatAddressList(cc);
+    const bccAddress = formatAddressList(bcc);
+
+    if (!toAddress) {
+      throw new Error('Recipient email (to) is required');
+    }
+
     const payload = {
       fromAddress: formatFromAddress(config.accountEmail, config.fromDisplayName),
-      toAddress: to,
+      toAddress,
       subject: replySubject,
       content: bodyHtml || body,
       action: 'reply',
@@ -323,8 +342,8 @@ async function replyToEmail(replyData) {
       encoding: 'UTF-8'
     };
 
-    if (cc && cc.length > 0) payload.ccAddress = cc.join(',');
-    if (bcc && bcc.length > 0) payload.bccAddress = bcc.join(',');
+    if (ccAddress) payload.ccAddress = ccAddress;
+    if (bccAddress) payload.bccAddress = bccAddress;
 
     if (normalizedAttachments.length > 0) {
       payload.attachments = [];

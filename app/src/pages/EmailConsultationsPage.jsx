@@ -70,16 +70,43 @@ const EMPTY_COMPOSER = {
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_EXTRACT_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+function uniqueRecipients(values) {
+  const seen = new Set();
+  return values
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function parseRecipientText(value) {
+  const source = String(value || '').replace(/\u3000/g, ' ');
+  return source
+    .split(/[,\n;]+/)
+    .flatMap((chunk) => {
+      const trimmed = chunk.trim();
+      if (!trimmed) return [];
+      const matches = trimmed.match(EMAIL_EXTRACT_PATTERN);
+      if (matches?.length) return matches.map((item) => item.trim());
+      return trimmed.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+    });
+}
 
 function splitRecipients(value) {
-  return String(value || '')
-    .split(/[,\n;]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  if (Array.isArray(value)) {
+    return uniqueRecipients(value.flatMap((item) => splitRecipients(item)));
+  }
+  return uniqueRecipients(parseRecipientText(value));
 }
 
 function joinRecipients(value) {
-  return Array.isArray(value) ? value.join(', ') : String(value || '');
+  return splitRecipients(value).join(', ');
 }
 
 function normalizeEmailAddress(value) {
@@ -103,6 +130,130 @@ function uniqueEmailAddresses(values, excludedValues = []) {
     seen.add(key);
     return true;
   });
+}
+
+function shouldCommitRecipientInput(value, key) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (key === ' ' || key === 'Tab') return EMAIL_PATTERN.test(normalizeEmailAddress(text));
+  return true;
+}
+
+function RecipientInput({
+  value,
+  onChange,
+  disabled = false,
+  placeholder = '',
+  ariaLabel = '',
+}) {
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef(null);
+  const recipients = useMemo(() => splitRecipients(value), [value]);
+
+  const updateRecipients = (nextRecipients) => {
+    onChange(uniqueRecipients(nextRecipients).join(', '));
+  };
+
+  const commitDraft = (rawValue = draft) => {
+    const parsed = splitRecipients(rawValue);
+    if (parsed.length === 0) {
+      setDraft('');
+      return;
+    }
+    updateRecipients([...recipients, ...parsed]);
+    setDraft('');
+  };
+
+  const removeRecipient = (index) => {
+    updateRecipients(recipients.filter((_, itemIndex) => itemIndex !== index));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const editRecipient = (index) => {
+    const recipient = recipients[index];
+    updateRecipients(recipients.filter((_, itemIndex) => itemIndex !== index));
+    setDraft(recipient);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const handleKeyDown = (event) => {
+    if (disabled) return;
+
+    if (['Enter', ',', ';', 'Tab', ' '].includes(event.key) && shouldCommitRecipientInput(draft, event.key)) {
+      event.preventDefault();
+      commitDraft();
+      return;
+    }
+
+    if (event.key === 'Backspace' && !draft && recipients.length > 0) {
+      event.preventDefault();
+      editRecipient(recipients.length - 1);
+    }
+  };
+
+  const handleChange = (event) => {
+    const nextValue = event.target.value;
+    if (/[,\n;]/.test(nextValue)) {
+      commitDraft(nextValue);
+      return;
+    }
+    setDraft(nextValue);
+  };
+
+  const handlePaste = (event) => {
+    if (disabled) return;
+    const pastedText = event.clipboardData?.getData('text') || '';
+    const parsed = splitRecipients(pastedText);
+    if (parsed.length === 0) return;
+    event.preventDefault();
+    commitDraft(`${draft} ${pastedText}`);
+  };
+
+  return (
+    <div
+      className={`recipient-input ${disabled ? 'disabled' : ''}`}
+      onClick={() => inputRef.current?.focus()}
+    >
+      {recipients.map((recipient, index) => {
+        const invalid = !EMAIL_PATTERN.test(normalizeEmailAddress(recipient));
+        return (
+          <span className={`recipient-chip ${invalid ? 'invalid' : ''}`} key={`${recipient}-${index}`}>
+            <button
+              type="button"
+              className="recipient-chip-text"
+              onClick={() => editRecipient(index)}
+              disabled={disabled}
+              title={`${recipient} 수정`}
+            >
+              {recipient}
+            </button>
+            <button
+              type="button"
+              className="recipient-chip-remove"
+              onClick={() => removeRecipient(index)}
+              disabled={disabled}
+              aria-label={`${recipient} 삭제`}
+              title="삭제"
+            >
+              x
+            </button>
+          </span>
+        );
+      })}
+      <input
+        ref={inputRef}
+        className="recipient-input-field"
+        value={draft}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        onBlur={() => commitDraft()}
+        disabled={disabled}
+        placeholder={recipients.length === 0 ? placeholder : ''}
+        aria-label={ariaLabel}
+      />
+    </div>
+  );
 }
 
 function formatAttachmentSize(size = 0) {
@@ -524,35 +675,38 @@ function Composer({
         <button type="button" className="ghost-button composer-close-button" onClick={onClose}>닫기</button>
       </div>
       <div className="composer-fields">
-        <label>
-          받는사람
-          <input
+        <div className="composer-field-row">
+          <span className="composer-field-label">받는사람</span>
+          <RecipientInput
             value={composer.to}
-            onChange={(event) => onChange({ to: event.target.value })}
+            onChange={(value) => onChange({ to: value })}
             disabled={contentLocked}
             placeholder="받는 사람 이메일"
+            ariaLabel="받는사람"
           />
-        </label>
-        <label>
-          참조
-          <input
+        </div>
+        <div className="composer-field-row">
+          <span className="composer-field-label">참조</span>
+          <RecipientInput
             value={composer.cc}
-            onChange={(event) => onChange({ cc: event.target.value })}
+            onChange={(value) => onChange({ cc: value })}
             disabled={contentLocked}
             placeholder="참조 이메일"
+            ariaLabel="참조"
           />
-        </label>
-        <label>
-          숨은참조
-          <input
+        </div>
+        <div className="composer-field-row">
+          <span className="composer-field-label">숨은참조</span>
+          <RecipientInput
             value={composer.bcc}
-            onChange={(event) => onChange({ bcc: event.target.value })}
+            onChange={(value) => onChange({ bcc: value })}
             disabled={contentLocked}
             placeholder="숨은참조 이메일"
+            ariaLabel="숨은참조"
           />
-        </label>
-        <label>
-          제목
+        </div>
+        <label className="composer-field-row">
+          <span className="composer-field-label">제목</span>
           <input
             value={composer.subject}
             onChange={(event) => onChange({ subject: event.target.value })}

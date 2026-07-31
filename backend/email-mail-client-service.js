@@ -13,6 +13,8 @@ const LEGACY_STATUS = new Set(['unread', 'read', 'responded']);
 const MAILBOXES = new Set(['inbox', 'sent', 'drafts', 'trash', 'archive', 'spam', 'outbox', 'all']);
 const FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'trash', 'archive', 'spam', 'outbox', 'custom']);
 const FLAGS = new Set(['info', 'important', 'followup', 'flag_not_set']);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_EXTRACT_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 async function ensureMailClientSchema() {
   const migrationPath = path.join(__dirname, 'migrations', '005_email_mail_client_backend.sql');
@@ -41,10 +43,45 @@ function normalizeComparableEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function uniqueTextValues(values) {
+  const seen = new Set();
+  return values
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function parseAddressText(value) {
+  return String(value || '')
+    .replace(/\u3000/g, ' ')
+    .split(/[,\n;]+/)
+    .flatMap((chunk) => {
+      const trimmed = chunk.trim();
+      if (!trimmed) return [];
+      const matches = trimmed.match(EMAIL_EXTRACT_PATTERN);
+      if (matches?.length) return matches.map(email => email.trim());
+      return trimmed.split(/\s+/).map(email => email.trim()).filter(Boolean);
+    });
+}
+
 function parseArray(value) {
   if (!value) return [];
-  if (Array.isArray(value)) return value.map(String).map(v => v.trim()).filter(Boolean);
-  return String(value).split(',').map(v => v.trim()).filter(Boolean);
+  if (Array.isArray(value)) return uniqueTextValues(value.flatMap(item => parseArray(item)));
+  return uniqueTextValues(parseAddressText(value));
+}
+
+function assertValidRecipients(recipients) {
+  const invalidRecipients = recipients.filter(email => !EMAIL_PATTERN.test(email));
+  if (invalidRecipients.length > 0) {
+    const error = new Error(`Invalid email recipient: ${invalidRecipients.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 function normalizeJsonArray(value) {
@@ -995,6 +1032,7 @@ function normalizeOutgoingPayload(body) {
     error.statusCode = 400;
     throw error;
   }
+  assertValidRecipients([...to, ...cc, ...bcc]);
   if (!subject) {
     const error = new Error('Subject is required');
     error.statusCode = 400;
@@ -1024,6 +1062,7 @@ function normalizeDraftPayload(body) {
   const subject = String(body.subject || '').trim();
   const text = String(body.body || body.bodyText || '').trim();
   const html = body.bodyHtml ? String(body.bodyHtml) : null;
+  assertValidRecipients([...to, ...cc, ...bcc]);
 
   return {
     to,

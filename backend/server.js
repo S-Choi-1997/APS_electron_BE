@@ -768,7 +768,14 @@ if (WS_RELAY_ENABLED) {
 }
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "35mb" }));
+app.use(express.json({
+  limit: process.env.JSON_BODY_LIMIT || "35mb",
+  verify: (req, _res, buf) => {
+    if (req.path === '/api/zoho/webhook') {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 
 // Request logging middleware
 app.use((req, res, next) => {

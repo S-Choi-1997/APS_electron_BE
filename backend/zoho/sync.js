@@ -5,14 +5,70 @@
  */
 
 const { fetchMessages, parseMessageToInquiry, fetchFolders, fetchLabels } = require('./mail-api');
-const { saveEmailInquiry, getEmailInquiriesBySource } = require('./db-helper');
+const { saveEmailInquiry } = require('./db-helper');
 const { query } = require('../db');
 
-// Store last sync timestamp
-let lastSyncTime = null;
+// Store last sync timestamp by provider folder. A single global timestamp can
+// skip Inbox messages when Sent or another folder has a newer message.
+const lastSyncTimeByFolder = new Map();
 
 // Store interval ID for periodic sync
 let syncIntervalId = null;
+
+function toValidDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function maxDate(current, candidate) {
+  const candidateDate = toValidDate(candidate);
+  if (!candidateDate) return current;
+  if (!current) return candidateDate;
+  return candidateDate > current ? candidateDate : current;
+}
+
+function getFolderSyncKey(folderName) {
+  return String(folderName || '').trim().toLowerCase() || 'unknown';
+}
+
+function updateLastSyncTimeFromProvider(folderName, maxProviderDate) {
+  const providerDate = toValidDate(maxProviderDate);
+  if (!providerDate) return;
+  const key = getFolderSyncKey(folderName);
+  lastSyncTimeByFolder.set(key, maxDate(lastSyncTimeByFolder.get(key), providerDate));
+}
+
+async function getLastSyncTimeForFolder(folderName) {
+  const key = getFolderSyncKey(folderName);
+  if (lastSyncTimeByFolder.has(key)) {
+    return lastSyncTimeByFolder.get(key);
+  }
+
+  try {
+    const folderType = normalizeFolderType({ folderName });
+    const values = [folderName];
+    const folderTypeClause = folderType && folderType !== 'custom'
+      ? ` OR folder_type = $${values.push(folderType)}`
+      : '';
+    const result = await query(`
+      SELECT MAX(received_at) AS last_received_at
+      FROM email_inquiries
+      WHERE source = 'zoho'
+        AND provider_deleted_at IS NULL
+        AND (folder_name = $1${folderTypeClause});
+    `, values);
+    const lastReceivedAt = toValidDate(result.rows[0]?.last_received_at);
+    if (lastReceivedAt) {
+      lastSyncTimeByFolder.set(key, lastReceivedAt);
+      console.log(`[ZOHO Sync] Last sync time for ${folderName} from database:`, lastReceivedAt);
+    }
+    return lastReceivedAt;
+  } catch (error) {
+    console.warn(`[ZOHO Sync] Could not get last sync time for ${folderName} from database:`, error.message);
+    return null;
+  }
+}
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -58,7 +114,8 @@ async function fetchFolderMessages(folder, { pageSize = 100, stopAtDate = null, 
     if (stopAtDate) {
       const reachedKnownMessage = page.some((message) => {
         const inquiry = parseMessageToInquiry(message, folder === 'Sent');
-        return inquiry.receivedAt <= stopAtDate;
+        const receivedAt = toValidDate(inquiry.receivedAt);
+        return receivedAt && receivedAt <= stopAtDate;
       });
 
       if (reachedKnownMessage) break;
@@ -152,6 +209,7 @@ async function syncSingleFolder(folderName, { pageSize = 100 } = {}) {
   let totalNewCount = 0;
   let totalSkipCount = 0;
   let totalErrorCount = 0;
+  let maxProviderReceivedAt = null;
   const messages = await fetchFolderMessages(folderName, { pageSize });
 
   for (const message of messages) {
@@ -159,6 +217,7 @@ async function syncSingleFolder(folderName, { pageSize = 100 } = {}) {
       const inquiry = parseMessageToInquiry(message, normalizeFolderType({ folderName }) === 'sent');
       inquiry.folderName = folderName;
       inquiry.folderType = normalizeFolderType({ folderName });
+      maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
       const saved = await saveEmailInquiry(inquiry);
       if (saved) {
         totalNewCount++;
@@ -171,6 +230,7 @@ async function syncSingleFolder(folderName, { pageSize = 100 } = {}) {
       totalErrorCount++;
     }
   }
+  updateLastSyncTimeFromProvider(folderName, maxProviderReceivedAt);
 
   return {
     success: true,
@@ -198,7 +258,6 @@ async function performFullSync(options = {}) {
     let totalSkipCount = 0;
     let totalErrorCount = 0;
     let totalMessages = 0;
-
     // Sync both Inbox and Sent folders
     const folderRows = await query(`
       SELECT folder_name FROM email_folders
@@ -211,6 +270,7 @@ async function performFullSync(options = {}) {
 
     for (const folder of folders) {
       console.log(`[ZOHO Sync] Syncing ${folder} folder...`);
+      let maxProviderReceivedAt = null;
 
       // Fetch messages from ZOHO Mail API across every available page.
       const messages = await fetchFolderMessages(folder, { pageSize });
@@ -224,6 +284,7 @@ async function performFullSync(options = {}) {
           const inquiry = parseMessageToInquiry(message, folderType === 'sent');
           inquiry.folderName = folder;
           inquiry.folderType = folderType;
+          maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
 
           // Save to database (will skip if already exists)
           const saved = await saveEmailInquiry(inquiry);
@@ -244,10 +305,10 @@ async function performFullSync(options = {}) {
       }
 
       console.log(`[ZOHO Sync] ${folder} sync: ${messages.length} fetched`);
+      // Use the provider message timestamp, not wall-clock time. Setting this to
+      // "now" can skip a message that arrived while this sync was still running.
+      updateLastSyncTimeFromProvider(folder, maxProviderReceivedAt);
     }
-
-    // Update last sync time
-    lastSyncTime = new Date();
 
     const duration = Date.now() - startTime;
     console.log(`[ZOHO Sync] Full sync completed in ${duration}ms`);
@@ -272,23 +333,11 @@ async function performFullSync(options = {}) {
  */
 async function performIncrementalSync(options = {}) {
   try {
-    const { pageSize = 100 } = options;
+    const { pageSize = 100, reason = '' } = options;
 
-    console.log('[ZOHO Sync] Starting incremental sync...');
+    const reasonSuffix = reason ? ` (${reason})` : '';
+    console.log(`[ZOHO Sync] Starting incremental sync${reasonSuffix}...`);
     const startTime = Date.now();
-
-    // If this is the first sync, get the last inquiry date from database
-    if (!lastSyncTime) {
-      try {
-        const existingInquiries = await getEmailInquiriesBySource('zoho', { limit: 1, orderBy: 'received_at DESC' });
-        if (existingInquiries.length > 0) {
-          lastSyncTime = new Date(existingInquiries[0].received_at);
-          console.log('[ZOHO Sync] Last sync time from database:', lastSyncTime);
-        }
-      } catch (error) {
-        console.warn('[ZOHO Sync] Could not get last sync time from database:', error.message);
-      }
-    }
 
     let totalNewCount = 0;
     let totalSkipCount = 0;
@@ -308,9 +357,11 @@ async function performIncrementalSync(options = {}) {
 
     for (const folder of folders) {
       console.log(`[ZOHO Sync] Syncing ${folder} folder...`);
+      const folderLastSyncTime = await getLastSyncTimeForFolder(folder);
+      let maxProviderReceivedAt = folderLastSyncTime;
 
       // Fetch recent messages page-by-page until known data is reached.
-      const messages = await fetchFolderMessages(folder, { pageSize, stopAtDate: lastSyncTime });
+      const messages = await fetchFolderMessages(folder, { pageSize, stopAtDate: folderLastSyncTime });
 
       // Process messages until we hit one we've seen before or processed all
       for (const message of messages) {
@@ -320,9 +371,11 @@ async function performIncrementalSync(options = {}) {
           const inquiry = parseMessageToInquiry(message, folderType === 'sent');
           inquiry.folderName = folder;
           inquiry.folderType = folderType;
+          maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
 
           // If we have a last sync time and this message is older, skip remaining
-          if (lastSyncTime && inquiry.receivedAt <= lastSyncTime) {
+          const receivedAt = toValidDate(inquiry.receivedAt);
+          if (folderLastSyncTime && receivedAt && receivedAt <= folderLastSyncTime) {
             totalSkipCount++;
             continue;
           }
@@ -344,10 +397,9 @@ async function performIncrementalSync(options = {}) {
           totalErrorCount++;
         }
       }
-    }
 
-    // Update last sync time
-    lastSyncTime = new Date();
+      updateLastSyncTimeFromProvider(folder, maxProviderReceivedAt);
+    }
 
     const duration = Date.now() - startTime;
     console.log(`[ZOHO Sync] Incremental sync completed in ${duration}ms`);
@@ -369,30 +421,57 @@ async function performIncrementalSync(options = {}) {
 /**
  * Start periodic sync job
  */
-function startPeriodicSync(intervalMinutes = 15) {
+function startPeriodicSync(intervalMinutes = 15, options = {}) {
   try {
+    const { runImmediately = true } = options;
+
     // Stop existing interval if any
     if (syncIntervalId) {
       stopPeriodicSync();
     }
 
-    console.log(`[ZOHO Sync] Starting periodic sync (every ${intervalMinutes} minutes)...`);
+    const parsedInterval = Number(intervalMinutes);
+    const safeIntervalMinutes = Number.isFinite(parsedInterval) && parsedInterval > 0
+      ? parsedInterval
+      : 15;
+    let periodicSyncRunning = false;
 
-    // Run initial sync
-    performIncrementalSync().catch(error => {
-      console.error('[ZOHO Sync] Initial sync failed:', error);
-    });
+    console.log(`[ZOHO Sync] Starting periodic sync (every ${safeIntervalMinutes} minutes)...`);
 
-    // Set up interval for periodic sync
-    const intervalMs = intervalMinutes * 60 * 1000;
-    syncIntervalId = setInterval(async () => {
+    const runPeriodicSync = async (reason) => {
+      if (periodicSyncRunning) {
+        console.warn('[ZOHO Sync] Periodic sync skipped because the previous periodic sync is still running');
+        return;
+      }
+
+      periodicSyncRunning = true;
       try {
-        await performIncrementalSync();
+        const result = await performIncrementalSync({ reason });
+        if (global.broadcastEvent) {
+          global.broadcastEvent('email:sync-completed', { ...result, reason });
+        }
       } catch (error) {
         console.error('[ZOHO Sync] Periodic sync failed:', error);
-        // Continue running despite errors
+        // Continue running despite errors.
+      } finally {
+        periodicSyncRunning = false;
       }
+    };
+
+    if (runImmediately) {
+      runPeriodicSync('periodic-start').catch(error => {
+        console.error('[ZOHO Sync] Initial periodic sync failed:', error);
+      });
+    }
+
+    // Set up interval for periodic sync
+    const intervalMs = safeIntervalMinutes * 60 * 1000;
+    syncIntervalId = setInterval(() => {
+      runPeriodicSync('periodic-interval');
     }, intervalMs);
+    if (typeof syncIntervalId.unref === 'function') {
+      syncIntervalId.unref();
+    }
 
     console.log('[ZOHO Sync] Periodic sync started successfully');
     return syncIntervalId;

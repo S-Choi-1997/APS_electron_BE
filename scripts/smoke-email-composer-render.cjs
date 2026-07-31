@@ -67,10 +67,33 @@ function buildFixtureHtml() {
               <button type="button" class="ghost-button composer-close-button">닫기</button>
             </div>
             <div class="composer-fields">
-              <label>받는사람 <input value="client@example.com"></label>
-              <label>참조 <input value=""></label>
-              <label>숨은참조 <input value=""></label>
-              <label>제목 <input value="Re: 상담 요청"></label>
+              <div class="composer-field-row">
+                <span class="composer-field-label">받는사람</span>
+                <div class="recipient-input">
+                  <span class="recipient-chip">
+                    <button type="button" class="recipient-chip-text">client@example.com</button>
+                    <button type="button" class="recipient-chip-remove" aria-label="client@example.com 삭제">x</button>
+                  </span>
+                  <span class="recipient-chip">
+                    <button type="button" class="recipient-chip-text">team@example.com</button>
+                    <button type="button" class="recipient-chip-remove" aria-label="team@example.com 삭제">x</button>
+                  </span>
+                  <input class="recipient-input-field" value="" placeholder="받는 사람 이메일">
+                </div>
+              </div>
+              <div class="composer-field-row">
+                <span class="composer-field-label">참조</span>
+                <div class="recipient-input">
+                  <input class="recipient-input-field" value="" placeholder="참조 이메일">
+                </div>
+              </div>
+              <div class="composer-field-row">
+                <span class="composer-field-label">숨은참조</span>
+                <div class="recipient-input">
+                  <input class="recipient-input-field" value="" placeholder="숨은참조 이메일">
+                </div>
+              </div>
+              <label class="composer-field-row"><span class="composer-field-label">제목</span><input value="Re: 상담 요청"></label>
             </div>
             <textarea class="composer-body">안녕하세요.
 
@@ -169,6 +192,8 @@ app.whenReady().then(async () => {
 
           const composer = rect('.mail-composer');
           const fields = rect('.composer-fields');
+          const recipientInput = rect('.recipient-input');
+          const recipientChip = rect('.recipient-chip');
           const body = rect('.composer-body');
           const attachments = rect('.composer-attachments');
           const attachmentSummary = rect('.composer-attachment-summary');
@@ -198,7 +223,7 @@ app.whenReady().then(async () => {
 
           return {
             viewport: { width: window.innerWidth, height: window.innerHeight },
-            rects: { composer, fields, body, attachments, attachmentSummary, picker, attachmentList, footer, actions, schedule, buttons },
+            rects: { composer, fields, recipientInput, recipientChip, body, attachments, attachmentSummary, picker, attachmentList, footer, actions, schedule, buttons },
             computed: {
               composerRadius: window.getComputedStyle(document.querySelector('.mail-composer')).borderRadius,
               bodyBorder: window.getComputedStyle(document.querySelector('.composer-body')).borderTopWidth,
@@ -206,6 +231,7 @@ app.whenReady().then(async () => {
             },
             assertions: {
               composerVisible: composer && composer.width > 260 && composer.height > 420,
+              recipientTokensVisible: recipientInput && recipientChip && recipientChip.right <= recipientInput.right + 1,
               bodyHasVisibleBox: body && body.height >= 168 && body.width > 240,
               sectionsDoNotOverlap: gap(fields, body) >= 8 && gap(body, attachments) >= 8 && gap(attachments, footer) >= 10,
               footerInsideComposer: composer && footer && footer.right <= composer.right + 1 && footer.bottom <= composer.bottom + 1,

@@ -202,6 +202,10 @@ async function saveEmailInquiry(inquiryData) {
         folder_id = COALESCE(EXCLUDED.folder_id, email_inquiries.folder_id),
         folder_name = COALESCE(EXCLUDED.folder_name, email_inquiries.folder_name),
         folder_type = COALESCE(EXCLUDED.folder_type, email_inquiries.folder_type),
+        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), email_inquiries.from_email),
+        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), email_inquiries.from_name),
+        to_email = COALESCE(NULLIF(EXCLUDED.to_email, ''), email_inquiries.to_email),
+        cc_emails = COALESCE(EXCLUDED.cc_emails, email_inquiries.cc_emails),
         read_state = COALESCE(EXCLUDED.read_state, email_inquiries.read_state),
         response_state = COALESCE(email_inquiries.response_state, EXCLUDED.response_state),
         status = CASE

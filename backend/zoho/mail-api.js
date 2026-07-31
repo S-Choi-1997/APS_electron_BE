@@ -469,22 +469,56 @@ async function deleteLabel(labelId) {
   return getResponseData(response);
 }
 
-/**
- * Helper function to decode HTML entities and extract clean email address
- */
-function decodeAndCleanEmail(emailStr) {
-  if (!emailStr) return '';
+const EMAIL_EXTRACT_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
-  // Decode common HTML entities
-  const decoded = emailStr
+function decodeHtmlEntities(value) {
+  return String(value || '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#x27;/g, "'")
     .replace(/&#x2F;/g, '/');
+}
+
+function extractEmailAddresses(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    const seen = new Set();
+    return value
+      .flatMap(extractEmailAddresses)
+      .filter((email) => {
+        const key = email.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  const decoded = decodeHtmlEntities(value);
+  const matches = decoded.match(EMAIL_EXTRACT_PATTERN) || [];
+  const seen = new Set();
+  return matches
+    .map(email => email.trim())
+    .filter(Boolean)
+    .filter((email) => {
+      const key = email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+/**
+ * Helper function to decode HTML entities and extract clean email address
+ */
+function decodeAndCleanEmail(emailStr) {
+  if (!emailStr) return '';
+  const emails = extractEmailAddresses(emailStr);
+  if (emails.length > 0) return emails[0];
 
   // Extract email from formats like "Name <email@domain.com>" or "<email@domain.com>"
+  const decoded = decodeHtmlEntities(emailStr);
   const emailMatch = decoded.match(/<([^>]+)>/) || decoded.match(/([^\s<>]+@[^\s<>]+)/);
   return emailMatch ? emailMatch[1].trim() : decoded.trim();
 }
@@ -509,7 +543,7 @@ function parseMessageToInquiry(message, isOutgoing = false) {
 
   // Check if this is an outgoing email based on sender
   // Even if it's in Inbox folder, if sender is our account, it's outgoing
-  const actuallyOutgoing = isOutgoing || (accountEmail && fromEmail.toLowerCase() === accountEmail);
+  const actuallyOutgoing = Boolean(isOutgoing || (accountEmail && fromEmail.toLowerCase() === accountEmail));
 
   // Extract inReplyTo from IntegIdList (ZOHO webhook format)
   // IntegIdList contains comma-separated message IDs that this email is replying to
@@ -548,6 +582,11 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   console.log('  - inReplyTo:', inReplyTo);
   console.log('  - messageId:', message.messageId);
 
+  const toEmails = extractEmailAddresses(message.toAddress || message.to || message.toEmail);
+  const ccEmails = message.ccAddress && message.ccAddress !== 'Not Provided'
+    ? extractEmailAddresses(message.ccAddress)
+    : extractEmailAddresses(message.ccEmails || message.cc || []);
+
   return {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
@@ -559,10 +598,8 @@ function parseMessageToInquiry(message, isOutgoing = false) {
     body: message.content || message.summary || message.body,
     bodyHtml: message.content || message.bodyHtml,
     receivedAt: receivedAt,
-    toEmail: decodeAndCleanEmail(message.toAddress || message.to),
-    ccEmails: message.ccAddress && message.ccAddress !== 'Not Provided'
-      ? message.ccAddress.split(',').map(e => decodeAndCleanEmail(e))
-      : (message.ccEmails || []),
+    toEmail: toEmails.join(', '),
+    ccEmails,
     hasAttachments: message.hasAttachment === '1' || message.hasAttachment === true || message.hasAttachments,
     isOutgoing: actuallyOutgoing,
     readState: message.status === '0' || message.isRead === false ? 'unread' : 'read',
