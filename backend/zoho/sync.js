@@ -4,9 +4,10 @@
  * Handles periodic synchronization of ZOHO Mail messages
  */
 
-const { fetchMessages, parseMessageToInquiry, fetchFolders, fetchLabels } = require('./mail-api');
+const { fetchMessages, parseMessageToInquiry, fetchFolders, fetchLabels, fetchMessageContent } = require('./mail-api');
 const { saveEmailInquiry } = require('./db-helper');
 const { query } = require('../db');
+const { isBounceMessage, applyBounceToOutgoing } = require('../email-delivery-service');
 
 // Store last sync timestamp by provider folder. A single global timestamp can
 // skip Inbox messages when Sent or another folder has a newer message.
@@ -30,6 +31,26 @@ function maxDate(current, candidate) {
 
 function getFolderSyncKey(folderName) {
   return String(folderName || '').trim().toLowerCase() || 'unknown';
+}
+
+async function processDeliveryNotification(inquiry) {
+  if (!isBounceMessage(inquiry)) return [];
+  let content = inquiry.bodyHtml || inquiry.body || '';
+  if (inquiry.messageId && inquiry.folderId) {
+    try {
+      const fullContent = await fetchMessageContent(inquiry.messageId, inquiry.folderId);
+      content = typeof fullContent === 'object' && fullContent !== null
+        ? (fullContent.content || fullContent.html || fullContent.text || content)
+        : (fullContent || content);
+    } catch (error) {
+      console.warn('[ZOHO Sync] Could not fetch full bounce content; using message summary:', error.message);
+    }
+  }
+  const updated = await applyBounceToOutgoing({ query, bounceMessage: inquiry, content });
+  if (global.broadcastEvent) {
+    updated.forEach(email => global.broadcastEvent('email:updated', email));
+  }
+  return updated;
 }
 
 function updateLastSyncTimeFromProvider(folderName, maxProviderDate) {
@@ -219,6 +240,7 @@ async function syncSingleFolder(folderName, { pageSize = 100 } = {}) {
       inquiry.folderType = normalizeFolderType({ folderName });
       maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
       const saved = await saveEmailInquiry(inquiry);
+      await processDeliveryNotification(inquiry);
       if (saved) {
         totalNewCount++;
         if (global.broadcastEvent) global.broadcastEvent('email:created', saved);
@@ -288,6 +310,7 @@ async function performFullSync(options = {}) {
 
           // Save to database (will skip if already exists)
           const saved = await saveEmailInquiry(inquiry);
+          await processDeliveryNotification(inquiry);
 
           if (saved) {
             totalNewCount++;
@@ -382,6 +405,7 @@ async function performIncrementalSync(options = {}) {
 
           // Save to database (will skip duplicates automatically via ON CONFLICT)
           const saved = await saveEmailInquiry(inquiry);
+          await processDeliveryNotification(inquiry);
 
           if (saved) {
             totalNewCount++;

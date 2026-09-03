@@ -18,6 +18,7 @@ import {
   fetchEmailInquiries,
   fetchEmailLabels,
   fetchEmailMailbox,
+  fetchEmailRecipientSuggestions,
   fetchEmailStats,
   fetchEmailThread,
   fetchScheduledEmails,
@@ -55,11 +56,13 @@ const EMAIL_INVALIDATION_SCOPES = {
     emailQueryKeys.draftsRoot,
     emailQueryKeys.mailboxes,
     emailQueryKeys.stats,
+    emailQueryKeys.recipientSuggestionsRoot,
   ],
   scheduled: [
     emailQueryKeys.scheduledRoot,
     emailQueryKeys.mailboxes,
     emailQueryKeys.stats,
+    emailQueryKeys.recipientSuggestionsRoot,
   ],
   labels: [
     emailQueryKeys.mailboxes,
@@ -69,16 +72,19 @@ const EMAIL_INVALIDATION_SCOPES = {
   send: [
     emailQueryKeys.mailboxes,
     emailQueryKeys.stats,
+    emailQueryKeys.recipientSuggestionsRoot,
   ],
   response: [
     emailQueryKeys.mailboxes,
     emailQueryKeys.stats,
+    emailQueryKeys.recipientSuggestionsRoot,
   ],
   sync: [
     emailQueryKeys.mailboxes,
     emailQueryKeys.folders,
     emailQueryKeys.labels,
     emailQueryKeys.stats,
+    emailQueryKeys.recipientSuggestionsRoot,
   ],
 };
 
@@ -163,6 +169,18 @@ export function useEmailSearch(params = {}, options = {}) {
       refetchInterval: false,
       ...options,
     }),
+  });
+}
+
+export function useEmailRecipientSuggestions(search = '', options = {}) {
+  const params = { q: String(search || '').trim(), limit: options.limit || 8 };
+  return useQuery({
+    queryKey: emailQueryKeys.recipientSuggestions(params),
+    queryFn: () => fetchEmailRecipientSuggestions(params),
+    enabled: options.enabled ?? true,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
   });
 }
 

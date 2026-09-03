@@ -6,6 +6,10 @@ const zohoSync = require('./zoho/sync');
 const { sendEmail, replyToEmail } = require('./zoho/send');
 const { saveOutgoingEmail, updateEmailStatus } = require('./zoho/db-helper');
 const config = require('./zoho/config');
+const sanitizeHtml = require('sanitize-html');
+const { assertDeliverableRecipients, validateRecipientDomains } = require('./email-recipient-validation');
+const { reprocessStoredBounces } = require('./email-delivery-service');
+const { buildRecipientSuggestions } = require('./email-recipient-suggestions');
 
 const READ_STATES = new Set(['unread', 'read']);
 const RESPONSE_STATES = new Set(['pending', 'responded']);
@@ -17,14 +21,51 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_EXTRACT_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 async function ensureMailClientSchema() {
-  const migrationPath = path.join(__dirname, 'migrations', '005_email_mail_client_backend.sql');
-  if (!fs.existsSync(migrationPath)) {
-    console.warn('[Email Mail Client] Schema migration file missing');
-    return;
+  const migrations = ['005_email_mail_client_backend.sql', '006_email_delivery_status.sql'];
+  for (const migration of migrations) {
+    const migrationPath = path.join(__dirname, 'migrations', migration);
+    if (!fs.existsSync(migrationPath)) {
+      console.warn(`[Email Mail Client] Schema migration file missing: ${migration}`);
+      continue;
+    }
+    await db.query(fs.readFileSync(migrationPath, 'utf8'));
   }
-
-  await db.query(fs.readFileSync(migrationPath, 'utf8'));
+  try {
+    const deliveryBackfill = await reprocessStoredBounces(db.query);
+    if (deliveryBackfill.scanned > 0) {
+      console.log(`[Email Mail Client] Delivery backfill: ${deliveryBackfill.updated} updated from ${deliveryBackfill.scanned} bounce message(s)`);
+    }
+  } catch (error) {
+    console.warn('[Email Mail Client] Delivery backfill skipped:', error.message);
+  }
   console.log('[Email Mail Client] Schema ensured');
+}
+
+function sanitizeOutgoingHtml(value) {
+  if (!value) return null;
+  return sanitizeHtml(String(value), {
+    allowedTags: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'blockquote', 'ul', 'ol', 'li', 'a', 'img', 'pre', 'code', 'h1', 'h2', 'h3', 'hr'],
+    allowedAttributes: {
+      a: ['href', 'target', 'rel'],
+      img: ['src', 'alt', 'title', 'width', 'height'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto', 'data'],
+    allowedSchemesByTag: { img: ['http', 'https', 'data'] },
+    allowedSchemesAppliedToAttributes: ['href', 'src'],
+    transformTags: {
+      a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }),
+    },
+  });
+}
+
+function filterReferencedAttachments(attachments, html) {
+  const values = Array.isArray(attachments) ? attachments : [];
+  return values.filter((attachment) => {
+    if (attachment?.inline !== true) return true;
+    const contentType = attachment.contentType || attachment.type || 'application/octet-stream';
+    const dataUrl = `data:${contentType};base64,${String(attachment.contentBase64 || '')}`;
+    return Boolean(html && attachment.contentBase64 && html.includes(dataUrl));
+  });
 }
 
 function parsePositiveInt(value, fallback, { min = 0, max = 500 } = {}) {
@@ -73,6 +114,30 @@ function parseArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return uniqueTextValues(value.flatMap(item => parseArray(item)));
   return uniqueTextValues(parseAddressText(value));
+}
+
+async function getRecipientSuggestions({ search = '', query = '', q = '', limit = 10 } = {}, ownAddresses = []) {
+  const normalizedQuery = String(q || query || search || '').trim();
+  const [emails, users] = await Promise.all([
+    db.query(`
+      SELECT from_email, from_name, to_email, cc_emails, is_outgoing, received_at,
+             delivery_status, delivery_details
+      FROM email_inquiries
+      WHERE provider_deleted_at IS NULL
+      ORDER BY received_at DESC
+    `),
+    normalizedQuery
+      ? db.query(`SELECT email, display_name FROM users WHERE active = true ORDER BY display_name ASC`)
+      : Promise.resolve({ rows: [] }),
+  ]);
+
+  return buildRecipientSuggestions({
+    emailRows: emails.rows,
+    userRows: users.rows,
+    query: normalizedQuery,
+    limit: parsePositiveInt(limit, 10, { min: 1, max: 20 }),
+    ownAddresses: [config.accountEmail, ...ownAddresses],
+  });
 }
 
 function assertValidRecipients(recipients) {
@@ -191,6 +256,9 @@ function buildOutgoingFallbackEmail({
     inReplyTo,
     isOutgoing: true,
     providerSaved: false,
+    deliveryStatus: 'accepted',
+    deliveryDetails: {},
+    deliveryUpdatedAt: sentAt,
     localSaveError: error?.message || 'Failed to save sent email locally',
   };
 }
@@ -259,6 +327,9 @@ function normalizeEmailRow(row) {
     translationModel: row.translation_model || null,
     translationError: row.translation_error || null,
     translatedAt: row.translated_at || null,
+    deliveryStatus: row.delivery_status || (row.is_outgoing ? 'accepted' : null),
+    deliveryDetails: row.delivery_details || {},
+    deliveryUpdatedAt: row.delivery_updated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1025,7 +1096,7 @@ function normalizeOutgoingPayload(body) {
   const bcc = parseArray(body.bcc || body.bccEmails);
   const subject = String(body.subject || '').trim();
   const text = String(body.body || body.bodyText || '').trim();
-  const html = body.bodyHtml ? String(body.bodyHtml) : null;
+  const html = sanitizeOutgoingHtml(body.bodyHtml);
 
   if (to.length === 0) {
     const error = new Error('At least one recipient is required');
@@ -1051,7 +1122,7 @@ function normalizeOutgoingPayload(body) {
     subject,
     body: text || html,
     bodyHtml: html,
-    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+    attachments: filterReferencedAttachments(body.attachments, html),
   };
 }
 
@@ -1061,7 +1132,7 @@ function normalizeDraftPayload(body) {
   const bcc = parseArray(body.bcc || body.bccEmails);
   const subject = String(body.subject || '').trim();
   const text = String(body.body || body.bodyText || '').trim();
-  const html = body.bodyHtml ? String(body.bodyHtml) : null;
+  const html = sanitizeOutgoingHtml(body.bodyHtml);
   assertValidRecipients([...to, ...cc, ...bcc]);
 
   return {
@@ -1083,6 +1154,7 @@ function looksLikeForwardedStoredMessage(record) {
 
 async function sendNewEmail(body) {
   const payload = normalizeOutgoingPayload(body);
+  await assertDeliverableRecipients([...payload.to, ...payload.cc, ...payload.bcc]);
   const result = await callProviderWithAudit({
     operationType: 'send_email',
     targetType: 'message',
@@ -1156,7 +1228,9 @@ async function replyToInquiry(id, body) {
   }
 
   const responseBody = String(body.body || body.bodyText || body.responseText || '').trim();
-  if (!responseBody) {
+  const responseHtml = sanitizeOutgoingHtml(body.bodyHtml);
+  const responseAttachments = filterReferencedAttachments(body.attachments, responseHtml);
+  if (!responseBody && !responseHtml) {
     const error = new Error('Reply body is required');
     error.statusCode = 400;
     throw error;
@@ -1178,6 +1252,8 @@ async function replyToInquiry(id, body) {
     : [];
   const cc = [...new Set([...requestedCc, ...replyAllCc])];
   const bcc = parseArray(body.bcc || body.bccEmails);
+  assertValidRecipients([...to, ...cc, ...bcc]);
+  await assertDeliverableRecipients([...to, ...cc, ...bcc]);
   const result = await callProviderWithAudit({
     operationType: 'reply_email',
     targetType: 'message',
@@ -1187,17 +1263,17 @@ async function replyToInquiry(id, body) {
       cc,
       bcc,
       subject: requestedSubject,
-      attachmentCount: Array.isArray(body.attachments) ? body.attachments.length : 0,
+      attachmentCount: responseAttachments.length,
     },
   }, () => replyToEmail({
     originalMessageId: row.message_id,
     to: to.join(','),
     subject: requestedSubject,
     body: responseBody,
-    bodyHtml: body.bodyHtml,
+    bodyHtml: responseHtml,
     cc,
     bcc,
-    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+    attachments: responseAttachments,
   }));
 
   if (!result.success || !result.messageId) {
@@ -1211,7 +1287,7 @@ async function replyToInquiry(id, body) {
     to,
     cc,
     bcc,
-    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+    attachments: responseAttachments,
   };
   let savedEmail;
   let localSaveError = null;
@@ -1224,10 +1300,10 @@ async function replyToInquiry(id, body) {
       bcc,
       subject: replySubject,
       body: responseBody,
-      bodyHtml: body.bodyHtml || responseBody,
+      bodyHtml: responseHtml || responseBody,
       fromEmail: config.accountEmail || 'admin@apsconsulting.kr',
       fromName: config.fromDisplayName || 'APS Admin',
-      hasAttachments: Array.isArray(body.attachments) && body.attachments.length > 0,
+      hasAttachments: responseAttachments.length > 0,
       sentAt: new Date(),
       providerRaw: result,
     });
@@ -1239,7 +1315,7 @@ async function replyToInquiry(id, body) {
       payload: sentPayload,
       subject: replySubject,
       body: responseBody,
-      bodyHtml: body.bodyHtml || responseBody,
+      bodyHtml: responseHtml || responseBody,
       fromEmail: config.accountEmail || 'admin@apsconsulting.kr',
       fromName: config.fromDisplayName || 'APS Admin',
       inReplyTo: row.message_id,
@@ -1368,6 +1444,7 @@ async function sendDraftRecord(id) {
 
 async function createScheduledRecord(body, user) {
   const payload = normalizeOutgoingPayload(body);
+  await assertDeliverableRecipients([...payload.to, ...payload.cc, ...payload.bcc]);
   const scheduledAt = new Date(body.scheduledAt);
   if (Number.isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
     const error = new Error('scheduledAt must be a future date');
@@ -1607,6 +1684,10 @@ function registerRoutes(app, auth, asyncHandler) {
 
   app.get('/email-labels', auth.authenticateJWT, asyncHandler(async (req, res) => {
     res.json({ data: await getLabels({ refresh: req.query.refresh === 'true' }) });
+  }));
+
+  app.get('/email-recipients/suggestions', auth.authenticateJWT, asyncHandler(async (req, res) => {
+    res.json({ data: await getRecipientSuggestions(req.query, [req.user?.email]) });
   }));
 
   app.post('/api/zoho/sync/folder/:folderId', auth.authenticateJWT, asyncHandler(async (req, res) => {
@@ -1884,6 +1965,12 @@ function registerRoutes(app, auth, asyncHandler) {
     const result = await sendNewEmail(req.body || {});
     if (global.broadcastEvent && result.data?.id) global.broadcastEvent('email:created', result.data);
     res.status(201).json(result);
+  }));
+
+  app.post('/emails/validate-recipients', auth.authenticateJWT, asyncHandler(async (req, res) => {
+    const recipients = parseArray([req.body?.to, req.body?.cc, req.body?.bcc]);
+    assertValidRecipients(recipients);
+    res.json(await validateRecipientDomains(recipients));
   }));
 
   app.post('/email-inquiries/:id/reply', auth.authenticateJWT, asyncHandler(async (req, res) => {

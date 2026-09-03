@@ -95,6 +95,11 @@
   color: #1a1a1a;
 }
 
+.dash-modal-close-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .dash-modal-body {
   padding: 1.25rem;
   overflow-y: auto;
@@ -268,4 +273,32 @@
 .delete-confirm .modal-actions {
   margin-top: auto;
   padding-top: 1.5rem;
+}
+
+.confirm-dialog {
+  text-align: center;
+  padding: 0.5rem 0 0;
+}
+
+.confirm-dialog-message {
+  margin: 0;
+  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.confirm-dialog-description {
+  margin: 0.5rem 0 0;
+  color: #6b7280;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.confirm-dialog .modal-actions {
+  margin-top: 1.5rem;
+}
+
+.confirm-dialog .modal-btn {
+  min-width: 96px;
 }

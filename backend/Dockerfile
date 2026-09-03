@@ -17,7 +17,10 @@ COPY startup-readiness.js ./
 COPY auth.js ./
 COPY firestore-admin.js ./
 COPY crypto-helper.js ./
+COPY email-delivery-service.js ./
 COPY email-mail-client-service.js ./
+COPY email-recipient-suggestions.js ./
+COPY email-recipient-validation.js ./
 COPY email-translation-service.js ./
 COPY email-translation-routes.js ./
 COPY email-response-routes.js ./

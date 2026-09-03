@@ -112,7 +112,8 @@ async function runMigrations() {
     '002_create_zoho_tokens_table.sql',
     '003_add_thread_and_status_fields.sql',
     '004_add_email_translation_fields.sql',
-    '005_email_mail_client_backend.sql'
+    '005_email_mail_client_backend.sql',
+    '006_email_delivery_status.sql'
   ];
 
   console.log("[DB] Migrations disabled - using init-db.sql");

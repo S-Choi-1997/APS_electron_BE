@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS email_inquiries (
   provider_deleted_at TIMESTAMP,
   last_provider_sync_at TIMESTAMP,
   provider_raw JSONB DEFAULT '{}'::jsonb,
+  delivery_status VARCHAR(20) CHECK (delivery_status IS NULL OR delivery_status IN ('accepted', 'partial', 'failed')),
+  delivery_details JSONB DEFAULT '{}'::jsonb,
+  delivery_updated_at TIMESTAMP,
   in_reply_to VARCHAR(255),
   "references" TEXT[],
   thread_id VARCHAR(255),
@@ -68,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_email_inquiries_labels_gin ON email_inquiries USI
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_archived_at ON email_inquiries(archived_at);
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_trashed_at ON email_inquiries(trashed_at);
 CREATE INDEX IF NOT EXISTS idx_email_inquiries_provider_deleted_at ON email_inquiries(provider_deleted_at);
+CREATE INDEX IF NOT EXISTS idx_email_inquiries_delivery_status ON email_inquiries(delivery_status) WHERE is_outgoing = true;
 
 CREATE TABLE IF NOT EXISTS email_folders (
   folder_id VARCHAR(100) PRIMARY KEY,

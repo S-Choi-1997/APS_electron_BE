@@ -20,6 +20,7 @@ const INITIAL_EMAIL_PAGE_STATE = {
   showTranslation: false,
   translatedEmailOverride: null,
   filtersOpen: false,
+  actionsOpen: false,
 };
 
 function emailPageStateReducer(state, action) {
@@ -63,6 +64,7 @@ export function useEmailPageState() {
     setShowTranslation: setStateKey('showTranslation'),
     setTranslatedEmailOverride: setStateKey('translatedEmailOverride'),
     setFiltersOpen: setStateKey('filtersOpen'),
+    setActionsOpen: setStateKey('actionsOpen'),
   }), [setStateKey]);
 
   return {

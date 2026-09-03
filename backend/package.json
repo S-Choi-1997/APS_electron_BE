@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "setup-db": "node setup-db.js"
+    "setup-db": "node setup-db.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [
     "aps",
@@ -29,6 +30,7 @@
     "firebase-admin": "^12.5.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.13.1",
+    "sanitize-html": "2.16.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1"
   }

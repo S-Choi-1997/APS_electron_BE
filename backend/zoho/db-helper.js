@@ -434,10 +434,13 @@ async function saveOutgoingEmail(emailData) {
         labels,
         provider_raw,
         last_provider_sync_at,
+        delivery_status,
+        delivery_details,
+        delivery_updated_at,
         received_at,
         created_at,
         updated_at
-      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, 'responded', true, 'Sent', 'sent', 'read', 'responded', '[]'::jsonb, $14::jsonb, NOW(), $15, NOW(), NOW())
+      ) VALUES ($1, 'zoho', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, 'responded', true, 'Sent', 'sent', 'read', 'responded', '[]'::jsonb, $14::jsonb, NOW(), 'accepted', '{}'::jsonb, NOW(), $15, NOW(), NOW())
       RETURNING *;
     `;
 
@@ -493,6 +496,9 @@ async function saveOutgoingEmail(emailData) {
         translationModel: row.translation_model || null,
         translationError: row.translation_error || null,
         translatedAt: row.translated_at || null,
+        deliveryStatus: row.delivery_status || 'accepted',
+        deliveryDetails: row.delivery_details || {},
+        deliveryUpdatedAt: row.delivery_updated_at || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at
       };

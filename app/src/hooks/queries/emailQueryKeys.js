@@ -17,6 +17,11 @@ export const emailQueryKeys = {
   attachments: (id) => [...emailQueryKeys.detail(id), 'attachments'],
   folders: () => [...emailQueryKeys.all, 'folders'],
   labels: () => [...emailQueryKeys.all, 'labels'],
+  recipientSuggestionsRoot: () => [...emailQueryKeys.all, 'recipientSuggestions'],
+  recipientSuggestions: (params = {}) => [
+    ...emailQueryKeys.recipientSuggestionsRoot(),
+    normalizeQueryFilters(params),
+  ],
   draftsRoot: () => [...emailQueryKeys.all, 'drafts'],
   drafts: (filters = {}) => [...emailQueryKeys.draftsRoot(), normalizeQueryFilters(filters)],
   draft: (id) => [...emailQueryKeys.all, 'draft', id],

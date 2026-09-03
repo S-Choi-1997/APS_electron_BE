@@ -101,6 +101,9 @@ export function normalizeEmailInquiry(inquiry = {}) {
     translationModel: inquiry.translationModel || inquiry.translation_model || null,
     translationError: inquiry.translationError || inquiry.translation_error || null,
     translatedAt: inquiry.translatedAt || inquiry.translated_at || null,
+    deliveryStatus: inquiry.deliveryStatus || inquiry.delivery_status || (isOutgoing ? 'accepted' : null),
+    deliveryDetails: inquiry.deliveryDetails || inquiry.delivery_details || {},
+    deliveryUpdatedAt: inquiry.deliveryUpdatedAt || inquiry.delivery_updated_at || null,
   };
 }
 
@@ -195,6 +198,24 @@ export async function fetchEmailDetail(id) {
 export async function fetchEmailStats() {
   const response = await apiRequest('/email-inquiries/stats', { method: 'GET' }, auth);
   return response.data || response || {};
+}
+
+export async function fetchEmailRecipientSuggestions(params = {}) {
+  const query = compactParams(params);
+  const response = await apiRequest(
+    query ? `/email-recipients/suggestions?${query}` : '/email-recipients/suggestions',
+    { method: 'GET' },
+    auth,
+  );
+  const suggestions = response.data || (Array.isArray(response) ? response : []);
+  return suggestions.map(item => ({
+    email: item.email || '',
+    name: item.name || '',
+    source: item.source || 'mail_history',
+    lastContactAt: item.lastContactAt || null,
+    lastOutgoingAt: item.lastOutgoingAt || null,
+    frequency: Number(item.frequency || 0),
+  }));
 }
 
 export async function fetchEmailThread(id, { order = 'asc' } = {}) {

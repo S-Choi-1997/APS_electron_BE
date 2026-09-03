@@ -112,6 +112,10 @@ function normalizeAttachment(attachment, index) {
     contentType: attachment?.contentType || attachment?.type || 'application/octet-stream',
     buffer,
     size: buffer.length,
+    inline: attachment?.inline === true,
+    dataUrl: attachment?.inline === true
+      ? `data:${attachment?.contentType || attachment?.type || 'application/octet-stream'};base64,${buffer.toString('base64')}`
+      : null,
   };
 }
 
@@ -140,7 +144,7 @@ async function uploadAttachment({ accessToken, accountId, attachment }) {
   const response = await runZohoSendRequest((currentAccessToken) => axios.post(uploadUrl, attachment.buffer, {
     params: {
       fileName: attachment.filename,
-      isInline: false,
+      isInline: attachment.inline,
     },
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
@@ -165,6 +169,24 @@ async function uploadAttachment({ accessToken, accountId, attachment }) {
     storeName: data.storeName,
     attachmentName: data.attachmentName,
     attachmentPath: data.attachmentPath,
+    url: data.url || null,
+  };
+}
+
+function applyInlineImageUrls(html, uploadedAttachments) {
+  let result = String(html || '');
+  uploadedAttachments.forEach(({ source, uploaded }) => {
+    if (!source.inline || !source.dataUrl || !uploaded.url) return;
+    result = result.split(source.dataUrl).join(uploaded.url);
+  });
+  return result;
+}
+
+function toProviderAttachment(uploaded) {
+  return {
+    storeName: uploaded.storeName,
+    attachmentName: uploaded.attachmentName,
+    attachmentPath: uploaded.attachmentPath,
   };
 }
 
@@ -261,11 +283,14 @@ async function sendEmail(emailData) {
     if (attachments.length > 0) {
       console.log(`[ZOHO Send] Uploading ${attachments.length} attachment(s)`);
       payload.attachments = [];
+      const uploadedAttachments = [];
 
       for (const attachment of attachments) {
         const uploadedAttachment = await uploadAttachment({ accessToken, accountId, attachment });
-        payload.attachments.push(uploadedAttachment);
+        payload.attachments.push(toProviderAttachment(uploadedAttachment));
+        uploadedAttachments.push({ source: attachment, uploaded: uploadedAttachment });
       }
+      if (bodyHtml) payload.content = applyInlineImageUrls(bodyHtml, uploadedAttachments);
     }
 
     console.log('[ZOHO Send] Sending email to:', toAddress);
@@ -347,10 +372,13 @@ async function replyToEmail(replyData) {
 
     if (normalizedAttachments.length > 0) {
       payload.attachments = [];
+      const uploadedAttachments = [];
       for (const attachment of normalizedAttachments) {
         const uploadedAttachment = await uploadAttachment({ accessToken, accountId, attachment });
-        payload.attachments.push(uploadedAttachment);
+        payload.attachments.push(toProviderAttachment(uploadedAttachment));
+        uploadedAttachments.push({ source: attachment, uploaded: uploadedAttachment });
       }
+      if (bodyHtml) payload.content = applyInlineImageUrls(bodyHtml, uploadedAttachments);
     }
 
     const response = await runZohoSendRequest((currentAccessToken) => axios.post(
@@ -394,5 +422,6 @@ module.exports = {
   replyToEmail,
   createDraft,
   scheduleEmail,
-  formatFromAddress
+  formatFromAddress,
+  applyInlineImageUrls,
 };

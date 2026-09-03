@@ -5,9 +5,9 @@ This is the deployment source of truth. A new session should be able to follow t
 ## Current Production
 
 - Backend URL: `https://backend.apsconsulting.kr`
-- Backend image on NAS: `choho97/aps-admin-backend:1.3.34`
+- Backend image on NAS: `choho97/aps-admin-backend:1.3.36`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
-- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.31.exe`
+- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.33.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
 - Local test account file, not in git: `.local/aps-test-account.md`
 

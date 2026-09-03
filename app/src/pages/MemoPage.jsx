@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import useDebounce from '../hooks/useDebounce';
 import {
@@ -495,24 +496,16 @@ function MemoPage({ user }) {
         )}
       </Modal>
 
-      {/* 삭제 확인 모달 */}
-      <Modal
+      <ConfirmDialog
         isOpen={showDeleteConfirmModal}
         onClose={() => setShowDeleteConfirmModal(false)}
         title="메모 삭제"
-      >
-        <div className="confirm-dialog">
-          <p>이 메모를 삭제하시겠습니까?</p>
-          <div className="modal-actions">
-            <button className="modal-btn danger" onClick={handleMemoDelete}>
-              삭제
-            </button>
-            <button className="modal-btn secondary" onClick={() => setShowDeleteConfirmModal(false)}>
-              취소
-            </button>
-          </div>
-        </div>
-      </Modal>
+        message="이 메모를 삭제하시겠습니까?"
+        confirmLabel="삭제"
+        tone="danger"
+        isConfirming={deleteMemoMutation.isPending}
+        onConfirm={handleMemoDelete}
+      />
     </div>
   );
 }

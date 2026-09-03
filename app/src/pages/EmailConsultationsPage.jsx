@@ -36,8 +36,12 @@ import {
 import { EMAIL_STATUS } from '../services/emailInquiryService';
 import { useEmailPageState } from '../hooks/useEmailPageState';
 import { auth } from '../auth/authManager';
-import { htmlToPlainText } from '../utils/clipboard';
+import { copyTextToClipboard, htmlToPlainText } from '../utils/clipboard';
 import { buildEmailPrintDocument } from '../utils/emailPrintDocument';
+import ConfirmDialog from '../components/ConfirmDialog';
+import Modal from '../components/Modal';
+import RichTextEditor from '../components/email/RichTextEditor';
+import RecipientInput from '../components/email/RecipientInput';
 import './EmailConsultationsPage.css';
 
 const PAGE_SIZE = 20;
@@ -65,6 +69,7 @@ const EMPTY_COMPOSER = {
   bcc: '',
   subject: '',
   body: '',
+  bodyHtml: '',
   scheduledAt: '',
   attachments: [],
 };
@@ -115,6 +120,41 @@ function normalizeEmailAddress(value) {
   return emailMatch ? emailMatch[0] : text;
 }
 
+function formatNamedEmailAddress(name, address) {
+  const displayName = String(name || '').trim();
+  const emailAddress = normalizeEmailAddress(address);
+  if (!emailAddress) return displayName || '-';
+  if (!displayName || normalizeEmailAddress(displayName).toLowerCase() === emailAddress.toLowerCase()) {
+    return emailAddress;
+  }
+  return `${displayName} <${emailAddress}>`;
+}
+
+function useDismissiblePopover(open, setOpen) {
+  const popoverRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (popoverRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, setOpen]);
+
+  return popoverRef;
+}
+
 function collectEmailAddresses(...values) {
   return values.flatMap((value) => {
     if (Array.isArray(value)) return collectEmailAddresses(...value);
@@ -132,129 +172,6 @@ function uniqueEmailAddresses(values, excludedValues = []) {
   });
 }
 
-function shouldCommitRecipientInput(value, key) {
-  const text = String(value || '').trim();
-  if (!text) return false;
-  if (key === ' ' || key === 'Tab') return EMAIL_PATTERN.test(normalizeEmailAddress(text));
-  return true;
-}
-
-function RecipientInput({
-  value,
-  onChange,
-  disabled = false,
-  placeholder = '',
-  ariaLabel = '',
-}) {
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef(null);
-  const recipients = useMemo(() => splitRecipients(value), [value]);
-
-  const updateRecipients = (nextRecipients) => {
-    onChange(uniqueRecipients(nextRecipients).join(', '));
-  };
-
-  const commitDraft = (rawValue = draft) => {
-    const parsed = splitRecipients(rawValue);
-    if (parsed.length === 0) {
-      setDraft('');
-      return;
-    }
-    updateRecipients([...recipients, ...parsed]);
-    setDraft('');
-  };
-
-  const removeRecipient = (index) => {
-    updateRecipients(recipients.filter((_, itemIndex) => itemIndex !== index));
-    window.requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const editRecipient = (index) => {
-    const recipient = recipients[index];
-    updateRecipients(recipients.filter((_, itemIndex) => itemIndex !== index));
-    setDraft(recipient);
-    window.requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const handleKeyDown = (event) => {
-    if (disabled) return;
-
-    if (['Enter', ',', ';', 'Tab', ' '].includes(event.key) && shouldCommitRecipientInput(draft, event.key)) {
-      event.preventDefault();
-      commitDraft();
-      return;
-    }
-
-    if (event.key === 'Backspace' && !draft && recipients.length > 0) {
-      event.preventDefault();
-      editRecipient(recipients.length - 1);
-    }
-  };
-
-  const handleChange = (event) => {
-    const nextValue = event.target.value;
-    if (/[,\n;]/.test(nextValue)) {
-      commitDraft(nextValue);
-      return;
-    }
-    setDraft(nextValue);
-  };
-
-  const handlePaste = (event) => {
-    if (disabled) return;
-    const pastedText = event.clipboardData?.getData('text') || '';
-    const parsed = splitRecipients(pastedText);
-    if (parsed.length === 0) return;
-    event.preventDefault();
-    commitDraft(`${draft} ${pastedText}`);
-  };
-
-  return (
-    <div
-      className={`recipient-input ${disabled ? 'disabled' : ''}`}
-      onClick={() => inputRef.current?.focus()}
-    >
-      {recipients.map((recipient, index) => {
-        const invalid = !EMAIL_PATTERN.test(normalizeEmailAddress(recipient));
-        return (
-          <span className={`recipient-chip ${invalid ? 'invalid' : ''}`} key={`${recipient}-${index}`}>
-            <button
-              type="button"
-              className="recipient-chip-text"
-              onClick={() => editRecipient(index)}
-              disabled={disabled}
-              title={`${recipient} 수정`}
-            >
-              {recipient}
-            </button>
-            <button
-              type="button"
-              className="recipient-chip-remove"
-              onClick={() => removeRecipient(index)}
-              disabled={disabled}
-              aria-label={`${recipient} 삭제`}
-              title="삭제"
-            >
-              x
-            </button>
-          </span>
-        );
-      })}
-      <input
-        ref={inputRef}
-        className="recipient-input-field"
-        value={draft}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        onBlur={() => commitDraft()}
-        disabled={disabled}
-        placeholder={recipients.length === 0 ? placeholder : ''}
-        aria-label={ariaLabel}
-      />
-    </div>
-  );
-}
 
 function formatAttachmentSize(size = 0) {
   const bytes = Number(size || 0);
@@ -361,6 +278,13 @@ function getStatusLabel(email) {
   if (email?.responseState === 'responded' || email?.status === EMAIL_STATUS.RESPONDED) return '응답';
   if (email?.readState === EMAIL_STATUS.UNREAD || email?.status === EMAIL_STATUS.UNREAD) return '미확인';
   return '확인';
+}
+
+function getDeliveryLabel(email) {
+  if (!email?.isOutgoing && email?.direction !== 'outgoing') return null;
+  if (email.deliveryStatus === 'failed') return '반송됨';
+  if (email.deliveryStatus === 'partial') return '일부 반송';
+  return '발송 접수';
 }
 
 function looksNonKorean(text = '') {
@@ -487,6 +411,7 @@ function normalizeDraftLike(item) {
     bcc: joinRecipients(item?.bcc),
     subject: item?.subject || '',
     body: item?.body || item?.bodyText || '',
+    bodyHtml: item?.bodyHtml || '',
     scheduledAt: item?.scheduledAt ? new Date(item.scheduledAt).toISOString().slice(0, 16) : '',
     attachments: Array.isArray(item?.attachments) ? item.attachments : [],
   };
@@ -502,6 +427,7 @@ function buildComposerPayload(composer) {
     subject: composer.subject.trim(),
     body: composer.body,
     bodyText: composer.body,
+    bodyHtml: composer.bodyHtml || null,
     attachments: Array.isArray(composer.attachments) ? composer.attachments : [],
   };
 }
@@ -522,7 +448,7 @@ function validateComposer(composer, { requireTo = true, requireFutureSchedule = 
   if (requireTo && to.length === 0) return '받는사람을 한 명 이상 입력하세요.';
   if (invalidRecipients.length > 0) return `이메일 형식을 확인하세요: ${invalidRecipients.join(', ')}`;
   if (requireContent && !composer.subject.trim()) return '제목을 입력하세요.';
-  if (requireContent && !composer.body.trim()) return '본문을 입력하세요.';
+  if (requireContent && !composer.body.trim() && !composer.bodyHtml?.replace(/<[^>]*>/g, '').trim()) return '본문을 입력하세요.';
 
   if (attachmentError) return attachmentError;
 
@@ -556,6 +482,7 @@ function MailRow({ item, active, onClick }) {
         <span className="mail-row-tags">
           <span className="mail-tag source">{item.source || item.status || 'mail'}</span>
           {item.hasAttachments || item.attachmentCount > 0 ? <span className="mail-tag">첨부 {item.attachmentCount || ''}</span> : null}
+          {getDeliveryLabel(item) ? <span className={`mail-tag delivery ${item.deliveryStatus || 'accepted'}`}>{getDeliveryLabel(item)}</span> : null}
           <span className={`mail-tag state ${label === '응답' ? 'done' : ''}`}>{label}</span>
         </span>
       </span>
@@ -602,7 +529,8 @@ function Composer({
 }) {
   const canSchedule = Boolean(composer.scheduledAt);
   const [attachmentDragActive, setAttachmentDragActive] = useState(false);
-  const attachments = Array.isArray(composer.attachments) ? composer.attachments : [];
+  const allAttachments = Array.isArray(composer.attachments) ? composer.attachments : [];
+  const attachments = allAttachments.filter(attachment => attachment.inline !== true);
   const attachmentTotalBytes = attachments.reduce((sum, attachment) => sum + Number(attachment.size || 0), 0);
   const attachmentHint = attachments.length > 0
     ? `${attachments.length}개 / ${formatAttachmentSize(attachmentTotalBytes)}`
@@ -615,13 +543,20 @@ function Composer({
     scheduled: '예약 발송',
     compose: '새 메일',
   }[composer.mode] || '메일 작성';
+  const excludedRecipientEmails = [
+    composer.to,
+    composer.cc,
+    composer.bcc,
+    auth.currentUser?.email,
+    auth.currentUser?.emailAddress,
+  ];
 
   const addAttachmentFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
     try {
       const nextAttachments = await Promise.all(files.map(readAttachmentFile));
-      const mergedAttachments = [...attachments, ...nextAttachments];
+      const mergedAttachments = [...allAttachments, ...nextAttachments];
       const validationError = validateComposerAttachments(mergedAttachments);
       if (validationError) {
         onError(validationError);
@@ -662,8 +597,23 @@ function Composer({
 
   const removeAttachment = (index) => {
     onChange({
-      attachments: attachments.filter((_, itemIndex) => itemIndex !== index),
+      attachments: allAttachments.filter(attachment => attachment.inline === true || attachment !== attachments[index]),
     });
+  };
+
+  const addInlineImage = (newInlineImages) => {
+    const mergedAttachments = [...allAttachments, ...(newInlineImages || [])];
+    const validationError = validateComposerAttachments(mergedAttachments);
+    if (validationError) {
+      onError(validationError);
+      return false;
+    }
+    onChange({ attachments: mergedAttachments });
+    return true;
+  };
+
+  const handleEditorChange = (patch) => {
+    onChange(patch);
   };
 
   return (
@@ -683,6 +633,7 @@ function Composer({
             disabled={contentLocked}
             placeholder="받는 사람 이메일"
             ariaLabel="받는사람"
+            excludedEmails={excludedRecipientEmails}
           />
         </div>
         <div className="composer-field-row">
@@ -693,6 +644,7 @@ function Composer({
             disabled={contentLocked}
             placeholder="참조 이메일"
             ariaLabel="참조"
+            excludedEmails={excludedRecipientEmails}
           />
         </div>
         <div className="composer-field-row">
@@ -703,6 +655,7 @@ function Composer({
             disabled={contentLocked}
             placeholder="숨은참조 이메일"
             ariaLabel="숨은참조"
+            excludedEmails={excludedRecipientEmails}
           />
         </div>
         <label className="composer-field-row">
@@ -716,12 +669,13 @@ function Composer({
         </label>
       </div>
       {lockMessage ? <p className="composer-notice">{lockMessage}</p> : null}
-      <textarea
-        className="composer-body"
-        value={composer.body}
-        onChange={(event) => onChange({ body: event.target.value })}
-        placeholder="메일 내용을 입력하세요."
+      <RichTextEditor
+        bodyHtml={composer.bodyHtml}
+        bodyText={composer.body}
         disabled={contentLocked}
+        onChange={handleEditorChange}
+        onInlineImage={addInlineImage}
+        onError={onError}
       />
       <div
         className={`composer-attachments ${attachmentDragActive ? 'dragging' : ''} ${contentLocked ? 'disabled' : ''}`}
@@ -800,6 +754,7 @@ function EmailConsultationsPage() {
     showTranslation,
     translatedEmailOverride,
     filtersOpen,
+    actionsOpen,
     setMailbox,
     setSelectedId,
     setSelectedDraftId,
@@ -819,9 +774,18 @@ function EmailConsultationsPage() {
     setShowTranslation,
     setTranslatedEmailOverride,
     setFiltersOpen,
+    setActionsOpen,
   } = useEmailPageState();
-  const filterMenuRef = useRef(null);
+  const filterMenuRef = useDismissiblePopover(filtersOpen, setFiltersOpen);
+  const actionMenuRef = useDismissiblePopover(actionsOpen, setActionsOpen);
   const debouncedSearch = useDebounce(searchTerm, 300);
+  const pendingConfirmActionRef = useRef(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [selectedLabelIds, setSelectedLabelIds] = useState([]);
+  const [labelSaving, setLabelSaving] = useState(false);
+  const [bodyCopyState, setBodyCopyState] = useState('idle');
+  const bodyCopyTimerRef = useRef(null);
 
   const filters = useMemo(() => ({
     search: debouncedSearch.trim() || undefined,
@@ -912,22 +876,14 @@ function EmailConsultationsPage() {
   }, [selectedId]);
 
   useEffect(() => {
-    if (!filtersOpen) return undefined;
-
-    const handlePointerDown = (event) => {
-      if (filterMenuRef.current?.contains(event.target)) return;
-      setFiltersOpen(false);
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [filtersOpen]);
-
-  useEffect(() => {
     if (!isMailMailbox && filtersOpen) {
       setFiltersOpen(false);
     }
   }, [filtersOpen, isMailMailbox, setFiltersOpen]);
+
+  useEffect(() => {
+    if (actionsOpen) setActionsOpen(false);
+  }, [mailbox, selectedId]);
 
   useEffect(() => {
     if (!composerDirty) return undefined;
@@ -941,6 +897,15 @@ function EmailConsultationsPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [composerDirty]);
 
+  useEffect(() => () => {
+    if (bodyCopyTimerRef.current) window.clearTimeout(bodyCopyTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    setBodyCopyState('idle');
+    if (bodyCopyTimerRef.current) window.clearTimeout(bodyCopyTimerRef.current);
+  }, [selectedId, showTranslation]);
+
   useEffect(() => {
     if (restoreFolders.length === 0) {
       if (restoreFolderId) setRestoreFolderId('');
@@ -952,16 +917,51 @@ function EmailConsultationsPage() {
     setRestoreFolderId(String((inbox || restoreFolders[0]).folderId || (inbox || restoreFolders[0]).id));
   }, [restoreFolderId, restoreFolders]);
 
-  const confirmDiscardComposer = () => {
-    if (!composer || !composerDirty) return true;
-    return window.confirm('작성 중인 내용이 있습니다. 닫을까요?');
+  const closeConfirmDialog = () => {
+    if (confirmDialog?.isConfirming) return;
+    pendingConfirmActionRef.current = null;
+    setConfirmDialog(null);
+  };
+
+  const requestConfirmation = (options, action) => {
+    pendingConfirmActionRef.current = action;
+    setConfirmDialog({ ...options, isConfirming: false });
+  };
+
+  const handleConfirmAction = async () => {
+    const action = pendingConfirmActionRef.current;
+    if (!action) return;
+    setConfirmDialog((current) => ({ ...current, isConfirming: true }));
+    try {
+      await action();
+      pendingConfirmActionRef.current = null;
+      setConfirmDialog(null);
+    } catch (error) {
+      setActionError(error?.message || '작업 처리에 실패했습니다.');
+      setConfirmDialog((current) => ({ ...current, isConfirming: false }));
+    }
+  };
+
+  const runAfterDiscardConfirmation = (action) => {
+    if (!composer || !composerDirty) {
+      action();
+      return;
+    }
+    requestConfirmation({
+      title: '작성 중인 메일 닫기',
+      message: '작성 중인 내용을 닫을까요?',
+      description: '저장하지 않은 변경사항은 사라집니다.',
+      confirmLabel: '닫기',
+      tone: 'danger',
+    }, action);
   };
 
   const closeComposer = () => {
-    if (!confirmDiscardComposer()) return;
-    setComposer(null);
-    setComposerDirty(false);
-    setActionError('');
+    runAfterDiscardConfirmation(() => {
+      setComposer(null);
+      setComposerDirty(false);
+      setActionError('');
+    });
   };
 
   const updateComposer = (patch) => {
@@ -971,45 +971,49 @@ function EmailConsultationsPage() {
   };
 
   const openCompose = (patch = {}) => {
-    if (!confirmDiscardComposer()) return;
-    setSelectedDraftId(null);
-    setSelectedScheduledId(null);
-    setComposer({ ...EMPTY_COMPOSER, ...patch });
-    setComposerDirty(false);
-    setActionError('');
+    runAfterDiscardConfirmation(() => {
+      setSelectedDraftId(null);
+      setSelectedScheduledId(null);
+      setComposer({ ...EMPTY_COMPOSER, ...patch });
+      setComposerDirty(false);
+      setActionError('');
+    });
   };
 
   const selectMail = (item) => {
-    if (!confirmDiscardComposer()) return;
-    setSelectedId(item.id);
-    setSelectedDraftId(null);
-    setSelectedScheduledId(null);
-    setActionError('');
-    setComposer(null);
-    setComposerDirty(false);
-    if (item.status === EMAIL_STATUS.UNREAD || item.readState === EMAIL_STATUS.UNREAD) {
-      markReadMutation.mutate({ id: item.id, readState: EMAIL_STATUS.READ });
-    }
+    runAfterDiscardConfirmation(() => {
+      setSelectedId(item.id);
+      setSelectedDraftId(null);
+      setSelectedScheduledId(null);
+      setActionError('');
+      setComposer(null);
+      setComposerDirty(false);
+      if (item.status === EMAIL_STATUS.UNREAD || item.readState === EMAIL_STATUS.UNREAD) {
+        markReadMutation.mutate({ id: item.id, readState: EMAIL_STATUS.READ });
+      }
+    });
   };
 
   const selectDraft = (item) => {
-    if (!confirmDiscardComposer()) return;
-    setSelectedId(null);
-    setSelectedDraftId(item.id);
-    setSelectedScheduledId(null);
-    setComposer({ ...EMPTY_COMPOSER, mode: 'draft', draftId: item.id, ...normalizeDraftLike(item) });
-    setComposerDirty(false);
-    setActionError('');
+    runAfterDiscardConfirmation(() => {
+      setSelectedId(null);
+      setSelectedDraftId(item.id);
+      setSelectedScheduledId(null);
+      setComposer({ ...EMPTY_COMPOSER, mode: 'draft', draftId: item.id, ...normalizeDraftLike(item) });
+      setComposerDirty(false);
+      setActionError('');
+    });
   };
 
   const selectScheduled = (item) => {
-    if (!confirmDiscardComposer()) return;
-    setSelectedId(null);
-    setSelectedDraftId(null);
-    setSelectedScheduledId(item.id);
-    setComposer({ ...EMPTY_COMPOSER, mode: 'scheduled', scheduledId: item.id, ...normalizeDraftLike(item) });
-    setComposerDirty(false);
-    setActionError('');
+    runAfterDiscardConfirmation(() => {
+      setSelectedId(null);
+      setSelectedDraftId(null);
+      setSelectedScheduledId(item.id);
+      setComposer({ ...EMPTY_COMPOSER, mode: 'scheduled', scheduledId: item.id, ...normalizeDraftLike(item) });
+      setComposerDirty(false);
+      setActionError('');
+    });
   };
 
   const openReply = (mode) => {
@@ -1085,6 +1089,7 @@ function EmailConsultationsPage() {
       } else {
         await sendMutation.mutateAsync(payload);
       }
+      setLastSyncMessage('발송 접수됨 · 수신 서버 반송 시 상태가 자동으로 갱신됩니다.');
       setComposer(null);
       setComposerDirty(false);
     } catch (error) {
@@ -1163,30 +1168,36 @@ function EmailConsultationsPage() {
 
   const handleDeleteSelectedDraft = async () => {
     if (!selectedDraftId || deleteDraftMutation.isPending) return;
-    if (!window.confirm('이 임시보관 메일을 삭제할까요?')) return;
-    setActionError('');
-    try {
-      await deleteDraftMutation.mutateAsync(selectedDraftId);
+    const draftId = selectedDraftId;
+    requestConfirmation({
+      title: '임시보관 메일 삭제',
+      message: '이 임시보관 메일을 삭제할까요?',
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }, async () => {
+      setActionError('');
+      await deleteDraftMutation.mutateAsync(draftId);
       setSelectedDraftId(null);
       setComposer(null);
       setComposerDirty(false);
-    } catch (error) {
-      setActionError(error?.message || '임시보관 삭제에 실패했습니다.');
-    }
+    });
   };
 
   const handleDeleteSelectedScheduled = async () => {
     if (!selectedScheduledId || scheduleMutation.isPending || deleteScheduledMutation.isPending || sendScheduledNowMutation.isPending) return;
-    if (!window.confirm('이 예약 메일을 삭제할까요?')) return;
-    setActionError('');
-    try {
-      await deleteScheduledMutation.mutateAsync(selectedScheduledId);
+    const scheduledId = selectedScheduledId;
+    requestConfirmation({
+      title: '예약 메일 삭제',
+      message: '이 예약 메일을 삭제할까요?',
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }, async () => {
+      setActionError('');
+      await deleteScheduledMutation.mutateAsync(scheduledId);
       setSelectedScheduledId(null);
       setComposer(null);
       setComposerDirty(false);
-    } catch (error) {
-      setActionError(error?.message || '예약 삭제에 실패했습니다.');
-    }
+    });
   };
 
   const handleSendSelectedScheduledNow = async () => {
@@ -1223,16 +1234,19 @@ function EmailConsultationsPage() {
     }
   };
 
-  const handleTrash = async () => {
+  const handleTrash = () => {
     if (!selectedEmail) return;
-    if (!window.confirm('이 메일을 휴지통으로 이동할까요?')) return;
-    setActionError('');
-    try {
-      await trashMutation.mutateAsync(selectedEmail.id);
+    const emailId = selectedEmail.id;
+    requestConfirmation({
+      title: '메일 삭제',
+      message: '이 메일을 휴지통으로 이동할까요?',
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }, async () => {
+      setActionError('');
+      await trashMutation.mutateAsync(emailId);
       setSelectedId(null);
-    } catch (error) {
-      setActionError(error?.message || '메일 삭제에 실패했습니다.');
-    }
+    });
   };
 
   const handleArchive = async () => {
@@ -1250,34 +1264,58 @@ function EmailConsultationsPage() {
     }
   };
 
-  const handlePermanentDelete = async () => {
-    if (!selectedEmail || !window.confirm('이 메일을 영구 삭제할까요?')) return;
-    setActionError('');
-    try {
-      await permanentDeleteMutation.mutateAsync(selectedEmail.id);
+  const handlePermanentDelete = () => {
+    if (!selectedEmail) return;
+    const emailId = selectedEmail.id;
+    requestConfirmation({
+      title: '메일 영구 삭제',
+      message: '이 메일을 영구 삭제할까요?',
+      description: '이 작업은 되돌릴 수 없습니다.',
+      confirmLabel: '영구 삭제',
+      tone: 'danger',
+    }, async () => {
+      setActionError('');
+      await permanentDeleteMutation.mutateAsync(emailId);
       setSelectedId(null);
-    } catch (error) {
-      setActionError(error?.message || '메일 영구 삭제에 실패했습니다.');
-    }
+    });
   };
 
-  const handleApplyLabel = async (nextLabelId) => {
-    if (!selectedEmail || !nextLabelId) return;
-    setActionError('');
-    try {
-      await addLabelMutation.mutateAsync({ id: selectedEmail.id, labelId: nextLabelId });
-    } catch (error) {
-      setActionError(error?.message || '라벨 적용에 실패했습니다.');
-    }
+  const openLabelSettings = () => {
+    if (!selectedEmail) return;
+    setSelectedLabelIds((selectedEmail.labels || []).map((label) => String(label.labelId || label.id)));
+    setLabelModalOpen(true);
   };
 
-  const handleRemoveLabel = async (nextLabelId) => {
-    if (!selectedEmail || !nextLabelId) return;
+  const toggleSelectedLabel = (nextLabelId) => {
+    const normalizedId = String(nextLabelId);
+    setSelectedLabelIds((current) => (
+      current.includes(normalizedId)
+        ? current.filter((id) => id !== normalizedId)
+        : [...current, normalizedId]
+    ));
+  };
+
+  const handleSaveLabels = async () => {
+    if (!selectedEmail || labelSaving) return;
+    const currentIds = new Set((selectedEmail.labels || []).map((label) => String(label.labelId || label.id)));
+    const nextIds = new Set(selectedLabelIds.map(String));
+    const addedIds = [...nextIds].filter((id) => !currentIds.has(id));
+    const removedIds = [...currentIds].filter((id) => !nextIds.has(id));
+
     setActionError('');
+    setLabelSaving(true);
     try {
-      await removeLabelMutation.mutateAsync({ id: selectedEmail.id, labelId: nextLabelId });
+      for (const nextLabelId of addedIds) {
+        await addLabelMutation.mutateAsync({ id: selectedEmail.id, labelId: nextLabelId });
+      }
+      for (const nextLabelId of removedIds) {
+        await removeLabelMutation.mutateAsync({ id: selectedEmail.id, labelId: nextLabelId });
+      }
+      setLabelModalOpen(false);
     } catch (error) {
-      setActionError(error?.message || '라벨 해제에 실패했습니다.');
+      setActionError(error?.message || '라벨 설정 저장에 실패했습니다.');
+    } finally {
+      setLabelSaving(false);
     }
   };
 
@@ -1299,6 +1337,11 @@ function EmailConsultationsPage() {
     } catch (error) {
       setActionError(error?.message || '응답 상태 변경에 실패했습니다.');
     }
+  };
+
+  const runActionMenuItem = (action) => {
+    setActionsOpen(false);
+    action();
   };
 
   const selectedHtml = content?.html || selectedEmail?.bodyHtml || '';
@@ -1366,6 +1409,26 @@ function EmailConsultationsPage() {
     } catch (error) {
       setActionError(error?.message ? `번역 실패: ${error.message}` : '번역에 실패했습니다.');
     }
+  };
+
+  const handleCopyDisplayedBody = async () => {
+    const textToCopy = showTranslation && hasTranslation
+      ? translationEmail.translatedBody
+      : (sanitizedSelectedHtml ? htmlToPlainText(sanitizedSelectedHtml) : selectedText);
+    if (!textToCopy?.trim()) {
+      setActionError('복사할 본문이 없습니다.');
+      return;
+    }
+
+    const copied = await copyTextToClipboard(textToCopy);
+    if (!copied) {
+      setActionError('본문을 클립보드에 복사하지 못했습니다.');
+      return;
+    }
+
+    setBodyCopyState('copied');
+    if (bodyCopyTimerRef.current) window.clearTimeout(bodyCopyTimerRef.current);
+    bodyCopyTimerRef.current = window.setTimeout(() => setBodyCopyState('idle'), 1600);
   };
 
   const handlePrintSelectedEmail = async () => {
@@ -1646,116 +1709,134 @@ function EmailConsultationsPage() {
                 <div>
                   <h2>{displayedSubject || '(제목 없음)'}</h2>
                   <div className="message-meta-line">
-                    <span>발신자 {selectedEmail.fromName || selectedEmail.from || '-'}</span>
+                    <span>발신자 {formatNamedEmailAddress(selectedEmail.fromName, selectedEmail.from)}</span>
                     <span>수신자 {joinRecipients(selectedEmail.to) || '-'}</span>
                     <span>{formatFullDate(getMessageDate(selectedEmail))}</span>
                   </div>
                   <div className="message-labels">
                     <span className="mail-tag source">{selectedEmail.source || 'mail'}</span>
                     <span className="mail-tag state">{getStatusLabel(selectedEmail)}</span>
+                    {getDeliveryLabel(selectedEmail) ? (
+                      <span className={`mail-tag delivery ${selectedEmail.deliveryStatus || 'accepted'}`}>{getDeliveryLabel(selectedEmail)}</span>
+                    ) : null}
                     {selectedEmail.labels?.map((label) => (
                       <span key={label.id || label.name} className="mail-tag">{label.name}</span>
                     ))}
                   </div>
                 </div>
-                <div className="message-actions">
+                <div className="message-actions" ref={actionMenuRef}>
                   {!providerActionsSupported ? (
                     <span className="message-warning compact">Zoho 원본 메일만 provider 액션을 지원합니다.</span>
                   ) : null}
                   <button
                     type="button"
-                    className="secondary-button print-button"
-                    onClick={handlePrintSelectedEmail}
-                    aria-label="선택한 메일 출력"
+                    className={`message-actions-trigger ${actionsOpen ? 'active' : ''}`}
+                    onClick={() => setActionsOpen((value) => !value)}
+                    aria-label="메일 작업 메뉴"
+                    aria-haspopup="menu"
+                    aria-expanded={actionsOpen}
                   >
-                    출력
+                    <span aria-hidden="true">⋯</span>
                   </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    disabled={!canFlag}
-                    onClick={handleFlag}
-                  >
-                    {selectedEmail.starred ? '중요 해제' : '중요'}
-                  </button>
-                  <button type="button" className="ghost-button" onClick={handleMarkResponded}>
-                    응답 처리
-                  </button>
-                  <button type="button" className="ghost-button" disabled={!canReply} onClick={() => openReply('reply')}>답장</button>
-                  <button type="button" className="ghost-button" disabled={!canReply} onClick={() => openReply('replyAll')}>전체 답장</button>
-                  <button type="button" className="ghost-button" onClick={() => openReply('forward')}>전달</button>
-                  {mailbox === 'trash' ? (
-                    <>
-                      <select
-                        className="toolbar-select"
-                        value={restoreFolderId}
-                        onChange={(event) => setRestoreFolderId(event.target.value)}
-                        disabled={!canTrash || restoreFolders.length === 0}
-                      >
-                        <option value="">복구 폴더</option>
-                        {restoreFolders.map((folder) => (
-                          <option key={folder.folderId || folder.id} value={folder.folderId || folder.id}>
-                            {folder.name || folder.folderName || folder.folderId || folder.id}
-                          </option>
-                        ))}
-                      </select>
+                  {actionsOpen ? (
+                    <div className="message-actions-popover" role="menu" aria-label="메일 작업">
                       <button
                         type="button"
-                        className="secondary-button"
-                        disabled={!canTrash || !restoreFolderId}
-                        onClick={handleRestore}
+                        role="menuitem"
+                        onClick={() => runActionMenuItem(handlePrintSelectedEmail)}
                       >
-                        복구
+                        출력
                       </button>
                       <button
                         type="button"
-                        className="danger-button"
-                        onClick={handlePermanentDelete}
+                        role="menuitem"
+                        disabled={!canFlag}
+                        onClick={() => runActionMenuItem(handleFlag)}
                       >
-                        영구 삭제
+                        {selectedEmail.starred ? '중요 해제' : '중요 표시'}
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" className="secondary-button" disabled={!canArchive} onClick={handleArchive}>
-                        {mailbox === 'archive' ? '보관 해제' : '보관'}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!canLabel}
+                        onClick={() => runActionMenuItem(openLabelSettings)}
+                      >
+                        라벨 설정
                       </button>
-                      <button type="button" className="danger-button" disabled={!canTrash} onClick={handleTrash}>삭제</button>
-                    </>
-                  )}
+                      <button type="button" role="menuitem" onClick={() => runActionMenuItem(handleMarkResponded)}>
+                        응답 처리
+                      </button>
+                      <div className="message-actions-divider" role="separator" />
+                      <button type="button" role="menuitem" disabled={!canReply} onClick={() => runActionMenuItem(() => openReply('reply'))}>
+                        답장
+                      </button>
+                      <button type="button" role="menuitem" disabled={!canReply} onClick={() => runActionMenuItem(() => openReply('replyAll'))}>
+                        전체 답장
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => runActionMenuItem(() => openReply('forward'))}>
+                        전달
+                      </button>
+                      <div className="message-actions-divider" role="separator" />
+                      {mailbox === 'trash' ? (
+                        <>
+                          <label className="message-restore-field">
+                            <span>복구 위치</span>
+                            <select
+                              value={restoreFolderId}
+                              onChange={(event) => setRestoreFolderId(event.target.value)}
+                              disabled={!canTrash || restoreFolders.length === 0}
+                            >
+                              <option value="">복구 폴더</option>
+                              {restoreFolders.map((folder) => (
+                                <option key={folder.folderId || folder.id} value={folder.folderId || folder.id}>
+                                  {folder.name || folder.folderName || folder.folderId || folder.id}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={!canTrash || !restoreFolderId}
+                            onClick={() => runActionMenuItem(handleRestore)}
+                          >
+                            복구
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="danger"
+                            onClick={() => runActionMenuItem(handlePermanentDelete)}
+                          >
+                            영구 삭제
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" role="menuitem" disabled={!canArchive} onClick={() => runActionMenuItem(handleArchive)}>
+                            {mailbox === 'archive' ? '보관 해제' : '보관'}
+                          </button>
+                          <button type="button" role="menuitem" className="danger" disabled={!canTrash} onClick={() => runActionMenuItem(handleTrash)}>
+                            삭제
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="message-scroll-area">
-              <div className="label-toolbar">
-                <select
-                  className="toolbar-select"
-                  defaultValue=""
-                  disabled={!canLabel}
-                  onChange={(event) => {
-                    handleApplyLabel(event.target.value);
-                    event.target.value = '';
-                  }}
-                >
-                  <option value="">라벨 적용</option>
-                  {labels.map((label) => (
-                    <option key={label.id} value={label.labelId || label.id}>{label.name}</option>
+              {['failed', 'partial'].includes(selectedEmail.deliveryStatus) ? (
+                <div className="delivery-warning" role="alert">
+                  <strong>{selectedEmail.deliveryStatus === 'failed' ? '메일이 반송되었습니다.' : '일부 수신자에게 메일이 전달되지 않았습니다.'}</strong>
+                  {(selectedEmail.deliveryDetails?.failures || []).map((failure) => (
+                    <span key={`${failure.recipient}-${failure.bouncedAt || ''}`}>
+                      {failure.recipient}: {failure.diagnostic || '수신 서버에서 거부했습니다.'}
+                    </span>
                   ))}
-                </select>
-                {selectedEmail.labels?.map((label) => (
-                  <button
-                    key={label.id || label.name}
-                    type="button"
-                    className="label-remove-button"
-                    disabled={!canLabel}
-                    title={`${label.name} 해제`}
-                    onClick={() => handleRemoveLabel(label.labelId || label.id)}
-                  >
-                    {label.name} 해제
-                  </button>
-                ))}
-              </div>
-
+                </div>
+              ) : null}
               <div className="message-content-toolbar">
                 <div>
                   <strong>{showTranslation && hasTranslation ? '번역 본문' : '메일 본문'}</strong>
@@ -1763,17 +1844,26 @@ function EmailConsultationsPage() {
                     <span>{formatFullDate(translationEmail.translatedAt)}</span>
                   ) : null}
                 </div>
-                {shouldShowTranslationControl ? (
+                <div className="message-content-actions">
+                  {shouldShowTranslationControl ? (
+                    <button
+                      type="button"
+                      className={`translation-button ${hasTranslation ? 'available' : ''}`}
+                      onClick={handleTranslationClick}
+                      disabled={translationBusy}
+                      title={translationEmail?.translationError || ''}
+                    >
+                      {getTranslationButtonLabel()}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    className={`translation-button ${hasTranslation ? 'available' : ''}`}
-                    onClick={handleTranslationClick}
-                    disabled={translationBusy}
-                    title={translationEmail?.translationError || ''}
+                    className={`body-copy-button ${bodyCopyState === 'copied' ? 'copied' : ''}`}
+                    onClick={handleCopyDisplayedBody}
                   >
-                    {getTranslationButtonLabel()}
+                    {bodyCopyState === 'copied' ? '복사됨' : '본문 복사'}
                   </button>
-                ) : null}
+                </div>
               </div>
 
               <article className="message-body">
@@ -1821,6 +1911,59 @@ function EmailConsultationsPage() {
           )}
         </section>
       </main>
+
+      <Modal
+        isOpen={labelModalOpen}
+        onClose={() => setLabelModalOpen(false)}
+        title="라벨 설정"
+        compact
+        closeDisabled={labelSaving}
+        closeOnBackdrop={!labelSaving}
+      >
+        <div className="email-label-settings">
+          {labels.length > 0 ? (
+            <div className="email-label-options">
+              {labels.map((label) => {
+                const currentLabelId = String(label.labelId || label.id);
+                return (
+                  <label key={currentLabelId} className="email-label-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedLabelIds.includes(currentLabelId)}
+                      onChange={() => toggleSelectedLabel(currentLabelId)}
+                      disabled={labelSaving}
+                    />
+                    <span className="email-label-color" style={{ backgroundColor: label.color || '#94a3b8' }} aria-hidden="true" />
+                    <span>{label.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="email-label-empty">설정할 수 있는 라벨이 없습니다.</p>
+          )}
+          <div className="modal-actions">
+            <button type="button" className="modal-btn secondary" onClick={() => setLabelModalOpen(false)} disabled={labelSaving}>
+              취소
+            </button>
+            <button type="button" className="modal-btn primary" onClick={handleSaveLabels} disabled={labelSaving || labels.length === 0}>
+              {labelSaving ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmDialog)}
+        onClose={closeConfirmDialog}
+        onConfirm={handleConfirmAction}
+        title={confirmDialog?.title}
+        message={confirmDialog?.message}
+        description={confirmDialog?.description}
+        confirmLabel={confirmDialog?.confirmLabel}
+        tone={confirmDialog?.tone}
+        isConfirming={Boolean(confirmDialog?.isConfirming)}
+      />
     </div>
   );
 }

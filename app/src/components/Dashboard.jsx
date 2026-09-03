@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Modal from './Modal';
+import ConfirmDialog from './ConfirmDialog';
 import { useEmailStats } from '../hooks/queries/useEmailInquiries';
 import {
   useActiveMemos,
@@ -1291,35 +1292,20 @@ function Dashboard({ user }) {
         </form>
       </Modal>
 
-      {/* 삭제 확인 모달 */}
-      <Modal
+      <ConfirmDialog
         isOpen={showDeleteConfirmModal}
         onClose={() => setShowDeleteConfirmModal(false)}
         title="삭제 확인"
-        compact
-      >
-        <div className="delete-confirm">
-          <p>정말 삭제하시겠습니까?</p>
-          <p className="delete-confirm-subtitle">이 작업은 되돌릴 수 없습니다.</p>
-          <div className="modal-actions">
-            <button
-              className="modal-btn danger"
-              onClick={() => {
-                if (deleteTarget?.type === 'memo') handleMemoDelete();
-                if (deleteTarget?.type === 'schedule') handleScheduleDelete();
-              }}
-            >
-              삭제
-            </button>
-            <button
-              className="modal-btn secondary"
-              onClick={() => setShowDeleteConfirmModal(false)}
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      </Modal>
+        message="정말 삭제하시겠습니까?"
+        description="이 작업은 되돌릴 수 없습니다."
+        confirmLabel="삭제"
+        tone="danger"
+        isConfirming={deleteMemoMutation.isPending || deleteScheduleMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget?.type === 'memo') handleMemoDelete();
+          if (deleteTarget?.type === 'schedule') handleScheduleDelete();
+        }}
+      />
     </div>
   );
 }
