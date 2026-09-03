@@ -158,6 +158,8 @@ if (window.electron) {
 
 ## 주요 파일
 
+- `backend/automation-mail-routes.js`: 별도 수집 컨테이너용 `POST /api/automation/email`. 전용 Bearer 키와 서버 고정 수신자를 사용하고 `sendNewEmail`을 재사용합니다. 설정·Docker 호출법은 `docs/automation-mail.md` 참조. 운영 환경변수 설정 및 새 백엔드 이미지 배포가 필요합니다.
+
 | 파일 | 역할 |
 |------|------|
 | `app/electron/main.js` | 메인 프로세스: 윈도우, IPC 핸들러, WebSocket, 자동 업데이트 |

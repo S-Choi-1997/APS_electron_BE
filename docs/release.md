@@ -30,6 +30,8 @@ This is the deployment source of truth. A new session should be able to follow t
 
 ## Backend Release
 
+For the optional collector email endpoint, see [automation mail setup](automation-mail.md). It requires a backend image containing `automation-mail-routes.js`, plus `AUTOMATION_MAIL_API_KEY` and `AUTOMATION_MAIL_TO` in the NAS `.env`. Recreate the backend container after environment changes. This does not require an Electron release.
+
 Use this when backend code changed.
 
 1. Pick the next backend tag.

@@ -1300,6 +1300,7 @@ console.log('✓ Firestore real-time listener registered for inquiries collectio
 // Email Inquiries API (Gmail + ZOHO)
 // ============================================
 emailMailClient.registerRoutes(app, auth, asyncHandler);
+require('./automation-mail-routes').registerRoutes(app, { sendNewEmail: emailMailClient.sendNewEmail });
 
 // Legacy email inquiry routes are provided by email-mail-client-service.js.
 emailTranslationRoutes.registerRoutes(app, auth, asyncHandler);

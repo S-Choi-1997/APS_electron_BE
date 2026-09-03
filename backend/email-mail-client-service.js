@@ -2185,4 +2185,5 @@ module.exports = {
   registerRoutes,
   handleError,
   replyToInquiry,
+  sendNewEmail,
 };
