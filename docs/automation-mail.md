@@ -1,20 +1,20 @@
 # 수집 프로세스의 메일 발송
 
-별도 Docker 컨테이너에서 수집한 결과를 APS 백엔드의 `POST /api/automation/email`로 전달하면, 기존 ZOHO 발송 서비스가 서버에 지정된 수신자에게 전송합니다. Electron 실행이나 사용자 로그인이 필요하지 않습니다. 수집 프로세스는 ZOHO 토큰 또는 DB 접근 권한을 사용할 필요가 없습니다.
+별도 Docker 컨테이너에서 수집한 결과를 APS 백엔드의 `POST /api/automation/email`로 전달하면, 기존 ZOHO 발송 서비스가 요청의 `to` 주소로 전송합니다. Electron 실행이나 사용자 로그인이 필요하지 않습니다. 수집 프로세스는 ZOHO 토큰 또는 DB 접근 권한을 사용할 필요가 없습니다.
 
 ```text
-수집 컨테이너 → APS 백엔드 → ZOHO → 지정된 내 메일
+수집 컨테이너 → APS 백엔드 → ZOHO → 요청한 수신 주소
                            → PostgreSQL 발송 이력
                            → 앱에 email:created 알림
 ```
 
 ## 백엔드 설정
 
-NAS 배포 디렉터리의 기존 `.env`에 아래 두 값을 추가합니다. 실제 수신 주소는 운영자가 지정하며 발신 주소는 기존 `ZOHO_ACCOUNT_EMAIL`을 사용합니다.
+NAS 배포 디렉터리의 기존 `.env`에 아래 키를 추가합니다. 수신 주소는 요청의 `to`로 전달하며 발신 주소는 기존 `ZOHO_ACCOUNT_EMAIL`을 사용합니다.
 
 ```dotenv
 AUTOMATION_MAIL_API_KEY=<별도로 생성한 무작위 키>
-AUTOMATION_MAIL_TO=<본인의 단일 이메일 주소>
+
 ```
 
 키 생성:
@@ -23,7 +23,7 @@ AUTOMATION_MAIL_TO=<본인의 단일 이메일 주소>
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-키는 32–256자의 공백 없는 ASCII 문자열이어야 합니다. JWT 서명 키와 별개의 키를 사용합니다. `ZOHO_ENABLED=true`와 기존 ZOHO 인증이 필요합니다. 키·수신자가 없거나 형식이 잘못되었거나 ZOHO가 비활성화되어 있으면 이 API는 503을 반환합니다. 나머지 앱 API는 기존대로 작동합니다.
+키는 32–256자의 공백 없는 ASCII 문자열이어야 합니다. JWT 서명 키와 별개의 키를 사용합니다. `ZOHO_ENABLED=true`와 기존 ZOHO 인증이 필요합니다. 키가 없거나 형식이 잘못되었거나 ZOHO가 비활성화되어 있으면 이 API는 503을 반환합니다. 나머지 앱 API는 기존대로 작동합니다.
 
 `nas-deploy/docker-compose.yml`의 `env_file: .env`가 설정을 전달하므로 Compose 파일을 수정할 필요가 없습니다. 새 백엔드 이미지는 [배포 가이드](release.md)에 따라 `steve`에서 빌드·푸시하고 NAS에서 pull합니다. 환경변수 변경 후에는 `docker compose up -d --force-recreate aps-backend`로 컨테이너를 재생성합니다. 단순 `restart`는 새 환경변수를 반영하지 않습니다.
 
@@ -64,17 +64,20 @@ networks:
 
 ## 요청과 응답
 
+제목과 본문의 내용·형식은 호출하는 쪽에서 자유롭게 정합니다. API는 정해진 보고서 양식이나 문구를 추가하지 않습니다. 아래 값은 필드 설명용 자리표시자입니다.
+
 ```http
 POST /api/automation/email
 Authorization: Bearer <전용 키>
 Content-Type: application/json
 
-{"subject":"오늘의 수집 결과","body":"새 항목 3개를 찾았습니다."}
+{"to":"recipient@example.com","subject":"<제목>","body":"<본문>"}
 ```
 
+- `to`: 필수 문자열, 받는 이메일 주소 하나. 최대 254자. 요청마다 자유롭게 지정합니다.
 - `subject`: 필수 문자열, 최대 500자, 줄바꿈 불가.
 - `body` 또는 `bodyHtml`: 하나 이상 필요, 두 본문 합계 최대 200,000자. HTML은 기존 발송 서비스에서 정제합니다.
-- 수신자·발신자·CC·BCC·첨부 등 다른 필드는 거절합니다. 수신 주소는 서버 설정으로만 변경합니다.
+- 발신자·CC·BCC·첨부 등 다른 필드는 거절합니다. 발신 주소는 기존 ZOHO 계정을 사용합니다.
 - 인증된 요청은 키 전체를 기준으로 분당 10회까지 허용합니다. 제한은 백엔드 프로세스 메모리에 있으며 재시작 시 초기화됩니다.
 
 Python 수집 프로세스에서 호출하는 예시(표준 라이브러리만 사용):
@@ -84,7 +87,7 @@ import json
 import os
 import urllib.request
 
-payload = {"subject": "오늘의 수집 결과", "body": "새 항목 3개를 찾았습니다."}
+payload = {"to": "recipient@example.com", "subject": "<제목>", "body": "<본문>"}
 request = urllib.request.Request(
     os.environ["APS_MAIL_API_URL"],
     data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),

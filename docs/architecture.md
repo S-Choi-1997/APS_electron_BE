@@ -41,7 +41,7 @@ Electron app -> old GCP relay /proxy -> relay -> backend
 
 ### NAS Deployment (`nas-deploy/`)
 
-Independent collectors can send reports through `POST /api/automation/email` using a dedicated service key and a server-configured recipient. The endpoint reuses the backend's Zoho sending and sent-mail persistence; see [automation mail](automation-mail.md) for Docker networking and configuration.
+Independent collectors can send reports through `POST /api/automation/email` using a dedicated service key and a recipient supplied in the request (`to`). The endpoint reuses the backend's Zoho sending and sent-mail persistence; see [automation mail](automation-mail.md) for Docker networking and configuration.
 
 - Runs PostgreSQL and the backend container with Docker Compose
 - Pulls the backend from Docker Hub:

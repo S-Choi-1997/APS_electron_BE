@@ -1,15 +1,13 @@
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 
-const ALLOWED_FIELDS = new Set(['subject', 'body', 'bodyHtml']);
+const ALLOWED_FIELDS = new Set(['to', 'subject', 'body', 'bodyHtml']);
 const RECIPIENT_PATTERN = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/i;
 const MAX_BODY_LENGTH = 200000;
 
 function registerRoutes(app, { sendNewEmail, env = process.env, broadcast = (...args) => global.broadcastEvent?.(...args) }) {
   const apiKey = String(env.AUTOMATION_MAIL_API_KEY || '');
-  const recipient = String(env.AUTOMATION_MAIL_TO || '').trim();
   const configured = /^[\x21-\x7e]{32,256}$/.test(apiKey)
-    && RECIPIENT_PATTERN.test(recipient)
     && env.ZOHO_ENABLED === 'true';
   const keyDigest = crypto.createHash('sha256').update(apiKey).digest();
 
@@ -41,7 +39,11 @@ function registerRoutes(app, { sendNewEmail, env = process.env, broadcast = (...
     const input = req.body;
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || Object.keys(input).some(key => !ALLOWED_FIELDS.has(key))) {
-      return res.status(400).json({ error: 'invalid_payload', message: 'Only subject, body and bodyHtml are supported.' });
+      return res.status(400).json({ error: 'invalid_payload', message: 'Only to, subject, body and bodyHtml are supported.' });
+    }
+    const recipient = typeof input.to === 'string' ? input.to.trim() : '';
+    if (!recipient || recipient.length > 254 || !RECIPIENT_PATTERN.test(recipient)) {
+      return res.status(400).json({ error: 'invalid_recipient', message: 'Provide a single email address in to.' });
     }
     if (typeof input.subject !== 'string' || !input.subject.trim()
       || input.subject.length > 500 || /[\r\n]/.test(input.subject)

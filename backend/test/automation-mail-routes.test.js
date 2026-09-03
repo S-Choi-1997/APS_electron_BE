@@ -4,7 +4,7 @@ const express = require('express');
 const { registerRoutes } = require('../automation-mail-routes');
 
 const apiKey = 'a'.repeat(64);
-const validBody = { subject: '수집 결과', body: '새 항목 3개를 찾았습니다.' };
+const validBody = { to: 'recipient@example.com', subject: '수집 결과', body: '새 항목 3개를 찾았습니다.' };
 
 async function fixture(t, overrides = {}) {
   const calls = [];
@@ -12,7 +12,7 @@ async function fixture(t, overrides = {}) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   registerRoutes(app, {
-    env: { ZOHO_ENABLED: 'true', AUTOMATION_MAIL_API_KEY: apiKey, AUTOMATION_MAIL_TO: 'owner@example.com', ...overrides.env },
+    env: { ZOHO_ENABLED: 'true', AUTOMATION_MAIL_API_KEY: apiKey, ...overrides.env },
     sendNewEmail: async payload => {
       calls.push(payload);
       if (overrides.send) return overrides.send(payload);
@@ -41,11 +41,11 @@ async function fixture(t, overrides = {}) {
   };
 }
 
-test('automation mail sends through the shared service to the configured owner only', async t => {
+test('automation mail sends through the shared service to the requested recipient', async t => {
   const f = await fixture(t);
   const response = await f.post({ ...validBody, bodyHtml: '<p>수집 결과</p>' });
   assert.equal(response.status, 200);
-  assert.deepEqual(f.calls, [{ ...validBody, bodyHtml: '<p>수집 결과</p>', to: ['owner@example.com'] }]);
+  assert.deepEqual(f.calls, [{ ...validBody, bodyHtml: '<p>수집 결과</p>', to: ['recipient@example.com'] }]);
   assert.deepEqual(response.body, { success: true, deliveryStatus: 'accepted', messageId: 'zoho-123', localSaved: true });
   assert.deepEqual(f.events, [['email:created', { id: 42 }]]);
   assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -59,12 +59,10 @@ test('missing or incorrect service credentials never invoke the sender', async t
   assert.equal(f.calls.length, 0);
 });
 
-test('incomplete configuration, short keys, multiple recipients and disabled Zoho fail closed', async t => {
+test('incomplete configuration, short keys and disabled Zoho fail closed', async t => {
   for (const env of [
     { AUTOMATION_MAIL_API_KEY: '' },
     { AUTOMATION_MAIL_API_KEY: 'short' },
-    { AUTOMATION_MAIL_TO: '' },
-    { AUTOMATION_MAIL_TO: 'one@example.com,two@example.com' },
     { ZOHO_ENABLED: 'false' },
   ]) {
     const f = await fixture(t, { env });
@@ -73,9 +71,9 @@ test('incomplete configuration, short keys, multiple recipients and disabled Zoh
   }
 });
 
-test('recipient overrides and unsupported payloads cannot reach the sender', async t => {
+test('unsupported payload fields cannot reach the sender', async t => {
   const f = await fixture(t);
-  for (const extra of [{ to: 'attacker@example.com' }, { cc: ['other@example.com'] }, { bcc: [] }, { from: 'other@example.com' }, { attachments: [] }]) {
+  for (const extra of [{ cc: ['other@example.com'] }, { bcc: [] }, { from: 'other@example.com' }, { attachments: [] }]) {
     assert.equal((await f.post({ ...validBody, ...extra })).status, 400);
   }
   assert.equal(f.calls.length, 0);
@@ -86,13 +84,13 @@ test('invalid subject/body and excessive report size are rejected', async t => {
   for (const body of [[], {}, { subject: 'report' }, { ...validBody, subject: 'a\r\nb' }, { ...validBody, body: {} }, { ...validBody, subject: 'x'.repeat(501) }]) {
     assert.equal((await f.post(body)).status, 400);
   }
-  assert.equal((await f.post({ subject: 'report', body: 'x'.repeat(200001) })).status, 413);
+  assert.equal((await f.post({ ...validBody, body: 'x'.repeat(200001) })).status, 413);
   assert.equal(f.calls.length, 0);
 });
 
 test('HTML-only reports use the existing outgoing HTML pipeline', async t => {
   const f = await fixture(t);
-  assert.equal((await f.post({ subject: 'Report', bodyHtml: '<p>Result</p>' })).status, 200);
+  assert.equal((await f.post({ to: validBody.to, subject: 'Report', bodyHtml: '<p>Result</p>' })).status, 200);
   assert.equal(f.calls[0].bodyHtml, '<p>Result</p>');
 });
 
@@ -130,4 +128,22 @@ test('service rate limit stops the eleventh request before sending', async t => 
   assert.equal(response.status, 429);
   assert.ok(response.headers.get('retry-after'));
   assert.equal(f.calls.length, 10);
+});
+
+test('missing, malformed and multiple recipient inputs never invoke the sender', async t => {
+  const f = await fixture(t);
+  for (const to of [undefined, '', 'not-an-email', null, ['one@example.com'], 'one@example.com,two@example.com', 'one@example.com\r\nBcc: two@example.com', 'a'.repeat(250) + '@example.com']) {
+    const response = await f.post({ ...validBody, to });
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, 'invalid_recipient');
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('each request selects its recipient even when an obsolete fixed recipient is configured', async t => {
+  const f = await fixture(t, { env: { AUTOMATION_MAIL_TO: 'old@example.com' } });
+  for (const to of ['first@example.com', ' second@example.com ']) {
+    assert.equal((await f.post({ ...validBody, to })).status, 200);
+  }
+  assert.deepEqual(f.calls.map(call => call.to), [['first@example.com'], ['second@example.com']]);
 });
