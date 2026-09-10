@@ -134,7 +134,8 @@ async function fetchFolderMessages(folder, { pageSize = 100, stopAtDate = null, 
 
     if (stopAtDate) {
       const reachedKnownMessage = page.some((message) => {
-        const inquiry = parseMessageToInquiry(message, folder === 'Sent');
+        const folderType = normalizeFolderType({ folderName: folder });
+        const inquiry = parseMessageToInquiry(message, folderType === 'sent', { folderType });
         const receivedAt = toValidDate(inquiry.receivedAt);
         return receivedAt && receivedAt <= stopAtDate;
       });
@@ -235,7 +236,8 @@ async function syncSingleFolder(folderName, { pageSize = 100 } = {}) {
 
   for (const message of messages) {
     try {
-      const inquiry = parseMessageToInquiry(message, normalizeFolderType({ folderName }) === 'sent');
+      const folderType = normalizeFolderType({ folderName });
+      const inquiry = parseMessageToInquiry(message, folderType === 'sent', { folderType });
       inquiry.folderName = folderName;
       inquiry.folderType = normalizeFolderType({ folderName });
       maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
@@ -303,7 +305,7 @@ async function performFullSync(options = {}) {
         try {
           // Parse message to inquiry format
           const folderType = normalizeFolderType({ folderName: folder });
-          const inquiry = parseMessageToInquiry(message, folderType === 'sent');
+          const inquiry = parseMessageToInquiry(message, folderType === 'sent', { folderType });
           inquiry.folderName = folder;
           inquiry.folderType = folderType;
           maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);
@@ -391,7 +393,7 @@ async function performIncrementalSync(options = {}) {
         try {
           // Parse message to inquiry format
           const folderType = normalizeFolderType({ folderName: folder });
-          const inquiry = parseMessageToInquiry(message, folderType === 'sent');
+          const inquiry = parseMessageToInquiry(message, folderType === 'sent', { folderType });
           inquiry.folderName = folder;
           inquiry.folderType = folderType;
           maxProviderReceivedAt = maxDate(maxProviderReceivedAt, inquiry.receivedAt);

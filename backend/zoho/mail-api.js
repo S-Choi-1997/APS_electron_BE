@@ -526,7 +526,7 @@ function decodeAndCleanEmail(emailStr) {
 /**
  * Parse ZOHO message to inquiry format
  */
-function parseMessageToInquiry(message, isOutgoing = false) {
+function parseMessageToInquiry(message, isOutgoing = false, options = {}) {
   // Parse receivedAt with fallback to current time
   let receivedAt;
   if (message.receivedTime) {
@@ -541,9 +541,15 @@ function parseMessageToInquiry(message, isOutgoing = false) {
   const fromEmail = decodeAndCleanEmail(message.fromAddress || message.from);
   const accountEmail = (config.accountEmail || '').toLowerCase();
 
-  // Check if this is an outgoing email based on sender
-  // Even if it's in Inbox folder, if sender is our account, it's outgoing
-  const actuallyOutgoing = Boolean(isOutgoing || (accountEmail && fromEmail.toLowerCase() === accountEmail));
+  // Inbox can legitimately contain a copy sent from the account to itself.
+  // When synchronization knows the provider folder, that folder is the
+  // authoritative direction. Sender inference remains for webhook payloads
+  // that do not include a reliable folder type.
+  const providerFolderType = options.folderType || normalizeFolderType(message.folderName);
+  const folderDefinesDirection = providerFolderType === 'inbox' || providerFolderType === 'sent';
+  const actuallyOutgoing = folderDefinesDirection
+    ? providerFolderType === 'sent'
+    : Boolean(isOutgoing || (accountEmail && fromEmail.toLowerCase() === accountEmail));
 
   // Extract inReplyTo from IntegIdList (ZOHO webhook format)
   // IntegIdList contains comma-separated message IDs that this email is replying to
@@ -591,7 +597,7 @@ function parseMessageToInquiry(message, isOutgoing = false) {
     messageId: message.messageId,
     folderId: message.folderId, // Required for fetchMessageDetails
     folderName: message.folderName,
-    folderType: actuallyOutgoing ? 'sent' : normalizeFolderType(message.folderName),
+    folderType: providerFolderType || (actuallyOutgoing ? 'sent' : 'inbox'),
     from: fromEmail,
     fromName: message.sender || message.fromName,
     subject: message.subject,
