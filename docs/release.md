@@ -5,7 +5,7 @@ This is the deployment source of truth. A new session should be able to follow t
 ## Current Production
 
 - Backend URL: `https://backend.apsconsulting.kr`
-- Backend image on NAS: `choho97/aps-admin-backend:1.3.37`
+- Backend image on NAS: `choho97/aps-admin-backend:1.3.38`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
 - Current app update artifact: `app/dist/APS-Admin-Setup-1.3.33.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
@@ -17,6 +17,13 @@ This is the deployment source of truth. A new session should be able to follow t
 - Built and pushed on `steve`, pulled and recreated on `nas`; image digest: `sha256:d878ccc99505dff932592bf2a0854c655931d4efb251969a969ce83357d16382`.
 - Registered the service key documented in local-only `.local/mail-api.md` in the NAS environment. Keys are not included in the image or tracked docs.
 - Verified healthy container, liveness/readiness, public version 1.3.37, unauthenticated 401, and authenticated request validation 400. No actual email was sent during deployment checks.
+
+### Backend 1.3.38 (2026-09-10)
+
+- Fixed self-addressed Zoho messages in Inbox being classified as outgoing and hidden from the received-mail view.
+- Provider Inbox/Sent folder direction now takes precedence over sender-address inference; webhook payloads without reliable folder metadata retain sender inference.
+- Corrected two existing hidden Inbox records (`2860`, `2863`) to incoming/unread.
+- Built and pushed on `steve`, deployed to NAS, and verified healthy public version 1.3.38. Image digest: `sha256:ad36c11158e563c920c024103741a1a6cdd7e2975ce797e5b65e6dcc80af5307`.
 
 ## Machine Roles
 
