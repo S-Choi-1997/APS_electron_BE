@@ -1934,20 +1934,23 @@ function EmailConsultationsPage() {
                 <div className="attachment-strip">
                   <strong>첨부파일 {attachments.length}개</strong>
                   {attachmentNotice ? <p className="attachment-notice">{attachmentNotice}</p> : null}
-                  <div>
+                  <div className="attachment-list">
                     {attachments.map((attachment) => {
                       const attachmentId = attachment.attachmentId || attachment.id;
                       const opening = attachmentAction === `${attachmentId}:open`;
                       const saving = attachmentAction === `${attachmentId}:save`;
                       return (
                         <span className="attachment-chip" key={attachmentId}>
+                          <span className="attachment-file-icon" aria-hidden="true">▤</span>
                           <span className="attachment-chip-name" title={attachment.filename}>{attachment.filename}</span>
-                          <button type="button" onClick={() => handleAttachmentAction(attachment, 'open')} disabled={Boolean(attachmentAction)}>
-                            {opening ? '여는 중…' : '열기'}
-                          </button>
-                          <button type="button" onClick={() => handleAttachmentAction(attachment, 'save')} disabled={Boolean(attachmentAction)}>
-                            {saving ? '저장 중…' : '저장'}
-                          </button>
+                          <span className="attachment-actions">
+                            <button className="attachment-open-button" type="button" onClick={() => handleAttachmentAction(attachment, 'open')} disabled={Boolean(attachmentAction)}>
+                              {opening ? '여는 중…' : '열기'}
+                            </button>
+                            <button type="button" onClick={() => handleAttachmentAction(attachment, 'save')} disabled={Boolean(attachmentAction)}>
+                              {saving ? '저장 중…' : '저장'}
+                            </button>
+                          </span>
                         </span>
                       );
                     })}

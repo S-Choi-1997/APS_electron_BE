@@ -1022,16 +1022,19 @@
 }
 
 .attachment-notice {
-  margin: -2px 0 8px;
-  color: #4d607b;
+  margin: -2px 0 9px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #edf8f1;
+  color: #2f6b45;
   font-size: 11px;
 }
 
-.attachment-strip div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 112px;
+.attachment-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  max-height: 150px;
   overflow-y: auto;
   padding-right: 4px;
   overscroll-behavior: contain;
@@ -1039,12 +1042,12 @@
 }
 
 .attachment-chip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 36px;
-  max-width: 420px;
-  padding: 4px 5px 4px 11px;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 7px 6px 10px;
   border: 1px solid #d3dae7;
   border-radius: 7px;
   background: #f8fafc;
@@ -1053,12 +1056,32 @@
   font-weight: 700;
 }
 
+.attachment-file-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+  background: #e9eefb;
+  color: var(--mail-accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
 .attachment-chip-name {
-  min-width: 60px;
-  max-width: 240px;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.attachment-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 5px;
 }
 
 .attachment-chip button {
@@ -1076,6 +1099,12 @@
 .attachment-chip button:hover:not(:disabled) {
   border-color: var(--mail-accent);
   color: var(--mail-accent);
+}
+
+.attachment-chip .attachment-open-button {
+  border-color: #bec9ee;
+  background: #eef2ff;
+  color: #304da8;
 }
 
 .attachment-chip button:disabled {
