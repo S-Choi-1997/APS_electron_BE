@@ -33,7 +33,7 @@ import {
   useUnarchiveEmail,
   useTriggerZohoSync,
 } from '../hooks/queries/useEmailInquiries';
-import { EMAIL_STATUS } from '../services/emailInquiryService';
+import { EMAIL_STATUS, fetchEmailInlineImage } from '../services/emailInquiryService';
 import { useEmailPageState } from '../hooks/useEmailPageState';
 import { auth } from '../auth/authManager';
 import { copyTextToClipboard, htmlToPlainText } from '../utils/clipboard';
@@ -299,9 +299,7 @@ function looksNonKorean(text = '') {
 }
 
 const EMAIL_SCROLL_STYLE_PROPERTIES = [
-  'height',
   'max-height',
-  'min-height',
   'overflow',
   'overflow-x',
   'overflow-y',
@@ -322,9 +320,6 @@ function sanitizeEmailHtmlForDisplay(html = '') {
       element.style.removeProperty(property);
     });
 
-    if (element.tagName.toLowerCase() !== 'img') {
-      element.removeAttribute('height');
-    }
     element.removeAttribute('scrolling');
   });
 
@@ -787,6 +782,8 @@ function EmailConsultationsPage() {
   const [bodyCopyState, setBodyCopyState] = useState('idle');
   const [attachmentAction, setAttachmentAction] = useState(null);
   const [attachmentNotice, setAttachmentNotice] = useState('');
+  const [expandedEmailOpen, setExpandedEmailOpen] = useState(false);
+  const [resolvedSelectedHtml, setResolvedSelectedHtml] = useState('');
   const bodyCopyTimerRef = useRef(null);
 
   const filters = useMemo(() => ({
@@ -877,6 +874,7 @@ function EmailConsultationsPage() {
     setTranslatedEmailOverride(null);
     setAttachmentAction(null);
     setAttachmentNotice('');
+    setExpandedEmailOpen(false);
   }, [selectedId]);
 
   useEffect(() => {
@@ -1381,6 +1379,48 @@ function EmailConsultationsPage() {
     () => sanitizeEmailHtmlForDisplay(selectedHtml),
     [selectedHtml],
   );
+  useEffect(() => {
+    setResolvedSelectedHtml(sanitizedSelectedHtml);
+    if (!sanitizedSelectedHtml || !selectedEmail?.id || typeof document === 'undefined') return undefined;
+
+    const template = document.createElement('template');
+    template.innerHTML = sanitizedSelectedHtml;
+    const inlineImages = [...template.content.querySelectorAll('img[src]')]
+      .map((image) => {
+        const source = image.getAttribute('src') || '';
+        if (source.toLowerCase().startsWith('cid:')) {
+          return { image, contentId: source.slice(4) };
+        }
+        if (!source.startsWith('/mail/ImageDisplay')) return null;
+        const contentId = new URL(source, 'https://mail.zoho.com').searchParams.get('cid');
+        return contentId ? { image, contentId } : null;
+      })
+      .filter(Boolean);
+
+    if (inlineImages.length === 0) return undefined;
+    let canceled = false;
+    const objectUrls = [];
+    Promise.all(inlineImages.map(async ({ image, contentId }) => {
+      try {
+        const blob = await fetchEmailInlineImage(selectedEmail.id, contentId);
+        if (canceled) return;
+        const objectUrl = URL.createObjectURL(blob);
+        objectUrls.push(objectUrl);
+        image.setAttribute('src', objectUrl);
+      } catch (error) {
+        console.warn('[Email] Failed to load inline image:', contentId, error);
+        image.removeAttribute('src');
+        image.setAttribute('data-inline-image-unavailable', 'true');
+      }
+    })).then(() => {
+      if (!canceled) setResolvedSelectedHtml(template.innerHTML);
+    });
+
+    return () => {
+      canceled = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [sanitizedSelectedHtml, selectedEmail?.id]);
   const handleMessageHtmlClick = async (event) => {
     const link = event.target?.closest?.('a[href]');
     if (!link) return;
@@ -1486,7 +1526,7 @@ function EmailConsultationsPage() {
     const printDocument = buildEmailPrintDocument({
       email: selectedEmail,
       subject: displayedSubject || selectedEmail.subject || '(제목 없음)',
-      sanitizedBodyHtml: printingTranslation ? '' : sanitizedSelectedHtml,
+      sanitizedBodyHtml: printingTranslation ? '' : resolvedSelectedHtml,
       bodyText: printingTranslation ? translationEmail?.translatedBody : displayedText,
       statusLabel: getStatusLabel(selectedEmail),
       dateText: formatFullDate(getMessageDate(selectedEmail)),
@@ -1504,6 +1544,53 @@ function EmailConsultationsPage() {
       setActionError(error?.message || '메일 출력에 실패했습니다.');
     }
   };
+
+  const renderEmailBody = (expanded = false) => (
+    <article className={`message-body ${expanded ? 'expanded-message-body' : ''}`}>
+      {content?.unavailableReason ? <p className="message-warning">{content.unavailableReason}</p> : null}
+      {showTranslation && hasTranslation ? (
+        <div className="message-html translated-message-body">
+          <pre>{translationEmail.translatedBody}</pre>
+        </div>
+      ) : resolvedSelectedHtml ? (
+        <div
+          className="message-html"
+          onClick={handleMessageHtmlClick}
+          dangerouslySetInnerHTML={{ __html: resolvedSelectedHtml }}
+        />
+      ) : (
+        <pre>{displayedText || '본문이 없습니다.'}</pre>
+      )}
+    </article>
+  );
+
+  const renderAttachments = () => attachments.length > 0 ? (
+    <div className="attachment-strip">
+      <strong>첨부파일 {attachments.length}개</strong>
+      {attachmentNotice ? <p className="attachment-notice">{attachmentNotice}</p> : null}
+      <div className="attachment-list">
+        {attachments.map((attachment) => {
+          const attachmentId = attachment.attachmentId || attachment.id;
+          const opening = attachmentAction === `${attachmentId}:open`;
+          const saving = attachmentAction === `${attachmentId}:save`;
+          return (
+            <span className="attachment-chip" key={attachmentId}>
+              <span className="attachment-file-icon" aria-hidden="true">▤</span>
+              <span className="attachment-chip-name" title={attachment.filename}>{attachment.filename}</span>
+              <span className="attachment-actions">
+                <button className="attachment-open-button" type="button" onClick={() => handleAttachmentAction(attachment, 'open')} disabled={Boolean(attachmentAction)}>
+                  {opening ? '여는 중…' : '열기'}
+                </button>
+                <button type="button" onClick={() => handleAttachmentAction(attachment, 'save')} disabled={Boolean(attachmentAction)}>
+                  {saving ? '저장 중…' : '저장'}
+                </button>
+              </span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="email-client-page">
@@ -1892,6 +1979,14 @@ function EmailConsultationsPage() {
                   ) : null}
                 </div>
                 <div className="message-content-actions">
+                  <button
+                    type="button"
+                    className="expand-message-button"
+                    onClick={() => setExpandedEmailOpen(true)}
+                    title="메일을 넓은 화면에서 보기"
+                  >
+                    크게 보기
+                  </button>
                   {shouldShowTranslationControl ? (
                     <button
                       type="button"
@@ -1913,50 +2008,8 @@ function EmailConsultationsPage() {
                 </div>
               </div>
 
-              <article className="message-body">
-                {content?.unavailableReason ? <p className="message-warning">{content.unavailableReason}</p> : null}
-                {showTranslation && hasTranslation ? (
-                  <div className="message-html translated-message-body">
-                    <pre>{translationEmail.translatedBody}</pre>
-                  </div>
-                ) : sanitizedSelectedHtml ? (
-                  <div
-                    className="message-html"
-                    onClick={handleMessageHtmlClick}
-                    dangerouslySetInnerHTML={{ __html: sanitizedSelectedHtml }}
-                  />
-                ) : (
-                  <pre>{displayedText || '본문이 없습니다.'}</pre>
-                )}
-              </article>
-
-              {attachments.length > 0 ? (
-                <div className="attachment-strip">
-                  <strong>첨부파일 {attachments.length}개</strong>
-                  {attachmentNotice ? <p className="attachment-notice">{attachmentNotice}</p> : null}
-                  <div className="attachment-list">
-                    {attachments.map((attachment) => {
-                      const attachmentId = attachment.attachmentId || attachment.id;
-                      const opening = attachmentAction === `${attachmentId}:open`;
-                      const saving = attachmentAction === `${attachmentId}:save`;
-                      return (
-                        <span className="attachment-chip" key={attachmentId}>
-                          <span className="attachment-file-icon" aria-hidden="true">▤</span>
-                          <span className="attachment-chip-name" title={attachment.filename}>{attachment.filename}</span>
-                          <span className="attachment-actions">
-                            <button className="attachment-open-button" type="button" onClick={() => handleAttachmentAction(attachment, 'open')} disabled={Boolean(attachmentAction)}>
-                              {opening ? '여는 중…' : '열기'}
-                            </button>
-                            <button type="button" onClick={() => handleAttachmentAction(attachment, 'save')} disabled={Boolean(attachmentAction)}>
-                              {saving ? '저장 중…' : '저장'}
-                            </button>
-                          </span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
+              {renderEmailBody()}
+              {renderAttachments()}
 
               </div>
 
@@ -1969,6 +2022,37 @@ function EmailConsultationsPage() {
           )}
         </section>
       </main>
+
+      <Modal
+        isOpen={expandedEmailOpen && Boolean(selectedEmail)}
+        onClose={() => setExpandedEmailOpen(false)}
+        title={displayedSubject || selectedEmail?.subject || '(제목 없음)'}
+        size="viewport"
+      >
+        <div className="expanded-email-view">
+          <div className="expanded-email-toolbar">
+            <div className="expanded-email-meta">
+              <strong>{formatSender(selectedEmail)}</strong>
+              <span>{formatFullDate(getMessageDate(selectedEmail))}</span>
+            </div>
+            <div className="message-content-actions">
+              {shouldShowTranslationControl ? (
+                <button type="button" className={`translation-button ${hasTranslation ? 'available' : ''}`} onClick={handleTranslationClick} disabled={translationBusy}>
+                  {getTranslationButtonLabel()}
+                </button>
+              ) : null}
+              <button type="button" className={`body-copy-button ${bodyCopyState === 'copied' ? 'copied' : ''}`} onClick={handleCopyDisplayedBody}>
+                {bodyCopyState === 'copied' ? '복사됨' : '본문 복사'}
+              </button>
+              <button type="button" className="body-copy-button" onClick={handlePrintSelectedEmail} aria-label="현재 메일 출력">출력</button>
+            </div>
+          </div>
+          <div className="expanded-email-scroll">
+            {renderEmailBody(true)}
+            {renderAttachments()}
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={labelModalOpen}

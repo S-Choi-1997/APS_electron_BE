@@ -826,14 +826,17 @@
 }
 
 .message-html * {
-  max-height: none !important;
-  overflow: visible !important;
+  min-width: 0;
 }
 
 .message-html table {
-  min-width: 100%;
-  max-width: none;
+  max-width: 100%;
   table-layout: auto;
+}
+
+.message-html > table {
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .message-html pre,
@@ -1003,6 +1006,109 @@
   background: #eaf8ef;
   border-color: #b9dfc5;
   color: #237a3b;
+}
+
+.expand-message-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #c7d3f3;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #304da8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.expand-message-button:hover {
+  border-color: var(--mail-accent);
+  background: #e5ebff;
+}
+
+.expanded-email-view {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  background: #f7f8fb;
+}
+
+.expanded-email-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--mail-line);
+  background: #ffffff;
+}
+
+.expanded-email-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.expanded-email-meta strong,
+.expanded-email-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expanded-email-meta strong {
+  font-size: 13px;
+}
+
+.expanded-email-meta span {
+  color: #778298;
+  font-size: 11px;
+}
+
+.expanded-email-toolbar .message-content-actions {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.expanded-email-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  scrollbar-gutter: stable;
+}
+
+.expanded-email-scroll > .message-body,
+.expanded-email-scroll > .attachment-strip {
+  width: min(100%, 1120px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.expanded-message-body {
+  min-height: 300px;
+  border: 1px solid var(--mail-line);
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .expanded-email-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .expanded-email-toolbar .message-content-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .expanded-email-scroll {
+    padding: 10px;
+  }
 }
 
 .attachment-strip,

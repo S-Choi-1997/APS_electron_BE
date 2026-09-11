@@ -261,6 +261,23 @@ export async function fetchEmailAttachments(id) {
   return attachments.map(normalizeAttachment);
 }
 
+export async function fetchEmailInlineImage(emailId, contentId) {
+  const response = await apiFetch(
+    `/email-inquiries/${emailId}/inline/${encodeURIComponent(contentId)}`,
+    { method: 'GET' },
+    auth,
+  );
+  if (!response.ok) {
+    try {
+      await response.text();
+    } catch (error) {
+      if (error?.code === 'APS_REQUEST_TIMEOUT') throw error;
+    }
+    throw new Error(`Failed to load inline image (${response.status})`);
+  }
+  return response.blob();
+}
+
 export async function downloadEmailAttachment(emailId, attachmentId, fallbackFilename = '') {
   const response = await apiFetch(`/email-inquiries/${emailId}/attachments/${attachmentId}/download`, { method: 'GET' }, auth);
   if (!response.ok) {

@@ -68,8 +68,8 @@ const pageSource = fs.readFileSync(pagePath, 'utf8');
 assert(pageSource.includes("import { buildEmailPrintDocument } from '../utils/emailPrintDocument';"), 'email page must import print document builder');
 assert(pageSource.includes('function printHtmlDocument(html)'), 'email page must own the iframe print path');
 assert(pageSource.includes('const handlePrintSelectedEmail = async () =>'), 'email page must wire selected-mail print handler');
-assert(pageSource.includes('className="secondary-button print-button"'), 'print button should use the shared secondary button style');
-assert(pageSource.includes('aria-label="선택한 메일 출력"'), 'print button should expose an accessible label');
-assert(pageSource.includes('sanitizedBodyHtml: printingTranslation ? \'\': sanitizedSelectedHtml') || pageSource.includes("sanitizedBodyHtml: printingTranslation ? '' : sanitizedSelectedHtml"), 'original print should use sanitized HTML while translation uses text');
+assert(pageSource.includes('runActionMenuItem(handlePrintSelectedEmail)'), 'print should remain available from the message action menu');
+assert(/onClick=\{handlePrintSelectedEmail\}[^>]*>출력<\/button>/.test(pageSource), 'expanded view should expose a direct print action');
+assert(pageSource.includes('sanitizedBodyHtml: printingTranslation ? \'\': resolvedSelectedHtml') || pageSource.includes("sanitizedBodyHtml: printingTranslation ? '' : resolvedSelectedHtml"), 'original print should use the resolved safe HTML while translation uses text');
 
 console.log('EMAIL_PRINT_DOCUMENT_SMOKE_OK');

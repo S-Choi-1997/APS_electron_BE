@@ -34,7 +34,7 @@ function Modal({
     <div className="dash-modal-backdrop" onClick={handleBackdropClick}>
       <div className="dash-modal-wrapper">
         <div
-          className={`dash-modal-content ${compact ? 'compact' : ''} ${size === 'large' ? 'large' : ''}`}
+          className={`dash-modal-content ${compact ? 'compact' : ''} ${size === 'large' ? 'large' : ''} ${size === 'viewport' ? 'viewport' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}

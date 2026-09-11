@@ -275,6 +275,25 @@
   padding-top: 1.5rem;
 }
 
+.dash-modal-content.viewport {
+  width: 92vw;
+  max-width: 1380px;
+  height: 92vh;
+  max-height: 92vh;
+}
+
+.dash-modal-content.viewport .dash-modal-header h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-modal-content.viewport .dash-modal-body {
+  overflow: hidden;
+  padding: 0;
+}
+
 .confirm-dialog {
   text-align: center;
   padding: 0.5rem 0 0;
