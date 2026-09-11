@@ -294,6 +294,22 @@
   padding: 0;
 }
 
+@media (max-width: 720px) {
+  .dash-modal-content.viewport {
+    width: calc(100vw - 16px);
+    max-width: none;
+    height: calc(100vh - 16px);
+    max-height: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-modal-backdrop,
+  .dash-modal-content {
+    animation: none;
+  }
+}
+
 .confirm-dialog {
   text-align: center;
   padding: 0.5rem 0 0;

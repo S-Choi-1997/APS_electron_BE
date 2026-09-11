@@ -18,9 +18,15 @@ assert.match(page, />\s*크게 보기\s*</);
 assert.match(page, /size="viewport"/);
 assert.match(page, /formatNamedEmailAddress\(selectedEmail\?\.fromName, selectedEmail\?\.from\)/);
 assert.doesNotMatch(page, /formatSender\(/);
+assert.match(page, /expandedEmailScrollRef\.current\?\.scrollTo\(\{ top: 0, left: 0, behavior: 'auto' \}\)/);
+assert.match(page, /className="expanded-email-scroll" ref=\{expandedEmailScrollRef\}/);
+assert.match(page, /!expandedEmailOpen \? \(/);
 assert.match(modal, /size === 'viewport'/);
+assert.match(modal, /closeButtonRef\.current\?\.focus\(\)/);
+assert.match(modal, /event\.key !== 'Tab'/);
 assert.match(modalCss, /\.dash-modal-content\.viewport\s*\{/);
 assert.match(pageCss, /\.message-html table\s*\{[^}]*max-width:\s*100%/s);
 assert.doesNotMatch(pageCss, /\.message-html table\s*\{[^}]*min-width:\s*100%/s);
+assert.match(pageCss, /\.expanded-email-scroll\s*\{[^}]*overflow-anchor:\s*none/s);
 
 console.log('Zoho inline images, preserved HTML layout, and the expanded email view are wired correctly.');

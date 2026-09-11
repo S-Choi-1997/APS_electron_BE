@@ -785,6 +785,7 @@ function EmailConsultationsPage() {
   const [expandedEmailOpen, setExpandedEmailOpen] = useState(false);
   const [resolvedSelectedHtml, setResolvedSelectedHtml] = useState('');
   const bodyCopyTimerRef = useRef(null);
+  const expandedEmailScrollRef = useRef(null);
 
   const filters = useMemo(() => ({
     search: debouncedSearch.trim() || undefined,
@@ -907,6 +908,14 @@ function EmailConsultationsPage() {
     setBodyCopyState('idle');
     if (bodyCopyTimerRef.current) window.clearTimeout(bodyCopyTimerRef.current);
   }, [selectedId, showTranslation]);
+
+  useEffect(() => {
+    if (!expandedEmailOpen) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      expandedEmailScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [expandedEmailOpen, selectedId]);
 
   useEffect(() => {
     if (restoreFolders.length === 0) {
@@ -2008,8 +2017,12 @@ function EmailConsultationsPage() {
                 </div>
               </div>
 
-              {renderEmailBody()}
-              {renderAttachments()}
+              {!expandedEmailOpen ? (
+                <>
+                  {renderEmailBody()}
+                  {renderAttachments()}
+                </>
+              ) : null}
 
               </div>
 
@@ -2047,7 +2060,7 @@ function EmailConsultationsPage() {
               <button type="button" className="body-copy-button" onClick={handlePrintSelectedEmail} aria-label="현재 메일 출력">출력</button>
             </div>
           </div>
-          <div className="expanded-email-scroll">
+          <div className="expanded-email-scroll" ref={expandedEmailScrollRef}>
             {renderEmailBody(true)}
             {renderAttachments()}
           </div>

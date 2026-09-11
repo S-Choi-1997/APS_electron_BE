@@ -1,4 +1,4 @@
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import './css/Modal.css';
 
 function Modal({
@@ -12,15 +12,50 @@ function Modal({
   closeOnBackdrop = true,
 }) {
   const titleId = useId();
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const onCloseRef = useRef(onClose);
 
   useEffect(() => {
-    if (!isOpen || closeDisabled) return undefined;
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previouslyFocused = document.activeElement;
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !closeDisabled) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...(dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) || [])];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeDisabled, isOpen, onClose]);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
+  }, [closeDisabled, isOpen]);
 
   if (!isOpen) return null;
 
@@ -34,14 +69,16 @@ function Modal({
     <div className="dash-modal-backdrop" onClick={handleBackdropClick}>
       <div className="dash-modal-wrapper">
         <div
+          ref={dialogRef}
           className={`dash-modal-content ${compact ? 'compact' : ''} ${size === 'large' ? 'large' : ''} ${size === 'viewport' ? 'viewport' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
+          tabIndex={-1}
         >
           <div className="dash-modal-header">
             <h2 id={titleId}>{title}</h2>
-            <button type="button" className="dash-modal-close-btn" onClick={onClose} disabled={closeDisabled} aria-label="닫기">×</button>
+            <button ref={closeButtonRef} type="button" className="dash-modal-close-btn" onClick={onClose} disabled={closeDisabled} aria-label="닫기">×</button>
           </div>
           <div className="dash-modal-body">
             {children}
