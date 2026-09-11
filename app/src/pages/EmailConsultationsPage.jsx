@@ -1349,6 +1349,21 @@ function EmailConsultationsPage() {
     () => sanitizeEmailHtmlForDisplay(selectedHtml),
     [selectedHtml],
   );
+  const handleMessageHtmlClick = async (event) => {
+    const link = event.target?.closest?.('a[href]');
+    if (!link) return;
+    event.preventDefault();
+
+    const url = link.href;
+    if (window.electron?.openExternal) {
+      const result = await window.electron.openExternal(url);
+      if (!result?.success) {
+        setActionError(result?.error || '링크를 외부 브라우저에서 열지 못했습니다.');
+      }
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const selectedText = content?.text || selectedEmail?.bodyText || selectedEmail?.body || '';
   const translationEmail = selectedEmail && translatedEmailOverride?.id === selectedEmail.id
     ? { ...selectedEmail, ...translatedEmailOverride }
@@ -1875,6 +1890,7 @@ function EmailConsultationsPage() {
                 ) : sanitizedSelectedHtml ? (
                   <div
                     className="message-html"
+                    onClick={handleMessageHtmlClick}
                     dangerouslySetInnerHTML={{ __html: sanitizedSelectedHtml }}
                   />
                 ) : (

@@ -540,9 +540,14 @@ function EmailConsultationModal({ email, allEmails = [], onClose, onRespond }) {
           alert('파일 다운로드에 실패했습니다: ' + error.message);
         }
       } else {
-        // 일반 링크: setWindowOpenHandler가 처리하도록 window.open 사용
-        // (main.js에서 외부 브라우저로 열고 Electron 창은 안 띄움)
-        window.open(url, '_blank');
+        if (window.electron?.openExternal) {
+          const result = await window.electron.openExternal(url);
+          if (!result?.success) {
+            alert('링크를 외부 브라우저에서 열지 못했습니다: ' + (result?.error || '알 수 없는 오류'));
+          }
+        } else {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
       }
     }
   };

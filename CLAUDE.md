@@ -159,6 +159,7 @@ if (window.electron) {
 ## 주요 파일
 
 - `backend/automation-mail-routes.js`: 별도 수집 컨테이너용 `POST /api/automation/email`. 전용 Bearer 키와 요청의 `to` 수신 주소를 사용하고 `sendNewEmail`을 재사용합니다. 설정·Docker 호출법은 `docs/automation-mail.md` 참조. 운영 환경변수 설정 및 새 백엔드 이미지 배포가 필요합니다.
+- 메일 HTML의 링크는 렌더러에서 `window.electron.openExternal()`로 전달합니다. `attachExternalUrlHandler()`는 `target=_blank`와 같은 창 탐색 모두 시스템 기본 브라우저로 보내 Electron 앱이 외부 페이지로 이동하지 않게 합니다.
 
 | 파일 | 역할 |
 |------|------|

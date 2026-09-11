@@ -247,17 +247,39 @@ async function getSocketAuthFromMainWindow() {
 function attachExternalUrlHandler(window, label) {
   if (!window || window.isDestroyed()) return;
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  const openExternalUrl = (url, action) => {
     try {
       const safeUrl = normalizeExternalUrl(url);
-      console.log(`[${label}] Window open request:`, safeUrl);
+      console.log(`[${label}] ${action}:`, safeUrl);
       shell.openExternal(safeUrl).catch((error) => {
-        console.error(`[${label}] Failed to open external window URL:`, error);
+        console.error(`[${label}] Failed to open external URL:`, error);
       });
     } catch (error) {
-      console.warn(`[${label}] Blocked external window URL:`, error.message);
+      console.warn(`[${label}] Blocked external URL:`, error.message);
     }
+  };
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url, 'Window open request');
     return { action: 'deny' };
+  });
+
+  // A normal <a href> without target navigates the Electron window itself and
+  // strands the user on a web page without browser controls. Keep every managed
+  // app window on its renderer and send such navigations to the system browser.
+  window.webContents.on('will-navigate', (event, url) => {
+    try {
+      const currentUrl = new URL(window.webContents.getURL());
+      const requestedUrl = new URL(url);
+      const sameRendererDocument = currentUrl.protocol === requestedUrl.protocol
+        && currentUrl.host === requestedUrl.host
+        && currentUrl.pathname === requestedUrl.pathname;
+      if (sameRendererDocument) return;
+    } catch (_error) {
+      // Invalid navigation targets are prevented and rejected below.
+    }
+    event.preventDefault();
+    openExternalUrl(url, 'Navigation request');
   });
 }
 
