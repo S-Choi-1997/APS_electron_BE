@@ -1,0 +1,15 @@
+
+.email-html-frame-loading {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: #778298;
+  font-size: 13px;
+}
+.email-html-frame {
+  display: block;
+  width: 100%;
+  min-height: 300px;
+  border: 0;
+  background: #ffffff;
+}

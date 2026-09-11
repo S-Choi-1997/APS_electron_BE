@@ -809,43 +809,6 @@
   color: #172036;
 }
 
-.message-html img {
-  max-width: 100%;
-  height: auto;
-}
-
-.message-html p {
-  margin: 0 0 8px;
-}
-
-.message-html *,
-.message-html *::before,
-.message-html *::after {
-  box-sizing: border-box;
-  user-select: text !important;
-}
-
-.message-html * {
-  min-width: 0;
-}
-
-.message-html table {
-  max-width: 100%;
-  table-layout: auto;
-}
-
-.message-html > table {
-  margin-right: auto;
-  margin-left: auto;
-}
-
-.message-html pre,
-.message-html code {
-  white-space: pre-wrap !important;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
 .message-warning {
   margin: 0 0 12px;
   padding: 10px 12px;

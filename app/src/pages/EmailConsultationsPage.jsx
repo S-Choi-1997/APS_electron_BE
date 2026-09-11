@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import DOMPurify from 'dompurify';
 import useDebounce from '../hooks/useDebounce';
 import {
   useAddEmailLabel,
@@ -33,7 +32,7 @@ import {
   useUnarchiveEmail,
   useTriggerZohoSync,
 } from '../hooks/queries/useEmailInquiries';
-import { EMAIL_STATUS, fetchEmailInlineImage } from '../services/emailInquiryService';
+import { EMAIL_STATUS } from '../services/emailInquiryService';
 import { useEmailPageState } from '../hooks/useEmailPageState';
 import { auth } from '../auth/authManager';
 import { copyTextToClipboard, htmlToPlainText } from '../utils/clipboard';
@@ -42,6 +41,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Modal from '../components/Modal';
 import RichTextEditor from '../components/email/RichTextEditor';
 import RecipientInput from '../components/email/RecipientInput';
+import EmailHtmlFrame from '../components/email/EmailHtmlFrame';
 import './EmailConsultationsPage.css';
 
 const PAGE_SIZE = 20;
@@ -296,34 +296,6 @@ function looksNonKorean(text = '') {
   const letters = hangul + latin + japanese + cjk;
   if (letters < 20) return false;
   return hangul / letters < 0.18 && latin + japanese + cjk - hangul >= 20;
-}
-
-const EMAIL_SCROLL_STYLE_PROPERTIES = [
-  'max-height',
-  'overflow',
-  'overflow-x',
-  'overflow-y',
-  'resize',
-];
-
-function sanitizeEmailHtmlForDisplay(html = '') {
-  const sanitizedHtml = DOMPurify.sanitize(html);
-  if (!sanitizedHtml || typeof document === 'undefined') return sanitizedHtml;
-
-  const template = document.createElement('template');
-  template.innerHTML = sanitizedHtml;
-
-  template.content.querySelectorAll('*').forEach((element) => {
-    if (!(element instanceof HTMLElement)) return;
-
-    EMAIL_SCROLL_STYLE_PROPERTIES.forEach((property) => {
-      element.style.removeProperty(property);
-    });
-
-    element.removeAttribute('scrolling');
-  });
-
-  return template.innerHTML;
 }
 
 function printHtmlDocument(html) {
@@ -876,6 +848,7 @@ function EmailConsultationsPage() {
     setAttachmentAction(null);
     setAttachmentNotice('');
     setExpandedEmailOpen(false);
+    setResolvedSelectedHtml('');
   }, [selectedId]);
 
   useEffect(() => {
@@ -1384,58 +1357,7 @@ function EmailConsultationsPage() {
   };
 
   const selectedHtml = content?.html || selectedEmail?.bodyHtml || '';
-  const sanitizedSelectedHtml = useMemo(
-    () => sanitizeEmailHtmlForDisplay(selectedHtml),
-    [selectedHtml],
-  );
-  useEffect(() => {
-    setResolvedSelectedHtml(sanitizedSelectedHtml);
-    if (!sanitizedSelectedHtml || !selectedEmail?.id || typeof document === 'undefined') return undefined;
-
-    const template = document.createElement('template');
-    template.innerHTML = sanitizedSelectedHtml;
-    const inlineImages = [...template.content.querySelectorAll('img[src]')]
-      .map((image) => {
-        const source = image.getAttribute('src') || '';
-        if (source.toLowerCase().startsWith('cid:')) {
-          return { image, contentId: source.slice(4) };
-        }
-        if (!source.startsWith('/mail/ImageDisplay')) return null;
-        const contentId = new URL(source, 'https://mail.zoho.com').searchParams.get('cid');
-        return contentId ? { image, contentId } : null;
-      })
-      .filter(Boolean);
-
-    if (inlineImages.length === 0) return undefined;
-    let canceled = false;
-    const objectUrls = [];
-    Promise.all(inlineImages.map(async ({ image, contentId }) => {
-      try {
-        const blob = await fetchEmailInlineImage(selectedEmail.id, contentId);
-        if (canceled) return;
-        const objectUrl = URL.createObjectURL(blob);
-        objectUrls.push(objectUrl);
-        image.setAttribute('src', objectUrl);
-      } catch (error) {
-        console.warn('[Email] Failed to load inline image:', contentId, error);
-        image.removeAttribute('src');
-        image.setAttribute('data-inline-image-unavailable', 'true');
-      }
-    })).then(() => {
-      if (!canceled) setResolvedSelectedHtml(template.innerHTML);
-    });
-
-    return () => {
-      canceled = true;
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [sanitizedSelectedHtml, selectedEmail?.id]);
-  const handleMessageHtmlClick = async (event) => {
-    const link = event.target?.closest?.('a[href]');
-    if (!link) return;
-    event.preventDefault();
-
-    const url = link.href;
+  const handleMessageExternalLink = async (url) => {
     if (window.electron?.openExternal) {
       const result = await window.electron.openExternal(url);
       if (!result?.success) {
@@ -1510,7 +1432,7 @@ function EmailConsultationsPage() {
   const handleCopyDisplayedBody = async () => {
     const textToCopy = showTranslation && hasTranslation
       ? translationEmail.translatedBody
-      : (sanitizedSelectedHtml ? htmlToPlainText(sanitizedSelectedHtml) : selectedText);
+      : (resolvedSelectedHtml ? htmlToPlainText(resolvedSelectedHtml) : selectedText);
     if (!textToCopy?.trim()) {
       setActionError('복사할 본문이 없습니다.');
       return;
@@ -1561,11 +1483,13 @@ function EmailConsultationsPage() {
         <div className="message-html translated-message-body">
           <pre>{translationEmail.translatedBody}</pre>
         </div>
-      ) : resolvedSelectedHtml ? (
-        <div
-          className="message-html"
-          onClick={handleMessageHtmlClick}
-          dangerouslySetInnerHTML={{ __html: resolvedSelectedHtml }}
+      ) : selectedHtml ? (
+        <EmailHtmlFrame
+          html={selectedHtml}
+          emailId={selectedEmail?.id}
+          title={`${displayedSubject || 'HTML 메일'} 본문`}
+          onExternalLink={handleMessageExternalLink}
+          onContentReady={setResolvedSelectedHtml}
         />
       ) : (
         <pre>{displayedText || '본문이 없습니다.'}</pre>
