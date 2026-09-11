@@ -2032,7 +2032,7 @@ function EmailConsultationsPage() {
         <div className="expanded-email-view">
           <div className="expanded-email-toolbar">
             <div className="expanded-email-meta">
-              <strong>{formatSender(selectedEmail)}</strong>
+              <strong>{formatNamedEmailAddress(selectedEmail?.fromName, selectedEmail?.from)}</strong>
               <span>{formatFullDate(getMessageDate(selectedEmail))}</span>
             </div>
             <div className="message-content-actions">

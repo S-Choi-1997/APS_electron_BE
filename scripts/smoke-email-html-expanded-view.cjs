@@ -16,6 +16,8 @@ assert.match(page, /URL\.createObjectURL\(blob\)/);
 assert.match(page, /URL\.revokeObjectURL\(url\)/);
 assert.match(page, />\s*크게 보기\s*</);
 assert.match(page, /size="viewport"/);
+assert.match(page, /formatNamedEmailAddress\(selectedEmail\?\.fromName, selectedEmail\?\.from\)/);
+assert.doesNotMatch(page, /formatSender\(/);
 assert.match(modal, /size === 'viewport'/);
 assert.match(modalCss, /\.dash-modal-content\.viewport\s*\{/);
 assert.match(pageCss, /\.message-html table\s*\{[^}]*max-width:\s*100%/s);
