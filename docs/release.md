@@ -7,7 +7,7 @@ This is the deployment source of truth. A new session should be able to follow t
 - Backend URL: `https://backend.apsconsulting.kr`
 - Backend image on NAS: `choho97/aps-admin-backend:1.3.38`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
-- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.33.exe`
+- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.34.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
 - Local test account file, not in git: `.local/aps-test-account.md`
 
@@ -24,6 +24,13 @@ This is the deployment source of truth. A new session should be able to follow t
 - Provider Inbox/Sent folder direction now takes precedence over sender-address inference; webhook payloads without reliable folder metadata retain sender inference.
 - Corrected two existing hidden Inbox records (`2860`, `2863`) to incoming/unread.
 - Built and pushed on `steve`, deployed to NAS, and verified healthy public version 1.3.38. Image digest: `sha256:ad36c11158e563c920c024103741a1a6cdd7e2975ce797e5b65e6dcc80af5307`.
+
+### App 1.3.34 (2026-09-11)
+
+- Mail HTML links now open in the Windows default browser instead of navigating the Electron app window.
+- Added renderer interception in the active and legacy mail views plus a main-process `will-navigate` defense.
+- Published installer and blockmap to the NAS update channel; public installer and blockmap returned HTTP 200 and the public feed reports 1.3.34.
+- Local release artifact checks and the email-link smoke check passed.
 
 ## Machine Roles
 
