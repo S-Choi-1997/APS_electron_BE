@@ -785,6 +785,8 @@ function EmailConsultationsPage() {
   const [selectedLabelIds, setSelectedLabelIds] = useState([]);
   const [labelSaving, setLabelSaving] = useState(false);
   const [bodyCopyState, setBodyCopyState] = useState('idle');
+  const [attachmentAction, setAttachmentAction] = useState(null);
+  const [attachmentNotice, setAttachmentNotice] = useState('');
   const bodyCopyTimerRef = useRef(null);
 
   const filters = useMemo(() => ({
@@ -873,6 +875,8 @@ function EmailConsultationsPage() {
   useEffect(() => {
     setShowTranslation(false);
     setTranslatedEmailOverride(null);
+    setAttachmentAction(null);
+    setAttachmentNotice('');
   }, [selectedId]);
 
   useEffect(() => {
@@ -1144,25 +1148,53 @@ function EmailConsultationsPage() {
     }
   };
 
-  const handleDownloadAttachment = async (attachment) => {
+  const handleAttachmentAction = async (attachment, action) => {
     if (!selectedEmail) return;
+    const attachmentId = attachment.attachmentId || attachment.id;
+    const actionKey = `${attachmentId}:${action}`;
+    if (attachmentAction) return;
     setActionError('');
+    setAttachmentNotice('');
+    setAttachmentAction(actionKey);
     try {
       const result = await downloadAttachmentMutation.mutateAsync({
         emailId: selectedEmail.id,
-        attachmentId: attachment.attachmentId || attachment.id,
+        attachmentId,
         filename: attachment.filename,
       });
+
+      const filename = result.filename || attachment.filename || 'attachment';
+      if (window.electron?.saveAttachment && window.electron?.openAttachment) {
+        const buffer = await result.blob.arrayBuffer();
+        const electronResult = action === 'open'
+          ? await window.electron.openAttachment(buffer, filename, result.contentType)
+          : await window.electron.saveAttachment(buffer, filename, result.contentType);
+        if (!electronResult?.success) {
+          throw new Error(electronResult?.error || `첨부파일 ${action === 'open' ? '열기' : '저장'}에 실패했습니다.`);
+        }
+        setAttachmentNotice(action === 'open'
+          ? `${filename} 파일을 열었습니다.`
+          : `${filename} 파일을 다운로드 폴더에 저장했습니다.`);
+        return;
+      }
+
       const url = URL.createObjectURL(result.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = result.filename || attachment.filename || 'attachment';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      if (action === 'open') {
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
     } catch (error) {
-      setActionError(error?.message || '첨부파일 다운로드에 실패했습니다.');
+      setActionError(error?.message || `첨부파일 ${action === 'open' ? '열기' : '저장'}에 실패했습니다.`);
+    } finally {
+      setAttachmentAction(null);
     }
   };
 
@@ -1901,17 +1933,24 @@ function EmailConsultationsPage() {
               {attachments.length > 0 ? (
                 <div className="attachment-strip">
                   <strong>첨부파일 {attachments.length}개</strong>
+                  {attachmentNotice ? <p className="attachment-notice">{attachmentNotice}</p> : null}
                   <div>
-                    {attachments.map((attachment) => (
-                      <button
-                        key={attachment.attachmentId || attachment.id}
-                        type="button"
-                        className="attachment-chip"
-                        onClick={() => handleDownloadAttachment(attachment)}
-                      >
-                        {attachment.filename}
-                      </button>
-                    ))}
+                    {attachments.map((attachment) => {
+                      const attachmentId = attachment.attachmentId || attachment.id;
+                      const opening = attachmentAction === `${attachmentId}:open`;
+                      const saving = attachmentAction === `${attachmentId}:save`;
+                      return (
+                        <span className="attachment-chip" key={attachmentId}>
+                          <span className="attachment-chip-name" title={attachment.filename}>{attachment.filename}</span>
+                          <button type="button" onClick={() => handleAttachmentAction(attachment, 'open')} disabled={Boolean(attachmentAction)}>
+                            {opening ? '여는 중…' : '열기'}
+                          </button>
+                          <button type="button" onClick={() => handleAttachmentAction(attachment, 'save')} disabled={Boolean(attachmentAction)}>
+                            {saving ? '저장 중…' : '저장'}
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}

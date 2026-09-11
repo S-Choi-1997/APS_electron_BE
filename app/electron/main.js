@@ -325,11 +325,13 @@ registerConfigIpcHandlers({
 });
 
 registerFileIpcHandlers({
+  app,
   dialog,
   getMainWindow: () => mainWindow,
   ipcMain,
   normalizeDownloadUrl,
   registerIpcHandler,
+  shell,
 });
 
 const autoUpdateManager = createAutoUpdaterManager({

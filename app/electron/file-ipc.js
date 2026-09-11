@@ -3,6 +3,15 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 
+const ATTACHMENT_TEMP_DIRECTORY = 'aps-admin-attachments';
+const ATTACHMENT_TEMP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const BLOCKED_OPEN_EXTENSIONS = new Set([
+  '.appref-ms', '.bat', '.cmd', '.com', '.cpl', '.exe', '.hta', '.inf', '.ins',
+  '.iso', '.jar', '.js', '.jse', '.lnk', '.msc', '.msi', '.msp', '.mst', '.pif',
+  '.ps1', '.ps1xml', '.ps2', '.ps2xml', '.psc1', '.psc2', '.reg', '.scr', '.sct',
+  '.shb', '.sys', '.url', '.vb', '.vbe', '.vbs', '.ws', '.wsc', '.wsf', '.wsh',
+]);
+
 function sanitizeDownloadFilename(filename) {
   const fallback = 'download';
   const baseName = path.basename(String(filename || fallback));
@@ -24,6 +33,33 @@ function getUniqueFilePath(directoryPath, filename) {
   }
 
   return candidate;
+}
+
+function isAttachmentSafeToOpen(filename) {
+  return !BLOCKED_OPEN_EXTENSIONS.has(path.extname(String(filename || '')).toLowerCase());
+}
+
+function cleanupOldAttachmentTempFiles(directoryPath, now = Date.now()) {
+  if (!fs.existsSync(directoryPath)) return;
+  for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const filePath = path.join(directoryPath, entry.name);
+    try {
+      if (now - fs.statSync(filePath).mtimeMs > ATTACHMENT_TEMP_MAX_AGE_MS) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error) {
+      console.warn(`[Main] Failed to clean temporary attachment: ${filePath}`, error.message);
+    }
+  }
+}
+
+function writeAttachmentFile(directoryPath, filename, buffer) {
+  fs.mkdirSync(directoryPath, { recursive: true });
+  const safeFilename = sanitizeDownloadFilename(filename);
+  const filePath = getUniqueFilePath(directoryPath, safeFilename);
+  fs.writeFileSync(filePath, Buffer.from(buffer));
+  return filePath;
 }
 
 function downloadWithRedirect({ downloadUrl, filePath, normalizeDownloadUrl, maxRedirects = 5 }) {
@@ -76,12 +112,48 @@ function downloadWithRedirect({ downloadUrl, filePath, normalizeDownloadUrl, max
 }
 
 function registerFileIpcHandlers({
+  app,
   dialog,
   getMainWindow,
   ipcMain,
   normalizeDownloadUrl,
   registerIpcHandler,
+  shell,
 }) {
+  registerIpcHandler(ipcMain, 'save-attachment', async (_context, { buffer, filename }) => {
+    try {
+      const filePath = writeAttachmentFile(app.getPath('downloads'), filename, buffer);
+      console.log(`[Main] Attachment saved: ${filePath}`);
+      return { success: true, filePath };
+    } catch (error) {
+      console.error('[Main] Failed to save attachment:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  registerIpcHandler(ipcMain, 'open-attachment', async (_context, { buffer, filename }) => {
+    try {
+      const safeFilename = sanitizeDownloadFilename(filename);
+      if (!isAttachmentSafeToOpen(safeFilename)) {
+        return { success: false, blocked: true, error: '실행 파일이나 스크립트 첨부파일은 앱에서 바로 열 수 없습니다. 먼저 저장한 뒤 확인하세요.' };
+      }
+
+      const tempDirectory = path.join(app.getPath('temp'), ATTACHMENT_TEMP_DIRECTORY);
+      fs.mkdirSync(tempDirectory, { recursive: true });
+      cleanupOldAttachmentTempFiles(tempDirectory);
+      const filePath = writeAttachmentFile(tempDirectory, safeFilename, buffer);
+      const openError = await shell.openPath(filePath);
+      if (openError) {
+        return { success: false, filePath, error: openError };
+      }
+      console.log(`[Main] Attachment opened: ${filePath}`);
+      return { success: true, filePath, opened: true };
+    } catch (error) {
+      console.error('[Main] Failed to open attachment:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   registerIpcHandler(ipcMain, 'download-file', async (_context, { url, filename }) => {
     try {
       const safeUrl = normalizeDownloadUrl(url);
@@ -176,5 +248,9 @@ function registerFileIpcHandlers({
 }
 
 module.exports = {
+  cleanupOldAttachmentTempFiles,
+  isAttachmentSafeToOpen,
   registerFileIpcHandlers,
+  sanitizeDownloadFilename,
+  writeAttachmentFile,
 };

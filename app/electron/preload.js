@@ -59,6 +59,12 @@ contextBridge.exposeInMainWorld('electron', {
   // 파일 다운로드
   downloadFile: (url, filename) => ipcRenderer.invoke('download-file', { url, filename }),
 
+  // 메일 첨부파일을 기본 다운로드 폴더에 저장하거나 임시 파일로 열기
+  saveAttachment: (buffer, filename, contentType) =>
+    ipcRenderer.invoke('save-attachment', { buffer, filename, contentType }),
+  openAttachment: (buffer, filename, contentType) =>
+    ipcRenderer.invoke('open-attachment', { buffer, filename, contentType }),
+
   // Blob/Buffer 데이터를 파일로 저장 (인증이 필요한 다운로드용)
   saveFile: (buffer, filename) => ipcRenderer.invoke('save-file', { buffer, filename }),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),

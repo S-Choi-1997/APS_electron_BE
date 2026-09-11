@@ -1021,6 +1021,12 @@
   font-size: 13px;
 }
 
+.attachment-notice {
+  margin: -2px 0 8px;
+  color: #4d607b;
+  font-size: 11px;
+}
+
 .attachment-strip div {
   display: flex;
   flex-wrap: wrap;
@@ -1033,19 +1039,48 @@
 }
 
 .attachment-chip {
-  min-height: 34px;
-  max-width: 270px;
-  padding: 0 12px;
-  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  max-width: 420px;
+  padding: 4px 5px 4px 11px;
   border: 1px solid #d3dae7;
   border-radius: 7px;
   background: #f8fafc;
   color: #263248;
   font-size: 12px;
   font-weight: 700;
+}
+
+.attachment-chip-name {
+  min-width: 60px;
+  max-width: 240px;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.attachment-chip button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid #c7d0de;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #33415c;
+  font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
+}
+
+.attachment-chip button:hover:not(:disabled) {
+  border-color: var(--mail-accent);
+  color: var(--mail-accent);
+}
+
+.attachment-chip button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .composer-shell {
