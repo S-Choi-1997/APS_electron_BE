@@ -7,7 +7,7 @@ This is the deployment source of truth. A new session should be able to follow t
 - Backend URL: `https://backend.apsconsulting.kr`
 - Backend image on NAS: `choho97/aps-admin-backend:1.3.38`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
-- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.34.exe`
+- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.35.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
 - Local test account file, not in git: `.local/aps-test-account.md`
 
@@ -31,6 +31,14 @@ This is the deployment source of truth. A new session should be able to follow t
 - Added renderer interception in the active and legacy mail views plus a main-process `will-navigate` defense.
 - Published installer and blockmap to the NAS update channel; public installer and blockmap returned HTTP 200 and the public feed reports 1.3.34.
 - Local release artifact checks and the email-link smoke check passed.
+
+### App 1.3.35 (2026-09-11)
+
+- Split received-mail attachment actions into `열기` and `저장` controls.
+- `저장` writes directly to the Windows Downloads folder with collision-safe filenames; `열기` uses an app-managed temporary copy and the system-associated application.
+- Blocked direct opening for executable and script attachment extensions, and added cleanup for temporary attachment copies older than seven days.
+- Polished the attachment list so filenames truncate cleanly and both actions remain visible in narrow reading panes.
+- Published the installer and blockmap to the NAS update channel; local release checks passed and the public feed, installer, and blockmap were verified for 1.3.35.
 
 ## Machine Roles
 
