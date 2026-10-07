@@ -1,365 +1,51 @@
-# APS Admin - 고객 상담 관리 데스크톱 애플리케이션
+# APS Admin
 
-> Electron 기반의 고객 상담 접수 및 관리 시스템
+홈페이지 상담, 이메일, SMS, 팀 메모와 일정을 관리하는 직원용 Electron 데스크톱 앱입니다.
 
-APS Admin은 홈페이지를 통해 접수된 고객 상담 내역을 실시간으로 조회하고 관리할 수 있는 데스크톱 애플리케이션입니다.
+## 시작하기
 
----
+Node.js 20 이상과 npm이 필요합니다. 저장소 루트에는 `package.json`이 없으므로 서비스별 디렉터리에서 설치합니다.
 
-## 📖 문서
-
-자세한 문서는 [docs/](docs/) 폴더를 참고하세요:
-- **[릴리즈 가이드](docs/release.md)** - 현재 앱/백엔드 배포 기준
-- **[아키텍처](docs/architecture.md)** - Cloudflare 직결 구조
-- **[서비스 설명](docs/services.md)** - 구성 서비스 요약
-
----
-
-## 🎯 주요 기능
-
-### 1. 상담 내역 관리
-- **실시간 조회**: 홈페이지에서 접수된 상담 내역을 실시간으로 확인
-- **상세 정보**: 고객 이름, 연락처, 상담 내용, 첨부파일 등 전체 정보 조회
-- **상태 관리**: 미확인/확인 상태 토글 및 일괄 처리
-- **검색 및 필터**: 고객명, 전화번호, 이메일, 상담 유형별 검색
-
-### 2. SMS 발송
-- **빠른 발송**: 상담 내역에서 바로 SMS 발송
-- **템플릿 지원**: 자주 사용하는 문구를 템플릿으로 저장
-- **발송 이력**: SMS 발송 내역 추적
-
-### 3. 팀 메모
-- **공유 메모**: 팀원 간 공유되는 메모 작성
-- **중요도 표시**: 중요 메모 강조 표시
-- **만료일 설정**: 기간 제한 메모 관리
-- **실시간 동기화**: WebSocket 기반 실시간 메모 업데이트
-
-### 4. 일정 관리
-- **월간 캘린더**: 월별 일정 조회 및 관리
-- **일정 추가/수정/삭제**: 팀 일정 관리
-- **알림**: 중요 일정 알림
-
-### 5. 실시간 알림
-- **데스크톱 알림**: 새 상담 접수 시 Windows/Linux 네이티브 알림
-- **실시간 동기화**: WebSocket을 통한 실시간 데이터 업데이트
-- **자동 새로고침**: 변경사항 자동 반영
-
-### 6. 다중 인증
-- **Google OAuth**: Google 계정으로 로그인
-- **Naver OAuth**: Naver 계정으로 로그인
-- **로컬 계정**: 이메일/비밀번호 기반 로그인
-- **자동 로그인**: 로그인 상태 유지 (토큰 자동 갱신)
-
----
-
-## 🏗️ 아키텍처
-
-### 시스템 구성도
-
-```
-Electron Desktop App
-  - React 18 + Vite renderer
-  - Electron main process manages IPC, windows, notifications, and Socket.IO
-  - REST and WebSocket traffic use runtime AppConfig
-        |
-        | HTTPS / WSS
-        v
-Cloudflare backend hostname
-        |
-        | Cloudflare Tunnel
-        v
-Backend API Server (NAS/backend server, port 3001)
-  - Node.js + Express REST API
-  - Socket.IO direct WebSocket server
-  - JWT authentication
-  - PostgreSQL for memos, schedules, email inquiries
-        |
-        | GCP SDK
-        v
-GCP Firestore / Cloud Storage
-  - Website consultations
-  - Attachments
-```
-
-### 주요 설계 결정
-
-| 항목 | 선택 | 이유 |
-|------|------|------|
-| **프론트엔드** | Electron + React | 데스크톱 네이티브 기능 (알림, OAuth 팝업) 필요 |
-| **백엔드 위치** | NAS 로컬 서버 | GCP Cloud Run 비용 절감 |
-| **데이터베이스** | Firestore (상담) + PostgreSQL (메모/일정) | 기존 상담 데이터 유지, 새 기능은 로컬 DB |
-| **실시간 통신** | WebSocket (Socket.IO) | 실시간 상담 알림 및 데이터 동기화 |
-| **외부 접속** | Cloudflare Tunnel | 앱이 백엔드 도메인으로 직접 접속 |
-| **SMS 릴레이** | GCP VM 고정 IP | Aligo SMS 발송 경로 유지 |
-
----
-
-## 📁 프로젝트 구조
-
-```
-APS_APP/                          # 모노레포 루트
-├── app/                          # Electron 데스크탑 앱
-│   ├── electron/                # Electron 메인 프로세스
-│   │   ├── main.js             # Electron 진입점, IPC, WebSocket
-│   │   └── preload.js          # IPC 브리지 (보안 컨텍스트)
-│   ├── src/                     # React 앱 소스
-│   │   ├── auth/               # 인증 모듈
-│   │   ├── components/         # UI 컴포넌트
-│   │   ├── pages/              # 페이지 컴포넌트
-│   │   ├── services/           # API 서비스
-│   │   ├── hooks/              # Custom React Hooks
-│   │   └── config/api.js       # API 엔드포인트, 요청 헬퍼
-│   ├── public/                  # 정적 파일
-│   ├── .env                     # 환경 변수 (프론트엔드)
-│   ├── package.json             # 의존성 및 빌드 설정
-│   └── vite.config.js           # Vite 번들러 설정
-│
-├── backend/                      # 백엔드 소스 (NAS Docker 배포)
-│   ├── server.js                # Express 서버 메인
-│   └── auth.js                  # JWT 인증 미들웨어
-│
-├── nas-deploy/                   # NAS 배포 키트 (소스 없음, 배포용)
-│   ├── docker-compose.yml       # Docker Hub 이미지 실행 설정
-│   └── init-db.sql              # PostgreSQL DB 초기화
-│
-├── relay/                        # 레거시 앱 트래픽 릴레이 서버 (현재 직결 운영에서는 미사용)
-├── power-state/                  # ON/OFF 상태 서비스 (GCP4 VM)
-├── sms-relay/                    # SMS 릴레이 (GCP3 VM)
-├── customer-api/                 # 고객 문의 접수 API (Cloud Run)
-├── cleanup/                      # 자동삭제 Cloud Function
-├── scripts/                      # 개발용 보조 스크립트
-├── docs/                         # 핵심 문서
-│   ├── architecture.md          # 시스템 아키텍처
-│   ├── setup.md                 # 개발 환경 세팅
-│   ├── release.md               # 릴리스 프로세스
-│   └── services.md              # 서비스 설명
-├── legacy/                       # 레거시 참고 코드 (수정 금지)
-└── README.md                     # 이 파일
-```
-
----
-
-## 🚀 시작하기
-
-### 사전 요구사항
-
-- **Node.js 20** 이상
-- **npm** (Node.js와 함께 설치됨)
-- **Windows** 또는 **Linux** 환경
-
-### 설치
-
-```bash
-# 저장소 클론
-git clone https://github.com/S-Choi-1997/APS_electron_BE.git
-cd APS_APP
-
-# 의존성 설치
-npm install
-```
-
-### 개발 모드 실행
-
-```bash
-# Vite 개발 서버 + Electron 실행 (Hot Reload)
+```powershell
+cd app
+npm ci
 npm run electron:dev
 ```
 
-- Vite 개발 서버: `http://localhost:5173`
-- Electron 창 자동 실행 (DevTools 포함)
+백엔드 설정과 로컬 DB 준비는 [개발 환경](docs/setup.md), 운영 빌드·배포는 [릴리스 절차](docs/release.md)를 따릅니다.
 
-### 프로덕션 빌드
+## 현재 시스템
 
-```bash
-# 앱 빌드 (Windows/Linux 설치 파일 생성)
-npm run electron:build
+```text
+Electron 앱 → HTTPS / Socket.IO → Cloudflare Tunnel → NAS backend:3001
+                                                     ├─ Firestore / Storage
+                                                     ├─ PostgreSQL
+                                                     ├─ Zoho Mail
+                                                     └─ SMS 릴레이 → Aligo
+홈페이지 → customer-api (Cloud Run) → Firestore / Storage
+cleanup (Cloud Function) → 삭제 기한이 지난 상담·첨부파일 정리
 ```
 
-빌드 결과물:
-- Windows: `dist/APS Admin Setup 1.1.0.exe`
-- Linux: `dist/APS-Admin-1.1.0.AppImage`
+- 로그인은 이메일·비밀번호 기반 JWT 인증이며 자동 로그인과 토큰 갱신을 지원합니다.
+- 홈페이지 상담과 관리자 계정은 Firestore, 메일·메모·일정·Refresh Token은 PostgreSQL에 저장합니다.
+- 메일은 수신·작성·답장·전달·첨부·임시저장·예약발송·번역을 지원합니다.
+- Electron 메인은 창·트레이·알림·파일 처리·Socket.IO를 관리하고 React 화면에는 IPC로 전달합니다.
+- `relay/`는 이전 앱 트래픽 중계 코드입니다. 현재 앱은 백엔드에 직접 연결하며 SMS 릴레이는 별도로 사용합니다.
 
----
+## 문서
 
-## 🔧 환경 설정
+| 목적 | 기준 문서 |
+|---|---|
+| 문서 선택과 관리 원칙 | [문서 안내](docs/README.md) |
+| 구조·데이터·이벤트 흐름 | [아키텍처](docs/architecture.md) |
+| 서비스별 역할 | [서비스 구성](docs/services.md) |
+| 설치·개발 실행·접속 설정 | [개발 환경](docs/setup.md) |
+| 빌드·배포·업데이트·검증 | [릴리스 절차](docs/release.md) |
+| 서버 위치·상태 확인 | [인프라 안내](docs/infrastructure.md) |
+| 수집 프로세스의 메일 API | [자동화 메일](docs/automation-mail.md) |
+| 개발 완료·리뷰 기준 | [개발 기준](docs/development.md) |
+| 미확인 검증·유지보수 항목 | [유지보수](docs/maintenance.md) |
 
-### 프론트엔드 (`.env`)
+`app/`, `backend/`, `customer-api/`, `cleanup/`, `sms-relay/`, `power-state/`는 서비스 소스입니다. `nas-deploy/`와 `updates-deploy/`는 배포 구성, `scripts/`는 실행 도구입니다. `legacy/`는 수정하지 않는 과거 코드입니다.
 
-```env
-# Cloudflare Tunnel로 연결된 백엔드 API URL
-VITE_API_URL=https://backend.apsconsulting.kr
-VITE_BACKEND_ENVIRONMENT=production
-
-# 선택 사항. 비워두면 VITE_API_URL에서 wss:// 주소를 자동 파생합니다.
-# VITE_WS_URL=wss://backend.apsconsulting.kr
-```
-
-### 백엔드 (`backend/.env`)
-
-주요 설정:
-- `GOOGLE_APPLICATION_CREDENTIALS`: GCP 서비스 계정 키 경로
-- `DATABASE_URL`: PostgreSQL 연결 문자열
-- `JWT_SECRET`: JWT 토큰 서명 키
-- `ALIGO_API_KEY`: SMS 발송 API 키
-- `RELAY_ENABLED=false`: 앱 트래픽 릴레이 비활성화
-- `BACKEND_ENVIRONMENT=production`: 직접 연결 백엔드 환경
-
-자세한 내용은 [backend/README.md](backend/README.md) 참고
-
----
-
-## 📦 배포
-
-### 앱 빌드
-
-서브컴에서 직접 빌드합니다.
-
-```bash
-cd app
-npm install
-npm run electron:build
-```
-
-빌드 결과는 `app/dist/`에 생성됩니다.
-
-자세한 내용은 [docs/release.md](docs/release.md) 참고
-
-### 백엔드 배포
-
-NAS/백엔드 서버는 Docker Hub 이미지를 pull해서 실행합니다.
-
-```bash
-cd nas-deploy
-docker-compose pull aps-backend
-docker-compose up -d
-curl http://localhost:3001/healthz
-curl http://localhost:3001/readyz
-```
-
-실행되는 백엔드 코드는 `nas-deploy/.env`의 `BACKEND_IMAGE_TAG`가 선택합니다.
-
-자세한 내용은 [docs/release.md](docs/release.md) 참고
-
----
-
-## 🛠️ 기술 스택
-
-### Frontend
-- **Electron 28** - 데스크톱 애플리케이션 프레임워크
-- **React 18** - UI 라이브러리
-- **React Router 7** - 라우팅
-- **Vite 6** - 빌드 도구
-- **Socket.IO Client** - WebSocket 클라이언트
-- **DOMPurify** - XSS 방지
-
-### Backend
-- **Node.js** - 런타임
-- **Express** - 웹 프레임워크
-- **Socket.IO** - WebSocket 서버
-- **PostgreSQL** - 로컬 데이터베이스 (메모, 일정)
-- **Firestore** - 클라우드 데이터베이스 (상담 내역)
-- **JWT** - 인증 토큰
-
-### Infrastructure
-- **GCP Firestore** - 상담 데이터 저장
-- **GCP Cloud Storage** - 첨부파일 저장
-- **Cloudflare Tunnel** - Electron 앱의 백엔드 직접 접속 도메인
-- **GCP VM** - SMS 릴레이 서버 (고정 IP)
-- **OMV NAS** - 백엔드 API 서버
-
----
-
-## 🔐 인증 흐름
-
-### 1. Google/Naver OAuth
-```
-사용자 → Electron 팝업 창 → OAuth 제공자 → 인증 코드 반환
-→ 백엔드 토큰 교환 → JWT 발급 → 로컬 저장 → 자동 로그인
-```
-
-### 2. 로컬 계정
-```
-사용자 → 이메일/비밀번호 입력 → 백엔드 검증 → JWT 발급
-→ 로컬 저장 → 자동 로그인
-```
-
-### 3. 토큰 갱신
-- Access Token 만료 시 Refresh Token으로 자동 갱신
-- Rolling Refresh: Refresh Token도 자동 갱신 (30일)
-
----
-
-## 🌐 실시간 동기화
-
-### WebSocket 이벤트
-
-| 이벤트 | 설명 |
-|--------|------|
-| `consultation:created` | 새 상담 접수 → 데스크톱 알림 + 목록 업데이트 |
-| `consultation:updated` | 상담 상태 변경 → 목록 업데이트 |
-| `consultation:deleted` | 상담 삭제 → 목록에서 제거 |
-| `memo:created` | 새 메모 작성 → 메모 목록 업데이트 |
-| `memo:deleted` | 메모 삭제 → 메모 목록 업데이트 |
-| `schedule:*` | 일정 생성/수정/삭제 → 캘린더 업데이트 |
-
----
-
-## 📊 주요 API 엔드포인트
-
-### 상담 관리
-- `GET /inquiries` - 상담 목록 조회
-- `GET /inquiries/:id` - 상담 상세 조회
-- `PUT /inquiries/:id` - 상담 수정
-- `DELETE /inquiries/:id` - 상담 삭제
-
-### 메모 관리
-- `GET /memos` - 메모 목록 조회
-- `POST /memos` - 메모 작성
-- `PUT /memos/:id` - 메모 수정
-- `DELETE /memos/:id` - 메모 삭제
-
-### 일정 관리
-- `GET /schedules` - 일정 목록 조회
-- `POST /schedules` - 일정 추가
-- `PUT /schedules/:id` - 일정 수정
-- `DELETE /schedules/:id` - 일정 삭제
-
-### SMS
-- `POST /sms/send` - SMS 발송
-
-### 인증
-- `POST /auth/local/login` - 로컬 로그인
-- `POST /auth/local/refresh` - 토큰 갱신
-- `POST /auth/naver/token` - Naver 토큰 교환
-
----
-
-## 🧪 개발 팁
-
-### Electron DevTools 열기
-개발 모드(`npm run electron:dev`)에서 자동으로 DevTools가 열립니다.
-
-### 로그 확인
-- **프론트엔드**: Electron DevTools 콘솔
-- **백엔드**: NAS 서버 로그 (`journalctl -u aps-backend -f`)
-
-### Hot Reload
-Vite 개발 서버가 파일 변경을 감지하여 자동으로 새로고침합니다.
-
----
-
-## 🤝 기여
-
-이 프로젝트는 APS Consulting 내부 프로젝트입니다.
-
----
-
-## 📄 라이선스
-
-MIT License
-
----
-
-## 📞 문의
-
-프로젝트 관련 문의: [GitHub Issues](https://github.com/S-Choi-1997/APS_electron_BE/issues)
+과거 설계·작업 기록은 `docs/archive/`, 이전 시스템 문서는 `docs/legacy/`에 보관합니다. 현재 실행 절차는 위 기준 문서를 사용합니다.

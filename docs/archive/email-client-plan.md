@@ -1,3 +1,5 @@
+> 과거 계획·검증 기록입니다. 당시 상태와 경로를 보존하며 현재 지침이나 완료 판정으로 사용하지 않습니다. 현재 유지보수 항목은 [maintenance.md](../maintenance.md), 문서 분류는 [문서 안내](../README.md)를 참고하세요.
+
 # Email App Frontend And Desktop Plan
 
 This document is the implementation plan for changing the current email consultation screen into a normal mail-client UI in the existing React/Electron app.

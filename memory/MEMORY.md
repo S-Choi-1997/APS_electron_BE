@@ -1,10 +1,8 @@
-# Handoff — 2026-09-03
+# 세션 인수인계
 
-- Existing mail composer, recipient, delivery tracking and confirmation dialog changes were saved in commit `83836aab3a20` before automation API work.
-- Implemented `POST /api/automation/email` in `backend/automation-mail-routes.js`, registered in `backend/server.js`, included in the backend Dockerfile. It reuses exported `sendNewEmail` with a request-supplied recipient (`to`) and dedicated service key.
-- Setup and collector Docker/Python examples: `docs/automation-mail.md`.
-- Validation: 22 backend tests passed; changed runtime JavaScript passed syntax checks. No real email was sent.
-- Deployed backend 1.3.37 on 2026-09-03: built/pushed Docker image on `steve`, pulled/recreated on NAS. The key in local-only `.local/mail-api.md` is registered in the NAS environment. Public health/version, Docker health, key authentication and request validation verified. No real mail sent; no Git push performed.
-- No durable request deduplication. Do not automatically retry an unconfirmed send (502/timeout); inspect provider sent mail first. Existing sender audit writes can fail after provider acceptance.
-- 2026-09-10: Fixed self-addressed Zoho Inbox copies being marked outgoing and hidden. Commit `de942495ff67`; backend 1.3.38 deployed and healthy. Production rows 2860 and 2863 were corrected to incoming/unread. Folder direction is authoritative for Inbox/Sent; webhook fallback still infers from sender.
-- 2026-09-11: Mail HTML links in the current page lacked a click interceptor, so anchors without `target` navigated the Electron main window. Added renderer `openExternal` handling in current/legacy mail views and a `will-navigate` main-process defense. Commit `80462397de97`. App 1.3.34 was packaged and published to the NAS update channel; public installer/blockmap HTTP 200 and feed version verified.
+2026-10-07: 현재 안내 문서의 목적·중복을 정리했습니다. 기준 문서는 [docs/README.md](../docs/README.md), 정리 판단은 [검토 기록](../docs/archive/documentation-review-2026-10-07.md)을 참고합니다.
+
+- 사용자 지시: 비밀번호·키 등 기존 설정 값을 임의로 제거하지 않고, 문서 정리에 별도의 보안 조치나 교체 요청을 섞지 않습니다.
+- 기존 2026-09 작업 기록은 [보관 문서](../docs/archive/session-handoff-2026-09.md)에 있습니다.
+- 확인이 남은 항목은 [maintenance.md](../docs/maintenance.md)에만 유지합니다. 과거 계획의 pending 문구를 최신 검증 상태로 간주하지 않습니다.
+- 자동화 메일의 결과 미확정 시 재시도 주의사항은 [API 문서](../docs/automation-mail.md)가 기준입니다.

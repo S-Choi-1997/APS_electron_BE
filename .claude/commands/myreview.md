@@ -1,6 +1,6 @@
 # 코드 검토 (APS Admin 완료 루틴)
 
-최근 수정된 파일을 기준으로 CLAUDE.md의 4단계 완료 루틴을 수행한다.
+최근 수정된 파일을 기준으로 [개발 및 완료 검토 기준](../../docs/development.md)과 아래 완료 루틴을 수행한다. 현재 구조와 파일 위치는 [CLAUDE.md](../../CLAUDE.md)를 확인한다.
 
 ## 실행 절차
 
@@ -18,8 +18,8 @@
 
 ### 2단계 — 연결부·호출부 검토
 변경된 함수·채널·엔드포인트를 호출하는 모든 위치를 검색한다:
-- IPC 채널명 변경 → `electron/main.js`의 `ipcMain.handle`과 `electron/preload.js`의 `ipcRenderer.invoke` 양쪽 확인
-- API 엔드포인트 변경 → `src/config/api.js`의 `API_ENDPOINTS`와 `backend/server.js` 라우트 양쪽 확인
+- IPC 채널명 변경 → `app/electron/`의 핸들러와 `app/electron/preload.js`의 `ipcRenderer.invoke` 양쪽 확인
+- API 엔드포인트 변경 → `app/src/config/api.js`의 `API_ENDPOINTS`와 `backend/` 라우트 등록 모듈 양쪽 확인
 - `window.electron.xxx` 호출 → preload에 실제로 노출됐는지 확인
 - 함수 시그니처 변경 → 모든 호출부에 전파됐는지 확인
 

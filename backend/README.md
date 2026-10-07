@@ -1,377 +1,54 @@
-# APS Admin Local Backend Server
+# APS Admin Backend
 
-로컬 Docker 환경에서 실행되는 APS Admin 백엔드 API 서버입니다.
+NAS에서 동작하는 Node.js 20+ Express / Socket.IO 서버입니다. 기본 포트는 3001이며 REST와 실시간 연결을 같은 HTTP 서버에서 제공합니다.
 
-## 🐳 Docker Hub
+## 문서 범위
 
-**이미지**: https://hub.docker.com/r/choho97/aps-admin-backend
+이 문서는 백엔드 코드 탐색과 로컬 검증 안내입니다. 설치는 [개발 환경](../docs/setup.md), 운영 이미지 빌드·NAS 배포는 [릴리스 절차](../docs/release.md)를 사용합니다.
 
-```bash
-# 운영 태그 다운로드
-docker pull choho97/aps-admin-backend:1.3.2
-```
+## 코드 구성
 
-## 📋 개요
+| 파일 | 역할 |
+|---|---|
+| `server.js` | 초기화, 라우트 등록, 상태 확인, Socket.IO, 종료 처리 |
+| `auth.js`, `firestore-admin.js` | JWT, bcrypt, Firestore `admins`, PostgreSQL Refresh Token |
+| `db.js`, `startup-readiness.js` | PostgreSQL 풀, 시작 시 연결 재시도 |
+| `inquiry-routes.js` | Firestore 홈페이지 상담·첨부파일 조회와 상태 수정 |
+| `memo-routes.js`, `schedule-routes.js` | PostgreSQL 메모·일정 CRUD |
+| `sms-routes.js`, `sms-service.js` | 입력 검증과 고정 IP SMS 릴레이 요청 |
+| `email-mail-client-service.js` | 메일·스레드·폴더·라벨·임시저장·예약발송·감사 기록 |
+| `zoho/`, `zoho-integration.js` | Zoho OAuth·웹훅·초기 및 주기 동기화·발송 |
+| `email-translation-service.js` | OpenRouter 한국어 번역과 저장 |
+| `automation-mail-routes.js` | [수집 프로세스 메일 발송](../docs/automation-mail.md) |
+| `startup-diagnostics-routes.js` | 앱 시작 진단 기록 수집 |
 
-- **원본**: GCP Cloud Run (GCP2)
-- **현재 목적**: NAS에서 Docker로 실행하고 Cloudflare Tunnel로 앱에 직접 노출
-- **유지되는 부분**:
-  - GCP Firestore (데이터베이스)
-  - GCP Storage (첨부파일)
-  - aligo-proxy SMS Relay (고정 IP 필요)
-  - Google/Naver OAuth (인증)
+`init-db.sql`과 `migrations/`에는 SQL 정의가 있습니다. 운영 초기 배포 SQL은 `nas-deploy/init-db.sql`입니다. 일반 `runMigrations()`는 현재 비활성화되어 있으며 일부 `ensure*Schema`만 시작 시 실행합니다. 기존 DB 변경은 이 범위를 확인한 뒤 계획합니다.
 
-## 🔧 사전 요구사항
+## 로컬 실행·검증
 
-### 필수
-1. **Docker & Docker Compose**
-   ```bash
-   # 설치 확인
-   docker --version
-   docker-compose --version
-   ```
+저장소 루트에서:
 
-2. **GCP CLI (gcloud)** - 서비스 계정 자동 생성용
-   ```bash
-   # 설치: https://cloud.google.com/sdk/docs/install
-
-   # 로그인
-   gcloud auth login
-
-   # 프로젝트 설정
-   gcloud config set project YOUR_PROJECT_ID
-   ```
-
-3. **인터넷 연결** - GCP Firestore/Storage, OAuth, aligo-proxy SMS Relay 접근 필요
-
-### 선택
-- **NAS/로컬 서버**: 24시간 실행 가능한 환경 (권장)
-
-## 🚀 빠른 시작
-
-### 방법 1: Quick Start 스크립트 (가장 간단)
-
-Docker Hub에서 명시 태그 이미지를 받아서 바로 실행합니다.
-
-**Linux/Mac**:
-```bash
-# 필수 파일 준비
-# 1. .env 파일 생성 (환경 설정)
-# 2. service-account.json 복사 (GCP 인증)
-
-# Quick Start 실행
-./quick-start.sh 1.3.2
-```
-
-**Windows**:
 ```powershell
-# 필수 파일 준비
-# 1. .env 파일 생성 (환경 설정)
-# 2. service-account.json 복사 (GCP 인증)
-
-# Quick Start 실행
-.\quick-start.ps1 -ImageTag 1.3.2
-```
-
-**스크립트가 자동으로**:
-1. 환경 파일 확인
-2. Docker Hub에서 지정 이미지 다운로드
-3. 컨테이너 실행
-4. 상태 확인
-
----
-
-### 방법 2: Docker Hub에서 직접 실행
-
-```bash
-# 1. 이미지 다운로드
-docker pull choho97/aps-admin-backend:1.3.2
-
-# 2. 실행 (.env와 service-account.json 필요)
-docker run -d \
-  --name aps-admin-backend \
-  --restart unless-stopped \
-  -p 3001:3001 \
-  --env-file .env \
-  -e GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json \
-  -v $(pwd)/service-account.json:/app/service-account.json:ro \
-  choho97/aps-admin-backend:1.3.2
-
-# 3. 상태 확인
-docker logs aps-admin-backend
-```
-
----
-
-### 방법 3: 처음부터 설정 (GCP 서비스 계정 생성)
-
-### 1. GCP 서비스 계정 생성 (자동화)
-
-```bash
+npm --prefix backend ci
+npm --prefix backend test
 cd backend
-
-# 스크립트 실행 권한 부여
-chmod +x setup-gcp-service-account.sh
-
-# 자동 생성 실행
-./setup-gcp-service-account.sh
+npm start
 ```
 
-**생성되는 파일**:
-- `service-account.json` - GCP 인증 키 (절대 Git에 커밋하지 마세요!)
-- `.env` - 환경 변수 파일 (자동 생성, 수정 필요)
-
-**부여되는 권한**:
-- `roles/datastore.user` - Firestore 읽기/쓰기
-- `roles/storage.objectAdmin` - Storage 파일 접근
-
-### 2. 환경 변수 설정
-
-`.env` 파일을 편집하여 필수 값 입력:
-
-```env
-# 필수 입력 항목
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-ALLOWED_EMAILS=your@email.com,admin@email.com
-NAVER_CLIENT_ID=your_naver_client_id
-NAVER_CLIENT_SECRET=your_naver_client_secret
-ALIGO_API_KEY=your_aligo_api_key
-ALIGO_USER_ID=your_aligo_user_id
-ALIGO_SENDER_PHONE=01012345678
-SMS_RELAY_URL=http://your-fixed-ip-relay:3000
-# SMS_RELAY_AUTH_TOKEN=optional_shared_bearer_token
-```
-
-**중요**: `GOOGLE_APPLICATION_CREDENTIALS`는 환경에 맞게 설정:
-- **로컬 개발**: 절대 경로 (예: `/path/to/backend/service-account.json`)
-- **도커 환경**: `/app/service-account.json` (docker run -v 옵션으로 마운트)
-
-### 3. Docker 실행
-
-NAS 배포는 `nas-deploy/` 폴더의 docker-compose를 사용합니다.
-로컬 테스트는 `방법 2` (docker run 직접 실행)를 참고하세요.
-
-### 4. 테스트
-
-```bash
-# Process liveness
-curl http://localhost:3001/healthz
-
-# PostgreSQL/schema readiness
-curl http://localhost:3001/readyz
-
-# `/healthz` returns 200 when the Node process is alive.
-# `/readyz` and `/` return 200 only when PostgreSQL is reachable.
-```
-
-## 📁 디렉토리 구조
-
-```
-backend/
-├── server.js                      # 백엔드 서버 코드 (GCP2 이식)
-├── package.json                   # Node.js 의존성
-├── Dockerfile                     # Docker 이미지 정의
-├── .env.example                   # 환경 변수 템플릿
-├── .env                           # 실제 환경 변수 (생성 필요, Git 무시)
-├── service-account.json           # GCP 서비스 계정 키 (생성 필요, Git 무시)
-├── setup-gcp-service-account.sh   # GCP 자동 설정 스크립트
-└── README.md                      # 이 파일
-```
-
-## 🔐 보안
-
-### Git에서 제외해야 할 파일 (.gitignore에 추가)
-
-```
-backend/.env
-backend/service-account.json
-backend/service-account.json.backup.*
-```
-
-### 환경 변수 보안
-
-- `.env` 파일에 민감한 정보 저장 (절대 Git에 커밋하지 마세요!)
-- `service-account.json`은 GCP 인증 키이므로 절대 외부 노출 금지
-- `ALLOWED_EMAILS`로 접근 가능한 이메일만 제한
-
-## 🛠️ 일반 작업
-
-### 서버 시작/중지
-
-NAS 배포 환경(`nas-deploy/`에서 실행):
-```bash
-# 시작
-docker-compose up -d
-
-# 중지
-docker-compose down
-
-# 재시작
-docker-compose restart
-
-# 로그 실시간 보기
-docker logs aps-admin-backend -f
-```
-
-### 컨테이너 내부 접근
-
-```bash
-docker exec -it aps-admin-backend sh
-```
-
-### 코드 수정 후 새 이미지 배포
-
-```bash
-# 1. 새 백엔드 이미지를 명시적으로 빌드/푸시
-#    예: choho97/aps-admin-backend:1.3.1
-# 2. nas-deploy/.env의 BACKEND_IMAGE_TAG를 해당 태그로 설정
-# 3. NAS에서 새 이미지 pull 및 재시작 (nas-deploy/ 에서)
-docker-compose pull aps-backend
-docker-compose up -d
-```
-
-### 환경 변수 변경
-
-```bash
-# nas-deploy/.env 파일 수정 후 재시작
-docker-compose restart
-```
-
-## 🔍 문제 해결
-
-### 1. "GCP 서비스 계정 인증 실패"
-
-```bash
-# service-account.json 파일 확인
-ls -lh service-account.json
-
-# 환경변수 확인
-echo $GOOGLE_APPLICATION_CREDENTIALS  # Linux/Mac
-echo %GOOGLE_APPLICATION_CREDENTIALS%  # Windows
-
-# .env 파일에서 GOOGLE_APPLICATION_CREDENTIALS 경로 확인
-cat .env | grep GOOGLE_APPLICATION_CREDENTIALS
-
-# 권한 확인 (GCP Console)
-# IAM 및 관리자 → 서비스 계정 → 권한 확인
-```
-
-### 2. "Firestore 접근 불가"
-
-```bash
-# GCP 프로젝트 ID 확인
-cat service-account.json | grep project_id
-
-# Firestore API 활성화 확인 (GCP Console)
-# Firestore → 데이터베이스 생성 확인
-```
-
-### 3. "포트 3001이 이미 사용 중"
-
-```bash
-# 포트 사용 중인 프로세스 확인
-netstat -ano | findstr :3001  # Windows
-lsof -i :3001                 # Linux/Mac
-
-# nas-deploy/docker-compose.yml에서 포트 변경
-ports:
-  - "3002:3001"  # 호스트:컨테이너
-```
-
-### 4. "SMS 발송 실패"
-
-- aligo-proxy SMS Relay 상태 확인
-- Aligo API 키 확인
-- `.env`의 `SMS_RELAY_URL` 확인
-- relay가 토큰을 요구하도록 구성된 경우 `.env`의 `SMS_RELAY_AUTH_TOKEN` 확인
-
-## 📊 API 엔드포인트
-
-### 인증 불필요
-
-- `GET /` - Health check
-- `POST /auth/naver/token` - Naver OAuth 토큰 교환
-
-### 인증 필요 (Bearer Token)
-
-- `GET /inquiries` - 문의 목록 조회
-- `GET /inquiries/:id` - 문의 상세 조회
-- `PATCH /inquiries/:id` - 문의 수정
-- `DELETE /inquiries/:id` - 문의 삭제
-- `GET /inquiries/:id/attachments/urls` - 첨부파일 URL 발급
-- `POST /sms/send` - SMS 발송
-
-**헤더 요구사항**:
-```
-Authorization: Bearer <google_or_naver_access_token>
-X-Provider: google|naver
-```
-
-## 🌐 프론트엔드 연동
-
-Electron 앱의 환경 변수 설정:
-
-### app/.env
-```env
-VITE_API_URL=https://YOUR_BACKEND_DOMAIN
-```
-
-WebSocket URL은 앱이 API URL에서 자동 파생합니다. 별도 도메인을 쓰는 경우에만 `VITE_WS_URL`을 지정합니다.
-
-## 📦 배포 (NAS/로컬 서버)
-
-### OMV NAS에 배포
-
-NAS에는 소스 코드가 아닌 **배포 키트**(`nas-deploy/`)를 사용합니다.
-Docker Hub에서 이미지를 pull하여 실행합니다.
-
-1. **`nas-deploy/` 폴더를 NAS로 복사** (SCP/Samba)
-   ```bash
-   scp -r nas-deploy/ user@nas-ip:/opt/aps-deploy/
-   ```
-
-2. **NAS에서 `.env` 및 `service-account.json` 생성**
-   ```bash
-   cd /opt/aps-deploy
-   # .env 파일 생성 (.env.example 참고)
-   # service-account.json 복사
-   ```
-
-3. **컨테이너 실행**
-   ```bash
-   docker-compose up -d
-   ```
-
-자세한 내용은 [배포가이드](./scripts/배포가이드.txt) 참고.
-
-### 방화벽 설정
-
-```bash
-# OMV NAS에서 3001 포트 개방
-sudo ufw allow 3001/tcp
-```
-
-## 🔄 GCP2 (Cloud Run) vs 로컬 백엔드
-
-| 항목 | GCP2 (기존) | 로컬 백엔드 (신규) |
-|------|-------------|-------------------|
-| 호스팅 | Cloud Run | Docker (NAS/로컬) |
-| 비용 | 사용량 기반 (유료) | 하드웨어 비용 (초기) |
-| URL | https://inquiryapi-... | Cloudflare Tunnel → NAS backend:3001 |
-| 인증 | 자동 (GCP IAM) | service-account.json |
-| 로그 | Cloud Logging | docker logs aps-admin-backend |
-| 스케일링 | 자동 | 수동 |
-
-## 📝 참고 문서
-
-- [CLAUDE.md](../CLAUDE.md) - 프로젝트 전체 구조
-- [docs/services.md](../docs/services.md) - 전체 서비스 구성
-- [legacy/gcp2/](../legacy/gcp2/) - 원본 Cloud Run 코드 (참고용)
-
-## 🆘 지원
-
-문제가 발생하면:
-1. 로그 확인: `docker logs aps-admin-backend -f`
-2. GCP Console에서 서비스 계정 권한 확인
-3. `.env` 파일 설정 재확인
-4. [배포가이드](./scripts/배포가이드.txt) 참고
+실행 전에 PostgreSQL, `.env`, GCP 인증과 Firestore 관리자 계정이 필요합니다. 로컬 DB 준비·계정 생성은 [개발 환경](../docs/setup.md)을 따릅니다.
+
+## 기본 API
+
+| 경로 | 역할 |
+|---|---|
+| `POST /auth/login`, `/auth/refresh`, `/auth/logout` | 로그인·갱신·로그아웃 |
+| `GET /users/me`, `PATCH /users/me` | 로그인 사용자 조회·표시 이름 수정 |
+| `/inquiries` | 홈페이지 상담 목록·상세·수정·삭제; 수정은 `PATCH`, 접수는 독립 customer-api |
+| `/memos`, `/schedules` | 메모·일정 CRUD; 수정은 `PATCH` |
+| `/email-inquiries`, `/email-threads`, `/email-folders`, `/email-labels` | 메일 클라이언트 API; 상세 경로는 등록 코드를 확인 |
+| `POST /sms/send` | SMS 발송 |
+| `POST /api/automation/email` | 전용 서비스 키 메일 발송 |
+| `GET /healthz` | 프로세스 liveness, 버전 |
+| `GET /readyz`, `GET /` | DB 연결과 스키마 준비 상태; 미준비는 HTTP 503 |
+
+`/healthz`만 성공했다고 DB 준비까지 검증된 것은 아닙니다. `/readyz`를 함께 확인합니다. 상태 응답은 Firestore·Zoho·SMS 전체 가용성을 보장하지 않습니다.

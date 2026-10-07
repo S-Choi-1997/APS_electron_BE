@@ -1,3 +1,5 @@
+> 이전 릴레이 환경 설정 기록입니다. 현재 앱은 이 설정을 사용하지 않습니다. 현재 서비스 위치는 [인프라 안내](../infrastructure.md)를 확인하세요. 본문 경로는 당시 배치 기준입니다.
+
 # GCP4 Services
 
 GCP VM (aligo-proxy, us-central1-a)에서 실행 중인 서비스들
@@ -91,6 +93,6 @@ VITE_RELAY_ENVIRONMENT=development  # ← production 또는 development
 
 ## 상세 문서
 
-- [GCP VM 정보](./gcp4-vm-info.md)
-- [relay 배포 가이드](../relay/DEPLOY.md)
-- [power-state 사용법](../power-state/README.md)
+- [GCP VM 정보](../gcp4-vm-info.md)
+- [relay 배포 가이드](../../relay/DEPLOY.md)
+- [power-state 사용법](../../power-state/README.md)

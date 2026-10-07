@@ -1,5 +1,7 @@
 # APS WebSocket Relay Server - 배포 가이드
 
+> 이전 앱 트래픽 릴레이 운영 문서입니다. 현재 Electron 앱은 Cloudflare를 통해 백엔드에 직접 연결합니다. 이 문서의 릴레이 배포는 현재 앱 릴리스 단계가 아닙니다. 현재 경로는 [아키텍처](../docs/architecture.md), 독립 VM 서비스는 [인프라 안내](../docs/infrastructure.md)를 참고하세요.
+
 ## 개요
 GCP VM(aligo-proxy)에서 실행되는 WebSocket 중계 서버
 

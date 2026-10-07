@@ -1,0 +1,12 @@
+> 과거 계획·검증 기록입니다. 당시 상태와 경로를 보존하며 현재 지침이나 완료 판정으로 사용하지 않습니다. 현재 유지보수 항목은 [maintenance.md](../maintenance.md), 문서 분류는 [문서 안내](../README.md)를 참고하세요.
+
+# Handoff — 2026-09-03
+
+- Existing mail composer, recipient, delivery tracking and confirmation dialog changes were saved in commit `83836aab3a20` before automation API work.
+- Implemented `POST /api/automation/email` in `backend/automation-mail-routes.js`, registered in `backend/server.js`, included in the backend Dockerfile. It reuses exported `sendNewEmail` with a request-supplied recipient (`to`) and dedicated service key.
+- Setup and collector Docker/Python examples: `docs/automation-mail.md`.
+- Validation: 22 backend tests passed; changed runtime JavaScript passed syntax checks. No real email was sent.
+- Deployed backend 1.3.37 on 2026-09-03: built/pushed Docker image on `steve`, pulled/recreated on NAS. The key in local-only `.local/mail-api.md` is registered in the NAS environment. Public health/version, Docker health, key authentication and request validation verified. No real mail sent; no Git push performed.
+- No durable request deduplication. Do not automatically retry an unconfirmed send (502/timeout); inspect provider sent mail first. Existing sender audit writes can fail after provider acceptance.
+- 2026-09-10: Fixed self-addressed Zoho Inbox copies being marked outgoing and hidden. Commit `de942495ff67`; backend 1.3.38 deployed and healthy. Production rows 2860 and 2863 were corrected to incoming/unread. Folder direction is authoritative for Inbox/Sent; webhook fallback still infers from sender.
+- 2026-09-11: Mail HTML links in the current page lacked a click interceptor, so anchors without `target` navigated the Electron main window. Added renderer `openExternal` handling in current/legacy mail views and a `will-navigate` main-process defense. Commit `80462397de97`. App 1.3.34 was packaged and published to the NAS update channel; public installer/blockmap HTTP 200 and feed version verified.

@@ -2,12 +2,16 @@
 
 This directory runs a static update channel for Electron auto-update artifacts.
 
+App build, publish and version validation procedures are maintained in [the release runbook](../docs/release.md). This document covers the static server layout.
+
 Cloudflare Tunnel should route:
 
 ```yaml
 hostname: update.apsconsulting.kr
-service: http://localhost:8088
+service: http://172.17.0.1:8088
 ```
+
+This host-gateway target is for a tunnel container on Docker bridge. A tunnel running directly on the host can use `http://localhost:8088`; verify the reachable target for the actual network as described in [infrastructure](../docs/infrastructure.md).
 
 Public update URL used by the app:
 
@@ -36,29 +40,6 @@ cd updates-deploy
 docker compose up -d
 ```
 
-Build and publish artifacts from the repo root:
-
-```powershell
-.\scripts\build-app-release.ps1 `
-  -BackendUrl https://backend.apsconsulting.kr `
-  -PublishUpdates
-```
-
-The release script uses a temporary env file through `APS_APP_CONFIG_ENV_FILE`.
-It must not overwrite the developer's local `app/.env`.
-
-Validate the local update channel before deploying or after copying files:
-
-```powershell
-.\scripts\check-release.ps1 -RequireUpdateArtifacts
-```
-
-Validate the public channel after Cloudflare Tunnel is connected:
-
-```powershell
-.\scripts\check-infra.ps1 `
-  -SkipSsh `
-  -UpdatesUrl https://update.apsconsulting.kr/win/latest.yml
-```
+Build, publish, and validate app artifacts using [the release runbook](../docs/release.md#frontend-app-release). The build script uses a temporary env file through `APS_APP_CONFIG_ENV_FILE` and does not overwrite the developer's local `app/.env`.
 
 `latest.yml` is served with no-cache headers. Installer and blockmap files are immutable because their filenames include the version.

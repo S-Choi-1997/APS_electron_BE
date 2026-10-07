@@ -1,51 +1,32 @@
 # Release Runbook
 
-This is the deployment source of truth. A new session should be able to follow this file without reading old release docs.
+This is the source of truth for production app/backend build, deployment and validation. Initial setup belongs in [setup](setup.md); service locations and tunnel targets belong in [infrastructure](infrastructure.md).
 
-## Current Production
+## Release Targets And Version Checks
 
 - Backend URL: `https://backend.apsconsulting.kr`
-- Backend image on NAS: `choho97/aps-admin-backend:1.3.38`
+- Backend image: `choho97/aps-admin-backend:<concrete-version>`
 - App update feed: `https://update.apsconsulting.kr/win/latest.yml`
-- Current app update artifact: `app/dist/APS-Admin-Setup-1.3.35.exe`
+- Local app artifact: `app/dist/APS-Admin-Setup-<version>.exe`
 - Update server public path: `https://update.apsconsulting.kr/win`
 - Local test account file, not in git: `.local/aps-test-account.md`
 
-### Backend 1.3.37 (2026-09-03)
+Do not treat a version recorded in this document as the current deployment. Check the backend response/container image and public update feed before choosing the next version. `app/package.json` is the source version; backend Docker tags have their own release sequence, and `backend/package.json` is not the deployed image version.
 
-- Deployed caller-selected `to`, `subject`, `body` / `bodyHtml` support for `POST /api/automation/email`.
-- Built and pushed on `steve`, pulled and recreated on `nas`; image digest: `sha256:d878ccc99505dff932592bf2a0854c655931d4efb251969a969ce83357d16382`.
-- Registered the service key documented in local-only `.local/mail-api.md` in the NAS environment. Keys are not included in the image or tracked docs.
-- Verified healthy container, liveness/readiness, public version 1.3.37, unauthenticated 401, and authenticated request validation 400. No actual email was sent during deployment checks.
+```powershell
+Invoke-RestMethod https://backend.apsconsulting.kr/readyz
+curl.exe -fsSL -H "Cache-Control: no-cache" https://update.apsconsulting.kr/win/latest.yml
+ssh nas 'docker ps --filter name=aps-admin-backend'
+```
 
-### Backend 1.3.38 (2026-09-10)
-
-- Fixed self-addressed Zoho messages in Inbox being classified as outgoing and hidden from the received-mail view.
-- Provider Inbox/Sent folder direction now takes precedence over sender-address inference; webhook payloads without reliable folder metadata retain sender inference.
-- Corrected two existing hidden Inbox records (`2860`, `2863`) to incoming/unread.
-- Built and pushed on `steve`, deployed to NAS, and verified healthy public version 1.3.38. Image digest: `sha256:ad36c11158e563c920c024103741a1a6cdd7e2975ce797e5b65e6dcc80af5307`.
-
-### App 1.3.34 (2026-09-11)
-
-- Mail HTML links now open in the Windows default browser instead of navigating the Electron app window.
-- Added renderer interception in the active and legacy mail views plus a main-process `will-navigate` defense.
-- Published installer and blockmap to the NAS update channel; public installer and blockmap returned HTTP 200 and the public feed reports 1.3.34.
-- Local release artifact checks and the email-link smoke check passed.
-
-### App 1.3.35 (2026-09-11)
-
-- Split received-mail attachment actions into `열기` and `저장` controls.
-- `저장` writes directly to the Windows Downloads folder with collision-safe filenames; `열기` uses an app-managed temporary copy and the system-associated application.
-- Blocked direct opening for executable and script attachment extensions, and added cleanup for temporary attachment copies older than seven days.
-- Polished the attachment list so filenames truncate cleanly and both actions remain visible in narrow reading panes.
-- Published the installer and blockmap to the NAS update channel; local release checks passed and the public feed, installer, and blockmap were verified for 1.3.35.
+September 2026 deployment records are preserved in [release history](archive/release-history-2026-09.md).
 
 ## Machine Roles
 
 - Local IDE machine: code edits, app packaging, update artifact publishing. Docker CLI is not available here.
 - `steve`: Docker-enabled build machine. Build and push backend images here.
 - `nas`: production backend host. Do not build backend source here during normal deployment. Pull Docker Hub image and restart Compose only.
-- `aligo-proxy`: fixed-IP SMS relay only. Normal app API traffic must not use this relay.
+- `aligo-proxy`: fixed-IP SMS relay and independent power-state service. Normal app API traffic must not use this relay.
 
 ## Fixed Rules
 
@@ -66,6 +47,8 @@ Use this when backend code changed.
 1. Pick the next backend tag.
 
 Example:
+
+All versions below are illustrative. Replace them with the next intended concrete version; do not redeploy an old example accidentally.
 
 ```text
 1.3.13
@@ -93,6 +76,8 @@ Remove-Item -LiteralPath $stage -Recurse -Force
 ```powershell
 .\scripts\deploy-nas-backend.ps1 -BackendImageTag 1.3.13
 ```
+
+Add `-SyncCompose` when the deployment Compose file changed. Use `-WhatIf` to preview the deployment command before executing it. The script backs up NAS `.env`, selects the tag, keeps direct app traffic settings, pulls/recreates the service and checks liveness/readiness. It does not build backend source on NAS.
 
 4. Verify backend.
 
@@ -157,7 +142,7 @@ $account = Get-Content .local/aps-test-account.md -Raw
 # Read credentials manually from the local-only file.
 ```
 
-Login, then test one email:
+Login, then choose an existing incoming email ID from the target mailbox. Translation writes data and can incur provider usage.
 
 ```powershell
 $login = Invoke-RestMethod -Method Post -Uri "$backend/auth/login" -ContentType "application/json" -Body (@{
@@ -165,10 +150,11 @@ $login = Invoke-RestMethod -Method Post -Uri "$backend/auth/login" -ContentType 
   password = "<test password>"
 } | ConvertTo-Json)
 $headers = @{ Authorization = "Bearer $($login.accessToken)" }
-Invoke-RestMethod -Method Post -Uri "$backend/email-inquiries/657/translate" -Headers $headers -ContentType "application/json" -Body "{}"
+$emailId = "<existing-email-id>"
+Invoke-RestMethod -Method Post -Uri "$backend/email-inquiries/$emailId/translate" -Headers $headers -ContentType "application/json" -Body "{}"
 ```
 
-Backfill or force-regenerate existing translations:
+Run backfill only when required by the translation change. `force=true` regenerates existing translations:
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri "$backend/email-inquiries/translations/backfill" -Headers $headers -ContentType "application/json" -Body (@{
@@ -183,7 +169,7 @@ DB summary:
 ssh nas "docker exec aps-postgres psql -U apsuser -d aps_admin -c `"SELECT COALESCE(translation_status,'<null>') AS status, COALESCE(detected_language,'<null>') AS lang, COUNT(*) FROM email_inquiries WHERE is_outgoing=false GROUP BY 1,2 ORDER BY 1,2;`""
 ```
 
-Expected current summary:
+Expected outcome for the selected translation candidates (inspect failures individually):
 
 - English/non-Korean incoming mail: `completed`
 - Korean mail: `not_required`
@@ -211,29 +197,7 @@ Check release artifacts already in `app/dist`:
 
 ## Cloudflare Targets
 
-Backend hostname:
-
-```text
-backend.apsconsulting.kr -> NAS backend container port 3001
-```
-
-Current NAS `cloudflared` uses Docker bridge mode, so target the Docker host gateway:
-
-```text
-http://172.17.0.1:3001
-```
-
-Update hostname:
-
-```text
-update.apsconsulting.kr -> update static server port 8088
-```
-
-Cloudflare target:
-
-```text
-http://localhost:8088
-```
+Use [infrastructure](infrastructure.md#cloudflare-대상) for hostnames, ports and network-dependent tunnel targets.
 
 ## Common Failure Notes
 
